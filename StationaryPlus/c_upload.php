@@ -709,85 +709,7 @@
     </style>
 </head>
 <body>
-    <!-- Sidebar Navigation -->
-    <nav class="sidebar">
-        <div class="logo-area">
-            <div class="logo-icon">
-                <i class="fas fa-pen-nib"></i>
-            </div>
-            <div class="logo-text">StationaryPlus</div>
-        </div>
-        
-        <div class="nav-section">
-            <div class="nav-title">Main Menu</div>
-            <ul class="nav-menu">
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-home"></i>
-                        </div>
-                        <div class="nav-text">Dashboard</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-box-open"></i>
-                        </div>
-                        <div class="nav-text">View Products</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="pre-order.html" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-clipboard-check"></i>
-                        </div>
-                        <div class="nav-text">Pre-order</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link active">
-                        <div class="nav-icon">
-                            <i class="fas fa-upload"></i>
-                        </div>
-                        <div class="nav-text">Upload Files</div>
-                    </a>
-                </li>
-            </ul>
-        </div>
-        
-        <div class="nav-section">
-            <div class="nav-title">Orders & Payments</div>
-            <ul class="nav-menu">
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-search"></i>
-                        </div>
-                        <div class="nav-text">Order Status</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-receipt"></i>
-                        </div>
-                        <div class="nav-text">Payment Record</div>
-                    </a>
-                </li>
-            </ul>
-        </div>
-        
-        <div class="user-section">
-            <div class="user-info">
-                <div class="user-avatar">H</div>
-                <div class="user-details">
-                    <div class="user-name">Haresh</div>
-                    <div class="user-role">Customer Account</div>
-                </div>
-            </div>
-        </div>
-    </nav>
+    <?php include 'c_sidebar.php'; ?>
     
     <!-- Main Content Area -->
     <main class="main-content">
@@ -1017,15 +939,7 @@
     </main>
     
     <script>
-        // Navigation interactions
-        document.querySelectorAll('.nav-link').forEach(link => {
-            link.addEventListener('click', function(e) {
-                document.querySelectorAll('.nav-link').forEach(item => {
-                    item.classList.remove('active');
-                });
-                this.classList.add('active');
-            });
-        });
+        // Navigation is handled by PHP sidebar - active state set dynamically
         
         // Page navigation buttons
         document.querySelectorAll('.page-nav-btn').forEach(btn => {
@@ -1098,20 +1012,3 @@
     </script>
 </body>
 </html>
-
-<script>
-(function fitDoc(){
-    function applyScale(){
-        document.documentElement.style.overflow = 'hidden';
-        document.body.style.overflow = 'hidden';
-        var el = document.body;
-        var contentH = el.scrollHeight;
-        var viewH = window.innerHeight;
-        var scale = Math.min(1, viewH / contentH);
-        el.style.transformOrigin = 'top left';
-        el.style.transform = 'scale(' + scale + ')';
-    }
-    window.addEventListener('load', applyScale);
-    window.addEventListener('resize', applyScale);
-})();
-</script>

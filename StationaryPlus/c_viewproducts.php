@@ -561,86 +561,7 @@
     </style>
 </head>
 <body>
-    <!-- Sidebar Navigation -->
-    <nav class="sidebar">
-        <div class="logo-area">
-            <div class="logo-icon">
-                <i class="fas fa-pen-nib"></i>
-            </div>
-            <div class="logo-text">StationaryPlus</div>
-        </div>
-        
-        <div class="nav-section">
-            <div class="nav-title">Main Menu</div>
-            <ul class="nav-menu">
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-home"></i>
-                        </div>
-                        <div class="nav-text">Dashboard</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link active">
-                        <div class="nav-icon">
-                            <i class="fas fa-box-open"></i>
-                        </div>
-                        <div class="nav-text">View Products</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-clipboard-check"></i>
-                        </div>
-                        <div class="nav-text">Pre-order</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-upload"></i>
-                        </div>
-                        <div class="nav-text">Upload Files</div>
-                    </a>
-                </li>
-            </ul>
-        </div>
-        
-        <div class="nav-section">
-            <div class="nav-title">Orders & Payments</div>
-            <ul class="nav-menu">
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-search"></i>
-                        </div>
-                        <div class="nav-text">Order Status</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-receipt"></i>
-                        </div>
-                        <div class="nav-text">Payment Record</div>
-                    </a>
-                </li>
-            </ul>
-        </div>
-        
-        <div class="user-section">
-            <div class="user-info">
-                <div class="user-avatar">H</div>
-                <div class="user-details">
-                    <div class="user-name">Haresh</div>
-                    <div class="user-role">Customer Account</div>
-                </div>
-            </div>
-             
-        </div>
-    </nav>
+    <?php include 'c_sidebar.php'; ?>
     
     <!-- Main Content Area -->
     <main class="main-content">
@@ -900,20 +821,8 @@
     
     <script>
         // Simple script for UI interactions
-        document.querySelectorAll('.nav-link').forEach(link => {
-            link.addEventListener('click', function(e) {
-                // Remove active class from all nav links
-                document.querySelectorAll('.nav-link').forEach(item => {
-                    item.classList.remove('active');
-                });
-                
-                // Add active class to clicked link
-                this.classList.add('active');
-                
-                // Prevent default link behavior
-                e.preventDefault();
-            });
-        });
+        // Navigation is handled by PHP sidebar - no preventDefault needed
+        // Links will now navigate normally while PHP sets active state
         
         // Pre-order button interactions
         document.querySelectorAll('.preorder-btn').forEach(button => {

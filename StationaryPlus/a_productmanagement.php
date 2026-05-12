@@ -1,3 +1,18 @@
+<?php
+include 'db.php';
+
+$products = [];
+if ($conn) {
+    $sql = "SELECT product_id, product_name, category, price, product_status, last_updated FROM products ORDER BY product_id";
+    $res = $conn->query($sql);
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            $products[] = $row;
+        }
+    }
+}
+?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -930,108 +945,29 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr class="selected">
-                                    <td>PRD-001</td>
-                                    <td>
-                                        <div class="product-info">
-                                            <div class="product-icon icon-paper">
-                                                <i class="fas fa-file-alt"></i>
-                                            </div>
-                                            <div>
-                                                <div class="product-name">A4 Paper (80gsm)</div>
-                                                <div class="product-sku">SKU: PAP-A4-80</div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td class="product-category">Paper Products</td>
-                                    <td class="product-price">RM 24.00</td>
-                                    <td><span class="product-status status-active">Active</span></td>
-                                </tr>
-                                <tr>
-                                    <td>PRD-002</td>
-                                    <td>
-                                        <div class="product-info">
-                                            <div class="product-icon icon-pen">
-                                                <i class="fas fa-pen"></i>
-                                            </div>
-                                            <div>
-                                                <div class="product-name">Premium Ballpoint Pens</div>
-                                                <div class="product-sku">SKU: PEN-BP-PRM</div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td class="product-category">Writing Tools</td>
-                                    <td class="product-price">RM 8.50</td>
-                                    <td><span class="product-status status-inactive">Inactive</span></td>
-                                </tr>
-                                <tr>
-                                    <td>PRD-003</td>
-                                    <td>
-                                        <div class="product-info">
-                                            <div class="product-icon icon-folder">
-                                                <i class="fas fa-folder"></i>
-                                            </div>
-                                            <div>
-                                                <div class="product-name">Report Folders (A4)</div>
-                                                <div class="product-sku">SKU: FOL-A4-RPT</div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td class="product-category">Filing Supplies</td>
-                                    <td class="product-price">RM 12.90</td>
-                                    <td><span class="product-status status-active">Active</span></td>
-                                </tr>
-                                <tr>
-                                    <td>PRD-004</td>
-                                    <td>
-                                        <div class="product-info">
-                                            <div class="product-icon icon-binding">
-                                                <i class="fas fa-book"></i>
-                                            </div>
-                                            <div>
-                                                <div class="product-name">Spiral Binding (30mm)</div>
-                                                <div class="product-sku">SKU: BND-SPL-30</div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td class="product-category">Binding Supplies</td>
-                                    <td class="product-price">RM 15.75</td>
-                                    <td><span class="product-status status-active">Active</span></td>
-                                </tr>
-                                <tr>
-                                    <td>PRD-005</td>
-                                    <td>
-                                        <div class="product-info">
-                                            <div class="product-icon icon-ink">
-                                                <i class="fas fa-fill-drip"></i>
-                                            </div>
-                                            <div>
-                                                <div class="product-name">Color Ink Cartridge</div>
-                                                <div class="product-sku">SKU: INK-COL-C1</div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td class="product-category">Printer Supplies</td>
-                                    <td class="product-price">RM 68.00</td>
-                                    <td><span class="product-status status-active">Active</span></td>
-                                </tr>
-                                <tr>
-                                    <td>PRD-006</td>
-                                    <td>
-                                        <div class="product-info">
-                                            <div class="product-icon icon-stapler">
-                                                <i class="fas fa-stapler"></i>
-                                            </div>
-                                            <div>
-                                                <div class="product-name">Heavy-Duty Stapler</div>
-                                                <div class="product-sku">SKU: STP-HD-24</div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td class="product-category">Office Tools</td>
-                                    <td class="product-price">RM 32.50</td>
-                                    <td><span class="product-status status-inactive">Inactive</span></td>
-                                </tr>
+                                <?php if (empty($products)): ?>
+                                    <tr><td colspan="5" style="color:var(--light-text); padding:18px;">No products found in the database.</td></tr>
+                                <?php else: ?>
+                                    <?php foreach ($products as $p): ?>
+                                        <tr>
+                                            <td><?php echo htmlspecialchars($p['product_id']); ?></td>
+                                            <td>
+                                                <div class="product-info">
+                                                    <div class="product-icon icon-paper">
+                                                        <i class="fas fa-boxes"></i>
+                                                    </div>
+                                                    <div>
+                                                        <div class="product-name"><?php echo htmlspecialchars($p['product_name']); ?></div>
+                                                        <div class="product-sku">Last updated: <?php echo htmlspecialchars($p['last_updated']); ?></div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="product-category"><?php echo htmlspecialchars($p['category']); ?></td>
+                                            <td class="product-price">RM <?php echo number_format((float)$p['price'], 2); ?></td>
+                                            <td><span class="product-status <?php echo (strtolower($p['product_status']) === 'active') ? 'status-active' : 'status-inactive'; ?>"><?php echo htmlspecialchars($p['product_status']); ?></span></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
                             </tbody>
                         </table>
                     </div>
@@ -1112,14 +1048,13 @@
                 <div class="form-container">
                     <div class="form-group">
                         <label class="form-label">Product ID</label>
-                        <input type="text" class="form-input" placeholder="Auto-generated or enter ID" value="PRD-001" readonly>
+                        <input type="text" class="form-input" placeholder="Auto-generated or enter ID">
                     </div>
                     
                     <div class="form-group">
                         <label class="form-label">Product Name</label>
-                        <input type="text" class="form-input" placeholder="Enter product name" value="A4 Paper (80gsm)">
+                        <input type="text" class="form-input" placeholder="Enter product name">
                     </div>
-                    
                     <div class="form-group">
                         <label class="form-label">Category</label>
                         <select class="form-select">
@@ -1136,7 +1071,7 @@
                         <label class="form-label">Price (RM)</label>
                         <div class="price-input-container">
                             <span class="price-prefix">RM</span>
-                            <input type="text" class="form-input price-input" placeholder="0.00" value="24.00">
+                            <input type="text" class="form-input price-input" placeholder="0.00" >
                         </div>
                     </div>
                     
@@ -1198,7 +1133,9 @@
                 const productStatus = this.querySelector('.product-status').textContent;
                 
                 // Update form fields
-                document.querySelector('.form-input[placeholder="Auto-generated or enter ID"]').value = productId;
+                const idInput = document.querySelector('.form-input[placeholder="Auto-generated or enter ID"]');
+                idInput.value = productId.trim();
+                idInput.setAttribute('readonly', 'readonly');
                 document.querySelector('.form-input[placeholder="Enter product name"]').value = productName;
                 
                 // Set category
@@ -1211,33 +1148,55 @@
                 if (productCategory === 'Office Tools') categorySelect.value = 'office';
                 
                 // Set price
-                document.querySelector('.price-input').value = productPrice;
+                document.querySelector('.price-input').value = productPrice.trim();
                 
-                // Set status
+                // Set status (with trim to handle whitespace)
+                const statusTrim = productStatus.trim();
                 document.querySelectorAll('input[name="status"]').forEach(radio => {
                     radio.checked = false;
-                    if (radio.nextElementSibling.textContent === productStatus) {
+                    if (radio.nextElementSibling.textContent.trim() === statusTrim) {
                         radio.checked = true;
                     }
                 });
             });
         });
         
-        // Save product button
+        // Save product button (sends to save_product.php)
         document.getElementById('saveBtn').addEventListener('click', function() {
-            const id = document.querySelector('.form-input[placeholder="Auto-generated or enter ID"]').value;
-            const name = document.querySelector('.form-input[placeholder="Enter product name"]').value;
-            const category = document.querySelector('.form-select').options[document.querySelector('.form-select').selectedIndex].text;
-            const price = document.querySelector('.price-input').value;
-            const status = document.querySelector('input[name="status"]:checked').nextElementSibling.textContent;
-            
-            alert(`Product master data saved:\nID: ${id}\nName: ${name}\nCategory: ${category}\nPrice: RM ${price}\nStatus: ${status}\n\n(UI mockup only)`);
+            const id = document.querySelector('.form-input[placeholder="Auto-generated or enter ID"]').value.trim();
+            const name = document.querySelector('.form-input[placeholder="Enter product name"]').value.trim();
+            const category = document.querySelector('.form-select').value;
+            const price = document.querySelector('.price-input').value.trim();
+            const status = document.querySelector('input[name="status"]:checked').nextElementSibling.textContent.trim();
+
+            const formData = new FormData();
+            formData.append('product_id', id);
+            formData.append('product_name', name);
+            formData.append('category', category);
+            formData.append('price', price);
+            formData.append('product_status', status);
+
+            fetch('save_product.php', { method: 'POST', body: formData })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Product saved successfully (' + (data.action || 'saved') + ').');
+                        window.location.reload();
+                    } else {
+                        alert('Save failed: ' + (data.error || 'unknown error'));
+                    }
+                })
+                .catch(err => {
+                    alert('Request error: ' + err.message);
+                });
         });
         
         // Add New button
         document.getElementById('addNewBtn').addEventListener('click', function() {
             // Clear the form
-            document.querySelector('.form-input[placeholder="Auto-generated or enter ID"]').value = '';
+            const idInput = document.querySelector('.form-input[placeholder="Auto-generated or enter ID"]');
+            idInput.value = '';
+            idInput.removeAttribute('readonly');
             document.querySelector('.form-input[placeholder="Enter product name"]').value = '';
             document.querySelector('.form-select').value = 'paper';
             document.querySelector('.price-input').value = '';
@@ -1247,8 +1206,6 @@
             document.querySelectorAll('.product-table tbody tr').forEach(r => {
                 r.classList.remove('selected');
             });
-            
-            alert('Ready to add new product (UI mockup only)');
         });
         
         // Approve/Reject buttons in Low Stock Requests
@@ -1306,8 +1263,19 @@
             }
         });
         
-        // Initialize with first row selected
-        document.querySelector('.product-table tbody tr').click();
+        // Initialize form with empty fields (placeholder only)
+        function clearForm() {
+            document.querySelector('.form-input[placeholder="Auto-generated or enter ID"]').value = '';
+            document.querySelector('.form-input[placeholder="Enter product name"]').value = '';
+            document.querySelector('.form-select').value = 'paper';
+            document.querySelector('.price-input').value = '';
+            document.querySelector('input[name="status"][id="active"]').checked = true;
+            document.querySelectorAll('.product-table tbody tr').forEach(r => {
+                r.classList.remove('selected');
+            });
+        }
+        
+        clearForm();
     </script>
 </body>
 </html>

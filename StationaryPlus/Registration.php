@@ -475,20 +475,3 @@
     </script>
 </body>
 </html>
-
-<script>
-(function fitDoc(){
-    function applyScale(){
-        document.documentElement.style.overflow = 'hidden';
-        document.body.style.overflow = 'hidden';
-        var el = document.body;
-        var contentH = el.scrollHeight;
-        var viewH = window.innerHeight;
-        var scale = Math.min(1, viewH / contentH);
-        el.style.transformOrigin = 'top left';
-        el.style.transform = 'scale(' + scale + ')';
-    }
-    window.addEventListener('load', applyScale);
-    window.addEventListener('resize', applyScale);
-})();
-</script>

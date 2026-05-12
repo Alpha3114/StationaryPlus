@@ -24,6 +24,84 @@
             transition: all 0.2s ease;
             border-left: 4px solid transparent;
         }
+                body {
+            background-color: var(--background);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+        }
+        
+        /* Sidebar Navigation */
+        .sidebar {
+            width: var(--sidebar-width);
+            background-color: var(--white);
+            border-right: 1px solid var(--border);
+            height: 100vh;
+            position: fixed;
+            left: 0;
+            top: 0;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.03);
+        }
+        
+        .logo-area {
+            padding: 25px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+        }
+        
+        .logo-icon {
+            background-color: var(--primary);
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+            color: white;
+            font-size: 20px;
+        }
+        
+        .logo-text {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+        
+        .nav-section {
+            padding: 25px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .nav-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--light-text);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 0 25px 15px 25px;
+        }
+        
+        .nav-menu {
+            list-style: none;
+        }
+        
+        .nav-item {
+            margin-bottom: 2px;
+        }
+        
+        .nav-link {
+            display: flex;
+            align-items: center;
+            padding: 15px 25px;
+            color: var(--text);
+            text-decoration: none;
+            transition: all 0.2s ease;
+            border-left: 4px solid transparent;
+        }
         
         .nav-link:hover {
             background-color: rgba(168, 53, 53, 0.05);
@@ -64,7 +142,7 @@
             width: 44px;
             height: 44px;
             border-radius: 50%;
-            background-color: var(--accent);
+            background-color: rgba(168, 53, 53, 0.1);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -81,13 +159,13 @@
         .user-name {
             font-weight: 600;
             font-size: 16px;
-            color: var(--text-primary);
+            color: var(--text);
             margin-bottom: 3px;
         }
         
         .user-role {
             font-size: 13px;
-            color: var(--text-secondary);
+            color: var(--light-text);
         }
         
         /* Main Content Area */
@@ -430,102 +508,7 @@
     </style>
 </head>
 <body>
-    <!-- Sidebar Navigation -->
-    <nav class="sidebar">
-        <div class="logo-area">
-            <div class="logo-icon">
-                <i class="fas fa-pen-nib"></i>
-            </div>
-            <div class="logo-text">StationaryPlus</div>
-        </div>
-        
-        <div class="nav-section">
-            <div class="nav-title">Main Menu</div>
-            <ul class="nav-menu">
-                <li class="nav-item">
-                    <a href="#" class="nav-link active">
-                        <div class="nav-icon">
-                            <i class="fas fa-home"></i>
-                        </div>
-                        <div class="nav-text">Dashboard</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-box-open"></i>
-                        </div>
-                        <div class="nav-text">View Products</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-clipboard-check"></i>
-                        </div>
-                        <div class="nav-text">Pre-order</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-upload"></i>
-                        </div>
-                        <div class="nav-text">Upload Files</div>
-                    </a>
-                </li>
-            </ul>
-        </div>
-        
-        <div class="nav-section">
-            <div class="nav-title">Orders & Payments</div>
-            <ul class="nav-menu">
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-search"></i>
-                        </div>
-                        <div class="nav-text">Order Status</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-receipt"></i>
-                        </div>
-                        <div class="nav-text">Payment Record</div>
-                    </a>
-                </li>
-            </ul>
-        </div>
-        
-        <div class="nav-section">
-            <div class="nav-title">Account</div>
-            <ul class="nav-menu">
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-user-cog"></i>
-                        </div>
-                        <div class="nav-text">Account Settings</div>
-                    </a>
-                </li>
-            </ul>
-        </div>
-        
-        <div class="user-section">
-            <div class="user-info">
-                <div class="user-avatar">H</div>
-                <div class="user-details">
-                    <div class="user-name">Haresh</div>
-                    <div class="user-role">Customer Account</div>
-                </div>
-            </div>
-            <button class="logout-btn">
-                    <i class="fas fa-sign-out-alt"></i> Logout
-                </button>
-        </div>
-    </nav>
+    <?php include 'c_sidebar.php'; ?>
     
     <!-- Main Content Area -->
     <main class="main-content">
@@ -638,28 +621,10 @@
     </main>
     
     <script>
-        // Simple script to handle navigation item clicks
-        document.querySelectorAll('.nav-link').forEach(link => {
-            link.addEventListener('click', function(e) {
-                // Remove active class from all nav links
-                document.querySelectorAll('.nav-link').forEach(item => {
-                    item.classList.remove('active');
-                });
-                
-                // Add active class to clicked link
-                this.classList.add('active');
-                
-                // In a real application, this would load the appropriate content
-                // For this demo, we'll just prevent the default link behavior
-                e.preventDefault();
-                
-                // Update page title based on clicked navigation
-                const pageTitle = document.querySelector('.page-title');
-                const navText = this.querySelector('.nav-text').textContent;
-                
-                if (navText !== 'Dashboard') {
-                    pageTitle.textContent = navText;
-                } else {
+        // Navigation is handled by PHP sidebar - active state set dynamically
+        // Links will now navigate normally
+        
+        // Other page interactions below
                     pageTitle.textContent = 'Customer Dashboard';
                 }
             });

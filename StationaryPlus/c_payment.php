@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StationaryPlus - Order Status & Payment Records</title>
+    <title>StationaryPlus - Payment Record</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
@@ -199,18 +199,16 @@
         .content-container {
             padding: 30px;
             flex-grow: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 40px;
         }
         
-        /* Section Cards */
+        /* Section Card */
         .section-card {
             background-color: var(--white);
             border-radius: 12px;
             overflow: hidden;
             box-shadow: var(--card-shadow);
             border: 1px solid var(--border);
+            height: 100%;
         }
         
         .section-header {
@@ -240,142 +238,6 @@
         
         .section-content {
             padding: 30px;
-        }
-        
-        /* Order Status Table */
-        .orders-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        
-        .orders-table thead {
-            background-color: rgba(168, 53, 53, 0.05);
-            border-bottom: 2px solid var(--border);
-        }
-        
-        .orders-table th {
-            padding: 18px 20px;
-            text-align: left;
-            font-weight: 600;
-            color: var(--text);
-            font-size: 15px;
-            white-space: nowrap;
-        }
-        
-        .orders-table tbody tr {
-            border-bottom: 1px solid var(--border);
-            transition: background-color 0.2s ease;
-        }
-        
-        .orders-table tbody tr:hover {
-            background-color: rgba(168, 53, 53, 0.02);
-        }
-        
-        .orders-table td {
-            padding: 20px;
-            vertical-align: middle;
-            color: var(--text);
-            font-size: 15px;
-        }
-        
-        .order-id {
-            font-weight: 600;
-            color: var(--primary);
-        }
-        
-        .order-date {
-            color: var(--light-text);
-        }
-        
-        /* Status Badges */
-        .status-badge {
-            display: inline-block;
-            padding: 6px 14px;
-            border-radius: 20px;
-            font-size: 13px;
-            font-weight: 600;
-            min-width: 140px;
-            text-align: center;
-        }
-        
-        /* Pre-order Statuses */
-        .status-dihantar {
-            background-color: rgba(168, 53, 53, 0.1);
-            color: var(--primary);
-            border: 1px solid rgba(168, 53, 53, 0.3);
-        }
-        
-        .status-disemak {
-            background-color: rgba(33, 150, 243, 0.1);
-            color: #2196F3;
-            border: 1px solid rgba(33, 150, 243, 0.3);
-        }
-        
-        .status-menunggu-pembayaran {
-            background-color: rgba(244, 162, 97, 0.2);
-            color: var(--secondary);
-            border: 1px solid rgba(244, 162, 97, 0.3);
-        }
-        
-        .status-ditolak {
-            background-color: rgba(244, 67, 54, 0.1);
-            color: #F44336;
-            border: 1px solid rgba(244, 67, 54, 0.3);
-        }
-        
-        .status-disahkan {
-            background-color: rgba(76, 175, 80, 0.1);
-            color: #4CAF50;
-            border: 1px solid rgba(76, 175, 80, 0.3);
-        }
-        
-        /* Order Statuses */
-        .status-diproses {
-            background-color: rgba(168, 53, 53, 0.1);
-            color: var(--primary);
-            border: 1px solid rgba(168, 53, 53, 0.3);
-        }
-        
-        .status-siap {
-            background-color: rgba(33, 150, 243, 0.1);
-            color: #2196F3;
-            border: 1px solid rgba(33, 150, 243, 0.3);
-        }
-        
-        .status-sedia-diambil {
-            background-color: rgba(244, 162, 97, 0.2);
-            color: var(--secondary);
-            border: 1px solid rgba(244, 162, 97, 0.3);
-        }
-        
-        .status-selesai {
-            background-color: rgba(76, 175, 80, 0.1);
-            color: #4CAF50;
-            border: 1px solid rgba(76, 175, 80, 0.3);
-        }
-        
-        .status-dibatalkan {
-            background-color: rgba(244, 67, 54, 0.1);
-            color: #F44336;
-            border: 1px solid rgba(244, 67, 54, 0.3);
-        }
-        
-        .view-details-btn {
-            padding: 8px 20px;
-            background-color: rgba(168, 53, 53, 0.1);
-            color: var(--primary);
-            border: 1px solid var(--primary);
-            border-radius: 6px;
-            font-weight: 600;
-            font-size: 14px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            text-decoration: none;
-            display: inline-block;
-        }
-        
-        .view-details-btn:hover {
-            background-color: rgba(168, 53, 53, 0.2);
         }
         
         /* Payment Record Form */
@@ -547,6 +409,90 @@
             background-color: #8b2a2a;
         }
         
+        /* Payment History */
+        .payment-history {
+            margin-top: 40px;
+            padding-top: 30px;
+            border-top: 1px solid var(--border);
+        }
+        
+        .history-title {
+            font-size: 20px;
+            color: var(--primary);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .history-title i {
+            margin-right: 12px;
+        }
+        
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .history-table thead {
+            background-color: rgba(168, 53, 53, 0.05);
+            border-bottom: 2px solid var(--border);
+        }
+        
+        .history-table th {
+            padding: 16px 20px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--text);
+            font-size: 14px;
+        }
+        
+        .history-table tbody tr {
+            border-bottom: 1px solid var(--border);
+            transition: background-color 0.2s ease;
+        }
+        
+        .history-table tbody tr:hover {
+            background-color: rgba(168, 53, 53, 0.02);
+        }
+        
+        .history-table td {
+            padding: 18px 20px;
+            vertical-align: middle;
+            color: var(--text);
+            font-size: 14px;
+        }
+        
+        .payment-ref {
+            font-weight: 600;
+            color: var(--primary);
+        }
+        
+        .payment-status {
+            display: inline-block;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .status-verified {
+            background-color: rgba(76, 175, 80, 0.1);
+            color: #4CAF50;
+            border: 1px solid rgba(76, 175, 80, 0.3);
+        }
+        
+        .status-pending {
+            background-color: rgba(244, 162, 97, 0.1);
+            color: var(--secondary);
+            border: 1px solid rgba(244, 162, 97, 0.3);
+        }
+        
+        .status-rejected {
+            background-color: rgba(244, 67, 54, 0.1);
+            color: #F44336;
+            border: 1px solid rgba(244, 67, 54, 0.3);
+        }
+        
         /* Footer */
         .dashboard-footer {
             text-align: center;
@@ -612,281 +558,45 @@
                 font-size: 20px;
             }
             
-            .orders-table {
+            .history-table {
                 display: block;
                 overflow-x: auto;
             }
         }
         
         @media (max-width: 768px) {
-            .orders-table th, 
-            .orders-table td {
-                padding: 15px 10px;
-                font-size: 14px;
+            .history-table th, 
+            .history-table td {
+                padding: 12px 10px;
+                font-size: 13px;
             }
             
-            .status-badge {
-                min-width: 120px;
-                font-size: 12px;
+            .payment-status {
+                min-width: 100px;
+                font-size: 11px;
                 padding: 5px 10px;
             }
         }
     </style>
 </head>
 <body>
-    <!-- Sidebar Navigation -->
-    <nav class="sidebar">
-        <div class="logo-area">
-            <div class="logo-icon">
-                <i class="fas fa-pen-nib"></i>
-            </div>
-            <div class="logo-text">StationaryPlus</div>
-        </div>
-        
-        <div class="nav-section">
-            <div class="nav-title">Main Menu</div>
-            <ul class="nav-menu">
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-home"></i>
-                        </div>
-                        <div class="nav-text">Dashboard</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-box-open"></i>
-                        </div>
-                        <div class="nav-text">View Products</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-clipboard-check"></i>
-                        </div>
-                        <div class="nav-text">Pre-order</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-upload"></i>
-                        </div>
-                        <div class="nav-text">Upload Files</div>
-                    </a>
-                </li>
-            </ul>
-        </div>
-        
-        <div class="nav-section">
-            <div class="nav-title">Orders & Payments</div>
-            <ul class="nav-menu">
-                <li class="nav-item">
-                    <a href="#" class="nav-link active">
-                        <div class="nav-icon">
-                            <i class="fas fa-search"></i>
-                        </div>
-                        <div class="nav-text">Order Status</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-receipt"></i>
-                        </div>
-                        <div class="nav-text">Payment Record</div>
-                    </a>
-                </li>
-            </ul>
-        </div>
-        
-        <div class="user-section">
-            <div class="user-info">
-                <div class="user-avatar">AF</div>
-                <div class="user-details">
-                    <div class="user-name">Ahmad Faris</div>
-                    <div class="user-role">Customer Account</div>
-                </div>
-            </div>
-        </div>
-    </nav>
+    <?php include 'c_sidebar.php'; ?>
     
     <!-- Main Content Area -->
     <main class="main-content">
         <!-- Top Header -->
         <header class="top-header">
-            <h1 class="page-title">Order Status & Payment Records</h1>
-            <p class="page-subtitle">Check your order status and submit payment records</p>
+            <h1 class="page-title">Payment Record</h1>
+            <p class="page-subtitle">Submit payment records for your pre-orders or orders</p>
         </header>
         
         <!-- Content Container -->
         <div class="content-container">
-            <!-- Section 1: Check Pre-order / Order Status -->
+            <!-- Payment Record Section -->
             <div class="section-card">
                 <div class="section-header">
                     <h2 class="section-title">
-                        <i class="fas fa-clipboard-list"></i> Check Pre-order / Order Status
-                    </h2>
-                    <p class="section-description">
-                        View the status of your pre-orders and orders. Click "View Details" for more information.
-                    </p>
-                </div>
-                
-                <div class="section-content">
-                    <!-- Orders Table -->
-                    <table class="orders-table">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Date</th>
-                                <th>Type</th>
-                                <th>Status</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <!-- Row 1: Pre-order with Submitted status -->
-                            <tr>
-                                <td class="order-id">#SP-2023-089</td>
-                                <td class="order-date">15 Nov 2023</td>
-                                <td>Pre-order</td>
-                                <td>
-                                    <span class="status-badge status-dihantar">Submitted</span>
-                                </td>
-                                <td>
-                                    <button class="view-details-btn">View Details</button>
-                                </td>
-                            </tr>
-                            
-                            <!-- Row 2: Order with Processing status -->
-                            <tr>
-                                <td class="order-id">#SP-2023-088</td>
-                                <td class="order-date">14 Nov 2023</td>
-                                <td>Order</td>
-                                <td>
-                                    <span class="status-badge status-diproses">Processing</span>
-                                </td>
-                                <td>
-                                    <button class="view-details-btn">View Details</button>
-                                </td>
-                            </tr>
-                            
-                            <!-- Row 3: Pre-order with Reviewed status -->
-                            <tr>
-                                <td class="order-id">#SP-2023-087</td>
-                                <td class="order-date">13 Nov 2023</td>
-                                <td>Pre-order</td>
-                                <td>
-                                    <span class="status-badge status-disemak">Reviewed</span>
-                                </td>
-                                <td>
-                                    <button class="view-details-btn">View Details</button>
-                                </td>
-                            </tr>
-                            
-                            <!-- Row 4: Order with Ready status -->
-                            <tr>
-                                <td class="order-id">#SP-2023-086</td>
-                                <td class="order-date">12 Nov 2023</td>
-                                <td>Order</td>
-                                <td>
-                                    <span class="status-badge status-siap">Ready</span>
-                                </td>
-                                <td>
-                                    <button class="view-details-btn">View Details</button>
-                                </td>
-                            </tr>
-                            
-                            <!-- Row 5: Pre-order with Awaiting Payment status -->
-                            <tr>
-                                <td class="order-id">#SP-2023-085</td>
-                                <td class="order-date">10 Nov 2023</td>
-                                <td>Pre-order</td>
-                                <td>
-                                    <span class="status-badge status-menunggu-pembayaran">Awaiting Payment</span>
-                                </td>
-                                <td>
-                                    <button class="view-details-btn">View Details</button>
-                                </td>
-                            </tr>
-                            
-                            <!-- Row 6: Order with Ready for Pickup status -->
-                            <tr>
-                                <td class="order-id">#SP-2023-084</td>
-                                <td class="order-date">08 Nov 2023</td>
-                                <td>Order</td>
-                                <td>
-                                    <span class="status-badge status-sedia-diambil">Ready for Pickup</span>
-                                </td>
-                                <td>
-                                    <button class="view-details-btn">View Details</button>
-                                </td>
-                            </tr>
-                            
-                            <!-- Row 7: Pre-order with Rejected status -->
-                            <tr>
-                                <td class="order-id">#SP-2023-083</td>
-                                <td class="order-date">05 Nov 2023</td>
-                                <td>Pre-order</td>
-                                <td>
-                                    <span class="status-badge status-ditolak">Rejected</span>
-                                </td>
-                                <td>
-                                    <button class="view-details-btn">View Details</button>
-                                </td>
-                            </tr>
-                            
-                            <!-- Row 8: Order with Completed status -->
-                            <tr>
-                                <td class="order-id">#SP-2023-082</td>
-                                <td class="order-date">03 Nov 2023</td>
-                                <td>Order</td>
-                                <td>
-                                    <span class="status-badge status-selesai">Completed</span>
-                                </td>
-                                <td>
-                                    <button class="view-details-btn">View Details</button>
-                                </td>
-                            </tr>
-                            
-                            <!-- Row 9: Pre-order with Confirmed status -->
-                            <tr>
-                                <td class="order-id">#SP-2023-081</td>
-                                <td class="order-date">01 Nov 2023</td>
-                                <td>Pre-order</td>
-                                <td>
-                                    <span class="status-badge status-disahkan">Confirmed</span>
-                                </td>
-                                <td>
-                                    <button class="view-details-btn">View Details</button>
-                                </td>
-                            </tr>
-                            
-                            <!-- Row 10: Order with Cancelled status -->
-                            <tr>
-                                <td class="order-id">#SP-2023-080</td>
-                                <td class="order-date">30 Oct 2023</td>
-                                <td>Order</td>
-                                <td>
-                                    <span class="status-badge status-dibatalkan">Cancelled</span>
-                                </td>
-                                <td>
-                                    <button class="view-details-btn">View Details</button>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            
-            <!-- Section 2: Payment Records -->
-            <div class="section-card">
-                <div class="section-header">
-                        <h2 class="section-title">
-                        <i class="fas fa-money-check-alt"></i> Payment Records
+                        <i class="fas fa-money-check-alt"></i> Payment Record Submission
                     </h2>
                     <p class="section-description">
                         Submit payment records for your pre-orders or orders. This is for record-keeping purposes only.
@@ -898,13 +608,13 @@
                     <form class="payment-form">
                         <!-- Related Record Selection -->
                         <div class="form-group form-full-width">
-                            <label class="form-label">Select Related Record (Pre-order / Order)</label>
+                            <label class="form-label">Select Related Record (Tempahan / Pesanan)</label>
                             <select class="form-select">
-                                <option value="">-- Select Pre-order or Order --</option>
-                                <option value="SP-2023-085" selected>#SP-2023-085 - Business Card Printing (Pre-order)</option>
-                                <option value="SP-2023-089">#SP-2023-089 - A4 Paper & Printing Order (Pre-order)</option>
-                                <option value="SP-2023-087">#SP-2023-087 - Thesis Printing & Binding (Order)</option>
-                                <option value="SP-2023-082">#SP-2023-082 - Stationery Set (Order)</option>
+                                <option value="">-- Select Tempahan or Pesanan --</option>
+                                <option value="SP-2023-085" selected>#SP-2023-085 - Business Card Printing (Tempahan)</option>
+                                <option value="SP-2023-089">#SP-2023-089 - A4 Paper & Printing Order (Tempahan)</option>
+                                <option value="SP-2023-087">#SP-2023-087 - Thesis Printing & Binding (Pesanan)</option>
+                                <option value="SP-2023-082">#SP-2023-082 - Stationery Set (Pesanan)</option>
                             </select>
                         </div>
                         
@@ -930,6 +640,12 @@
                         <div class="form-group">
                             <label class="form-label">Reference Number <span class="optional">(Optional)</span></label>
                             <input type="text" class="form-input" placeholder="e.g., TRX-123456789">
+                        </div>
+                        
+                        <!-- Payment Date -->
+                        <div class="form-group">
+                            <label class="form-label">Payment Date</label>
+                            <input type="date" class="form-input" value="2023-11-15">
                         </div>
                         
                         <!-- Proof Upload (only for e-wallet) -->
@@ -973,6 +689,78 @@
                             <i class="fas fa-paper-plane"></i> Submit Payment Record
                         </button>
                     </div>
+                    
+                    <!-- Payment History -->
+                    <div class="payment-history">
+                        <h3 class="history-title">
+                            <i class="fas fa-history"></i> Recent Payment Records
+                        </h3>
+                        
+                        <table class="history-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Reference</th>
+                                    <th>Order ID</th>
+                                    <th>Amount</th>
+                                    <th>Method</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>14 Nov 2023</td>
+                                    <td class="payment-ref">TRX-789012345</td>
+                                    <td>#SP-2023-089</td>
+                                    <td>RM 85.00</td>
+                                    <td>Bank Transfer</td>
+                                    <td>
+                                        <span class="payment-status status-verified">Verified</span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>12 Nov 2023</td>
+                                    <td class="payment-ref">TRX-678901234</td>
+                                    <td>#SP-2023-087</td>
+                                    <td>RM 210.00</td>
+                                    <td>E-Wallet</td>
+                                    <td>
+                                        <span class="payment-status status-verified">Verified</span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>10 Nov 2023</td>
+                                    <td class="payment-ref">TRX-567890123</td>
+                                    <td>#SP-2023-085</td>
+                                    <td>RM 127.50</td>
+                                    <td>Cash</td>
+                                    <td>
+                                        <span class="payment-status status-pending">Pending</span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>05 Nov 2023</td>
+                                    <td class="payment-ref">TRX-456789012</td>
+                                    <td>#SP-2023-082</td>
+                                    <td>RM 45.90</td>
+                                    <td>Credit Card</td>
+                                    <td>
+                                        <span class="payment-status status-verified">Verified</span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>01 Nov 2023</td>
+                                    <td class="payment-ref">TRX-345678901</td>
+                                    <td>#SP-2023-079</td>
+                                    <td>RM 68.00</td>
+                                    <td>Bank Transfer</td>
+                                    <td>
+                                        <span class="payment-status status-rejected">Rejected</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
@@ -989,27 +777,7 @@
     </main>
     
     <script>
-        // Navigation interactions
-        document.querySelectorAll('.nav-link').forEach(link => {
-            link.addEventListener('click', function(e) {
-                document.querySelectorAll('.nav-link').forEach(item => {
-                    item.classList.remove('active');
-                });
-                this.classList.add('active');
-                e.preventDefault();
-            });
-        });
-        
-        // View Details buttons
-        document.querySelectorAll('.view-details-btn').forEach(button => {
-            button.addEventListener('click', function() {
-                const orderId = this.closest('tr').querySelector('.order-id').textContent;
-                const orderType = this.closest('tr').querySelector('td:nth-child(3)').textContent;
-                const orderStatus = this.closest('tr').querySelector('.status-badge').textContent;
-                
-                alert(`Order Details:\n\nOrder ID: ${orderId}\nType: ${orderType}\nStatus: ${orderStatus}\n\nThis is a UI mockup only. In a real system, this would show detailed order information.`);
-            });
-        });
+        // Navigation is handled by PHP sidebar - active state set dynamically
         
         // File Upload Functionality
         const uploadBox = document.getElementById('uploadBox');
@@ -1039,11 +807,12 @@
             const paymentMethod = document.querySelectorAll('.form-select')[1].value;
             const amount = document.querySelector('.form-input.readonly').value;
             const reference = document.querySelectorAll('.form-input')[1].value || 'Not provided';
+            const date = document.querySelectorAll('.form-input')[2].value;
             const hasProof = selectedFile.style.display !== 'none';
             
             // Validation (UI only)
             if (!selectedOrder) {
-                alert("Please select a related record (Pre-order/Order).");
+                alert("Please select a related record (Tempahan/Pesanan).");
                 return;
             }
             
@@ -1057,7 +826,7 @@
                 return;
             }
             
-            alert(`Payment Record Submitted:\n\nRelated Order: ${selectedOrder}\nPayment Method: ${paymentMethod}\nAmount: RM ${amount}\nReference: ${reference}\nProof Uploaded: ${hasProof ? 'Yes' : 'No'}\n\nThis is a UI mockup only. In a real system, this would submit data to a server.`);
+            alert(`Payment Record Submitted:\n\nRelated Order: ${selectedOrder}\nPayment Method: ${paymentMethod}\nAmount: RM ${amount}\nReference: ${reference}\nPayment Date: ${date}\nProof Uploaded: ${hasProof ? 'Yes' : 'No'}\n\nThis is a UI mockup only. In a real system, this would submit data to a server.`);
             
             // Reset form after 1 second (UI simulation)
             setTimeout(() => {
@@ -1090,6 +859,11 @@
         // Set initial amount for pre-selected order
         const amountField = document.querySelector('.form-input.readonly');
         amountField.value = '127.50';
+        
+        // Set today's date as default for payment date
+        const today = new Date();
+        const formattedDate = today.toISOString().split('T')[0];
+        document.querySelector('input[type="date"]').value = formattedDate;
     </script>
 </body>
 </html>

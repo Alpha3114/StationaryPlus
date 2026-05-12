@@ -1,3 +1,18 @@
+<?php
+include 'db.php';
+
+$branches = [];
+if ($conn) {
+    $sql = "SELECT branch_id, branch_name, address, phone_number, status FROM branches ORDER BY branch_id";
+    $res = $conn->query($sql);
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            $branches[] = $row;
+        }
+    }
+}
+?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -621,69 +636,7 @@
     </style>
 </head>
 <body>
-    <!-- Sidebar Navigation -->
-    <nav class="sidebar">
-        <div class="logo-area">
-            <div class="logo-icon">
-                <i class="fas fa-pen-nib"></i>
-            </div>
-            <div>
-                <div class="logo-text">StationaryPlus</div>
-                <div class="admin-subtitle">Administration</div>
-            </div>
-        </div>
-        
-        <div class="nav-section">
-            <div class="nav-title">Administration</div>
-            <ul class="nav-menu">
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-tachometer-alt"></i>
-                        </div>
-                        <div class="nav-text">Dashboard</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-users-cog"></i>
-                        </div>
-                        <div class="nav-text">User Management</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-boxes"></i>
-                        </div>
-                        <div class="nav-text">Product Management</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link active">
-                        <div class="nav-icon">
-                            <i class="fas fa-store"></i>
-                        </div>
-                        <div class="nav-text">Branch Management</div>
-                    </a>
-                </li>
-            </ul>
-        </div>
-        
-        <div class="user-section">
-            <div class="user-info">
-                <div class="user-avatar">AD</div>
-                <div class="user-details">
-                    <div class="user-name">Admin User</div>
-                </div>
-            </div>
-            <button class="logout-btn">
-                <i class="fas fa-sign-out-alt"></i>
-                <span>Logout</span>
-            </button>
-        </div>
-    </nav>
+    <?php include 'a_sidebar.php'; ?>
     
     <!-- Main Content Area -->
     <main class="main-content">
@@ -694,7 +647,7 @@
                 <p>Manage branch locations and contact information</p>
             </div>
             <div class="header-right">
-                Total Branches: 8
+                Total Branches: <?php echo count($branches); ?>
             </div>
         </header>
         
@@ -717,54 +670,28 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <tr class="selected">
-                                <td>
-                                    <div class="branch-info">
-                                        <div class="branch-icon">
-                                            <i class="fas fa-building"></i>
-                                        </div>
-                                        <div>
-                                            <div class="branch-name">Main Branch</div>
-                                            <div class="branch-code">BR-001</div>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td class="branch-address">123 Business Avenue, Kuala Lumpur</td>
-                                <td class="branch-contact">03-1234 5678</td>
-                                <td><span class="branch-status status-active">Active</span></td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <div class="branch-info">
-                                        <div class="branch-icon">
-                                            <i class="fas fa-store-alt"></i>
-                                        </div>
-                                        <div>
-                                            <div class="branch-name">Downtown Branch</div>
-                                            <div class="branch-code">BR-002</div>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td class="branch-address">45 City Center, Kuala Lumpur</td>
-                                <td class="branch-contact">03-2345 6789</td>
-                                <td><span class="branch-status status-active">Active</span></td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <div class="branch-info">
-                                        <div class="branch-icon">
-                                            <i class="fas fa-building"></i>
-                                        </div>
-                                        <div>
-                                            <div class="branch-name">Northgate Branch</div>
-                                            <div class="branch-code">BR-006</div>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td class="branch-address"></td>
-                                <td class="branch-contact">03-6789 0123</td>
-                                <td><span class="branch-status status-inactive">Inactive</span></td>
-                            </tr>
+                            <?php if (empty($branches)): ?>
+                                <tr><td colspan="4" style="color:var(--light-text); padding:18px;">No branches found in the database.</td></tr>
+                            <?php else: ?>
+                                <?php foreach ($branches as $branch): ?>
+                                    <tr>
+                                        <td>
+                                            <div class="branch-info">
+                                                <div class="branch-icon">
+                                                    <i class="fas fa-building"></i>
+                                                </div>
+                                                <div>
+                                                    <div class="branch-name"><?php echo htmlspecialchars($branch['branch_name']); ?></div>
+                                                    <div class="branch-code">ID: <?php echo htmlspecialchars($branch['branch_id']); ?></div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="branch-address"><?php echo htmlspecialchars($branch['address']); ?></td>
+                                        <td class="branch-contact"><?php echo htmlspecialchars($branch['phone_number']); ?></td>
+                                        <td><span class="branch-status <?php echo (strtolower($branch['status']) === 'active') ? 'status-active' : 'status-inactive'; ?>"><?php echo htmlspecialchars($branch['status']); ?></span></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
@@ -778,18 +705,23 @@
                 
                 <div class="form-container">
                     <div class="form-group">
+                        <label class="form-label">Branch ID</label>
+                        <input type="text" name="branch_id" class="form-input" placeholder="Auto-generated or enter ID">
+                    </div>
+                    
+                    <div class="form-group">
                         <label class="form-label">Branch Name</label>
-                        <input type="text" class="form-input" placeholder="Enter branch name" value="Main Branch">
+                        <input type="text" class="form-input" placeholder="Enter branch name">
                     </div>
                     
                     <div class="form-group">
                         <label class="form-label">Address</label>
-                        <textarea class="form-textarea" placeholder="Enter branch address">123 Business Avenue, Kuala Lumpur</textarea>
+                        <textarea class="form-textarea" placeholder="Enter branch address"></textarea>
                     </div>
                     
                     <div class="form-group">
-                        <label class="form-label">Contact Number</label>
-                        <input type="text" class="form-input" placeholder="Enter contact number" value="03-1234 5678">
+                        <label class="form-label">Phone Number</label>
+                        <input type="text" class="form-input" placeholder="Enter phone number">
                     </div>
                     
                     <div class="form-group">
@@ -824,16 +756,7 @@
     </main>
     
     <script>
-        // Navigation interactions
-        document.querySelectorAll('.nav-link').forEach(link => {
-            link.addEventListener('click', function(e) {
-                document.querySelectorAll('.nav-link').forEach(item => {
-                    item.classList.remove('active');
-                });
-                this.classList.add('active');
-                e.preventDefault();
-            });
-        });
+        // Navigation is handled dynamically - links work normally
         
         // Table row selection
         document.querySelectorAll('.branch-table tbody tr').forEach(row => {
@@ -847,49 +770,74 @@
                 this.classList.add('selected');
                 
                 // Get branch data from the row
+                const branchId = this.querySelector('.branch-code').textContent.replace('ID: ', '').trim();
                 const branchName = this.querySelector('.branch-name').textContent;
                 const branchAddress = this.querySelector('.branch-address').textContent;
-                const branchContact = this.querySelector('.branch-contact').textContent;
-                const branchStatus = this.querySelector('.branch-status').textContent;
+                const branchPhone = this.querySelector('.branch-contact').textContent;
+                const branchStatus = this.querySelector('.branch-status').textContent.trim();
                 
                 // Update form fields
+                const idInput = document.querySelector('input[name="branch_id"]');
+                idInput.value = branchId;
+                idInput.setAttribute('readonly', 'readonly');
                 document.querySelector('.form-input[placeholder="Enter branch name"]').value = branchName;
                 document.querySelector('.form-textarea[placeholder="Enter branch address"]').value = branchAddress;
-                document.querySelector('.form-input[placeholder="Enter contact number"]').value = branchContact;
+                document.querySelector('.form-input[placeholder="Enter phone number"]').value = branchPhone;
                 
                 // Set status
                 document.querySelectorAll('input[name="status"]').forEach(radio => {
                     radio.checked = false;
-                    if (radio.nextElementSibling.textContent === branchStatus) {
+                    if (radio.nextElementSibling.textContent.trim() === branchStatus) {
                         radio.checked = true;
                     }
                 });
             });
         });
         
-        // Save branch button
+        // Save branch button (sends to save_branch.php)
         document.getElementById('saveBtn').addEventListener('click', function() {
-            const name = document.querySelector('.form-input[placeholder="Enter branch name"]').value;
-            const address = document.querySelector('.form-textarea[placeholder="Enter branch address"]').value;
-            const contact = document.querySelector('.form-input[placeholder="Enter contact number"]').value;
-            const status = document.querySelector('input[name="status"]:checked').nextElementSibling.textContent;
-            
-            alert(`Branch would be saved:\nName: ${name}\nAddress: ${address}\nContact: ${contact}\nStatus: ${status}\n\n(UI mockup only)`);
+            const id = document.querySelector('input[name="branch_id"]').value.trim();
+            const name = document.querySelector('.form-input[placeholder="Enter branch name"]').value.trim();
+            const address = document.querySelector('.form-textarea[placeholder="Enter branch address"]').value.trim();
+            const phone = document.querySelector('.form-input[placeholder="Enter phone number"]').value.trim();
+            const status = document.querySelector('input[name="status"]:checked').nextElementSibling.textContent.trim();
+
+            const formData = new FormData();
+            formData.append('branch_id', id);
+            formData.append('branch_name', name);
+            formData.append('address', address);
+            formData.append('phone_number', phone);
+            formData.append('status', status);
+
+            fetch('save_branch.php', { method: 'POST', body: formData })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Branch saved successfully (' + (data.action || 'saved') + ').');
+                        window.location.reload();
+                    } else {
+                        alert('Save failed: ' + (data.error || 'unknown error'));
+                    }
+                })
+                .catch(err => {
+                    alert('Request error: ' + err.message);
+                });
         });
         
         // New branch button
         document.getElementById('newBtn').addEventListener('click', function() {
+            const idInput = document.querySelector('input[name="branch_id"]');
+            idInput.value = '';
+            idInput.removeAttribute('readonly');
             document.querySelector('.form-input[placeholder="Enter branch name"]').value = '';
             document.querySelector('.form-textarea[placeholder="Enter branch address"]').value = '';
-            document.querySelector('.form-input[placeholder="Enter contact number"]').value = '';
+            document.querySelector('.form-input[placeholder="Enter phone number"]').value = '';
             document.querySelector('input[name="status"][id="active"]').checked = true;
             
             // Deselect all table rows
             document.querySelectorAll('.branch-table tbody tr').forEach(r => {
                 r.classList.remove('selected');
             });
-            
-            alert('New branch form ready (UI mockup only)');
         });
         
         // Logout button
@@ -897,13 +845,30 @@
             alert('Logout functionality would be implemented here (UI mockup only)');
         });
         
-        // Contact number input validation
-        document.querySelector('.form-input[placeholder="Enter contact number"]').addEventListener('input', function() {
-            this.value = this.value.replace(/[^0-9-\s]/g, '');
-        });
+        // Phone number input validation (optional formatting)
+        const contactInput = document.querySelector('.form-input[placeholder="Enter phone number"]');
+        if (contactInput) {
+            contactInput.addEventListener('input', function() {
+                // Allow numbers, hyphens, spaces, and parentheses
+                this.value = this.value.replace(/[^0-9\s\-()]/g, '');
+            });
+        }
         
-        // Initialize with first row selected
-        document.querySelector('.branch-table tbody tr').click();
+        // Initialize form with empty fields
+        function clearForm() {
+            const idInput = document.querySelector('input[name="branch_id"]');
+            idInput.value = '';
+            idInput.removeAttribute('readonly');
+            document.querySelector('.form-input[placeholder="Enter branch name"]').value = '';
+            document.querySelector('.form-textarea[placeholder="Enter branch address"]').value = '';
+            document.querySelector('.form-input[placeholder="Enter phone number"]').value = '';
+            document.querySelector('input[name="status"][id="active"]').checked = true;
+            document.querySelectorAll('.branch-table tbody tr').forEach(r => {
+                r.classList.remove('selected');
+            });
+        }
+        
+        clearForm();
     </script>
 </body>
 </html>
