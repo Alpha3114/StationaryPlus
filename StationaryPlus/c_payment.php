@@ -1,3 +1,158 @@
+<?php
+// ============================================================
+//  c_payment.php — Payment Record Submission
+// ============================================================
+
+if (session_status() === PHP_SESSION_NONE) session_start();
+
+require_once 'auth.php';
+require_role('CUSTOMER');
+require_once 'db.php';
+
+$userId  = $_SESSION['user_id'];
+$message = '';
+$msgType = '';
+
+// ── Helper ───────────────────────────────────────────────────
+function generate_payment_id(): string {
+    return 'PAY-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
+}
+
+// ── Load unpaid orders belonging to this user ─────────────────
+// Orders with no VALID payment yet
+$stmt = $conn->prepare(
+    "SELECT o.order_id AS id, o.estimated_total AS amount, 'order' AS rec_type
+     FROM orders o
+     WHERE o.user_id = ?
+       AND o.order_status NOT IN ('CANCELLED','COLLECTED')
+       AND o.order_id NOT IN (
+           SELECT p.order_id FROM payments p
+           WHERE p.order_id IS NOT NULL AND p.verification_status = 'VALID'
+       )
+     ORDER BY o.order_date DESC"
+);
+$stmt->bind_param('s', $userId);
+$stmt->execute();
+$unpaidOrders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$stmt->close();
+
+// Unpaid preorders
+$stmt = $conn->prepare(
+    "SELECT po.preorder_id AS id, NULL AS amount, 'preorder' AS rec_type
+     FROM preorders po
+     WHERE po.user_id = ?
+       AND po.order_status NOT IN ('CANCELLED')
+       AND po.preorder_id NOT IN (
+           SELECT p.preorder_id FROM payments p
+           WHERE p.preorder_id IS NOT NULL AND p.verification_status = 'VALID'
+       )
+     ORDER BY po.order_date DESC"
+);
+$stmt->bind_param('s', $userId);
+$stmt->execute();
+$unpaidPreorders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$stmt->close();
+
+$unpaidAll = array_merge($unpaidOrders, $unpaidPreorders);
+
+// ── Handle POST ───────────────────────────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+    $selectedId    = trim($_POST['selected_id']  ?? '');
+    $recType       = trim($_POST['rec_type']      ?? '');  // order | preorder
+    $method        = trim($_POST['method']         ?? '');
+    $amount        = trim($_POST['amount']         ?? '');
+    $reference     = trim($_POST['reference']      ?? '') ?: null;
+    $payDate       = trim($_POST['pay_date']       ?? '');
+
+    $errors = [];
+
+    if (!$selectedId)                                $errors[] = 'Please select an order or pre-order.';
+    if (!in_array($method, ['CASH','TRANSFER','OTHER'])) $errors[] = 'Please select a valid payment method.';
+    if (!is_numeric($amount) || $amount <= 0)        $errors[] = 'Invalid amount.';
+    if (!$payDate)                                   $errors[] = 'Please enter a payment date.';
+
+    // Handle proof upload (required for TRANSFER/OTHER)
+    $proofPath = null;
+    if (in_array($method, ['TRANSFER','OTHER'])) {
+        if (isset($_FILES['proof']) && $_FILES['proof']['error'] === UPLOAD_ERR_OK) {
+            $allowed   = ['image/jpeg','image/png','application/pdf'];
+            $mime      = mime_content_type($_FILES['proof']['tmp_name']);
+            $size      = $_FILES['proof']['size'];
+
+            if (!in_array($mime, $allowed)) {
+                $errors[] = 'Proof file must be JPG, PNG, or PDF.';
+            } elseif ($size > 5 * 1024 * 1024) {
+                $errors[] = 'Proof file must be under 5MB.';
+            } else {
+                $uploadDir = 'uploads/payment_proofs/';
+                if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
+                $ext       = pathinfo($_FILES['proof']['name'], PATHINFO_EXTENSION);
+                $filename  = 'proof_' . uniqid() . '.' . $ext;
+                move_uploaded_file($_FILES['proof']['tmp_name'], $uploadDir . $filename);
+                $proofPath = $uploadDir . $filename;
+            }
+        }
+        // Proof not strictly required here — staff will verify manually
+    }
+
+    if (empty($errors)) {
+        $paymentId = generate_payment_id();
+        $orderId   = $recType === 'order'    ? $selectedId : null;
+        $preorderId= $recType === 'preorder' ? $selectedId : null;
+
+        $stmt = $conn->prepare(
+            "INSERT INTO payments
+                (payment_id, order_id, preorder_id, payment_method, amount,
+                 record_date, verification_status, reference_number)
+             VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?)"
+        );
+        $stmt->bind_param('ssssdss', $paymentId, $orderId, $preorderId, $method, $amount, $payDate, $reference);
+        $stmt->execute();
+        $stmt->close();
+
+        $message = "Payment record <strong>$paymentId</strong> submitted successfully! It will be verified by staff shortly.";
+        $msgType = 'success';
+
+        // Refresh unpaid lists after submission
+        header("Refresh: 0");
+    } else {
+        $message = implode(' ', $errors);
+        $msgType = 'error';
+    }
+}
+
+// ── Payment history (this user's payments) ────────────────────
+$stmt = $conn->prepare(
+    "SELECT p.payment_id, p.payment_method, p.amount, p.record_date,
+            p.verification_status, p.reference_number,
+            p.order_id, p.preorder_id
+     FROM payments p
+     LEFT JOIN orders o     ON p.order_id    = o.order_id
+     LEFT JOIN preorders po ON p.preorder_id = po.preorder_id
+     WHERE o.user_id = ? OR po.user_id = ?
+     ORDER BY p.record_date DESC
+     LIMIT 10"
+);
+$stmt->bind_param('ss', $userId, $userId);
+$stmt->execute();
+$paymentHistory = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$stmt->close();
+
+function verificationBadge(string $status): string {
+    $map = [
+        'VALID'   => ['#10b981','#ecfdf5','Verified'],
+        'INVALID' => ['#ef4444','#fef2f2','Rejected'],
+        'PENDING' => ['#f59e0b','#fffbeb','Pending'],
+    ];
+    [$color,$bg,$label] = $map[$status] ?? ['#6b7280','#f3f4f6',$status];
+    return "<span style='background:$bg;color:$color;border:1px solid {$color}55;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;'>$label</span>";
+}
+
+function methodLabel(string $m): string {
+    return match($m) { 'CASH' => 'Cash', 'TRANSFER' => 'Bank Transfer', 'OTHER' => 'E-Wallet / Other', default => $m };
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,864 +161,340 @@
     <title>StationaryPlus - Payment Record</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        :root {
-            --primary: #A83535;      /* Brick Red */
-            --secondary: #F4A261;    /* Muted Orange */
-            --background: #FAFAFA;   /* Light Grey */
-            --text: #2E2E2E;         /* Dark Charcoal */
-            --light-text: #707070;   /* Secondary Text */
-            --border: #E0E0E0;       /* Border Grey */
-            --white: #FFFFFF;
-            --sidebar-width: 260px;
-            --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-        }
-        
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Segoe UI', system-ui, sans-serif;
-        }
-        
-        body {
-            background-color: var(--background);
-            color: var(--text);
-            min-height: 100vh;
-            display: flex;
-        }
-        
-        /* Sidebar Navigation */
-        .sidebar {
-            width: var(--sidebar-width);
-            background-color: var(--white);
-            border-right: 1px solid var(--border);
-            height: 100vh;
-            position: fixed;
-            left: 0;
-            top: 0;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.03);
-        }
-        
-        .logo-area {
-            padding: 25px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-        }
-        
-        .logo-icon {
-            background-color: var(--primary);
-            width: 40px;
-            height: 40px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-right: 12px;
-            color: white;
-            font-size: 20px;
-        }
-        
-        .logo-text {
-            font-size: 22px;
-            font-weight: 700;
-            color: var(--primary);
-        }
-        
-        .nav-section {
-            padding: 25px 0;
-            border-bottom: 1px solid var(--border);
-        }
-        
-        .nav-title {
-            font-size: 14px;
-            font-weight: 600;
-            color: var(--light-text);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            padding: 0 25px 15px 25px;
-        }
-        
-        .nav-menu {
-            list-style: none;
-        }
-        
-        .nav-item {
-            margin-bottom: 2px;
-        }
-        
-        .nav-link {
-            display: flex;
-            align-items: center;
-            padding: 15px 25px;
-            color: var(--text);
-            text-decoration: none;
-            transition: all 0.2s ease;
-            border-left: 4px solid transparent;
-        }
-        
-        .nav-link:hover {
-            background-color: rgba(168, 53, 53, 0.05);
-            color: var(--primary);
-            border-left-color: rgba(168, 53, 53, 0.3);
-        }
-        
-        .nav-link.active {
-            background-color: rgba(168, 53, 53, 0.08);
-            color: var(--primary);
-            border-left-color: var(--primary);
-            font-weight: 600;
-        }
-        
-        .nav-icon {
-            width: 22px;
-            text-align: center;
-            margin-right: 15px;
-            font-size: 18px;
-        }
-        
-        .nav-text {
-            font-size: 16px;
-        }
-        
-        .user-section {
-            margin-top: auto;
-            padding: 25px;
-            border-top: 1px solid var(--border);
-        }
-        
-        .user-info {
-            display: flex;
-            align-items: center;
-        }
-        
-        .user-avatar {
-            width: 44px;
-            height: 44px;
-            border-radius: 50%;
-            background-color: rgba(168, 53, 53, 0.1);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--primary);
-            font-weight: 600;
-            font-size: 18px;
-            margin-right: 12px;
-        }
-        
-        .user-details {
-            flex-grow: 1;
-        }
-        
-        .user-name {
-            font-weight: 600;
-            font-size: 16px;
-            color: var(--text);
-            margin-bottom: 3px;
-        }
-        
-        .user-role {
-            font-size: 13px;
-            color: var(--light-text);
-        }
-        
-        /* Main Content Area */
-        .main-content {
-            flex-grow: 1;
-            margin-left: var(--sidebar-width);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-        
-        .top-header {
-            background-color: var(--white);
-            padding: 20px 30px;
-            border-bottom: 1px solid var(--border);
-        }
-        
-        .page-title {
-            font-size: 28px;
-            color: var(--text);
-            margin-bottom: 8px;
-        }
-        
-        .page-subtitle {
-            font-size: 16px;
-            color: var(--light-text);
-        }
-        
-        /* Content Container */
-        .content-container {
-            padding: 30px;
-            flex-grow: 1;
-        }
-        
-        /* Section Card */
-        .section-card {
-            background-color: var(--white);
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: var(--card-shadow);
-            border: 1px solid var(--border);
-            height: 100%;
-        }
-        
-        .section-header {
-            padding: 25px 30px;
-            border-bottom: 1px solid var(--border);
-            background-color: rgba(168, 53, 53, 0.03);
-        }
-        
-        .section-title {
-            font-size: 22px;
-            color: var(--primary);
-            display: flex;
-            align-items: center;
-            margin-bottom: 8px;
-        }
-        
-        .section-title i {
-            margin-right: 12px;
-            font-size: 24px;
-        }
-        
-        .section-description {
-            font-size: 15px;
-            color: var(--light-text);
-            line-height: 1.5;
-        }
-        
-        .section-content {
-            padding: 30px;
-        }
-        
-        /* Payment Record Form */
-        .payment-form {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 25px;
-            margin-bottom: 30px;
-        }
-        
-        .form-group {
-            margin-bottom: 0;
-        }
-        
-        .form-label {
-            display: block;
-            margin-bottom: 10px;
-            font-weight: 600;
-            color: var(--text);
-            font-size: 15px;
-        }
-        
-        .form-label .optional {
-            font-weight: normal;
-            color: var(--light-text);
-            font-size: 14px;
-            margin-left: 5px;
-        }
-        
+        :root { --primary:#A83535;--secondary:#F4A261;--accent:#F1EDE8;--background:#FAFAFA;--text-primary:#2E2E2E;--text-secondary:#707070;--border:#E0E0E0;--white:#FFFFFF;--sidebar-width:260px;--card-shadow:0 4px 12px rgba(0,0,0,0.05); }
+        * { margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif; }
+        body { background-color:var(--background);color:var(--text-primary);min-height:100vh;display:flex; }
+        .sidebar { width:var(--sidebar-width);background-color:var(--white);border-right:1px solid var(--border);height:100vh;position:fixed;left:0;top:0;display:flex;flex-direction:column;box-shadow:2px 0 10px rgba(0,0,0,0.03);overflow-y:auto; }
+        .logo-area { padding:25px;border-bottom:1px solid var(--border);display:flex;align-items:center;flex-shrink:0; }
+        .logo-icon { background-color:var(--primary);width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:12px;color:white;font-size:20px; }
+        .logo-text { font-size:22px;font-weight:700;color:var(--primary); }
+        .nav-section { padding:25px 0;border-bottom:1px solid var(--border); }
+        .nav-title { font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.8px;padding:0 25px 12px 25px; }
+        .nav-menu { list-style:none; }
+        .nav-item { margin-bottom:2px; }
+        .nav-link { display:flex;align-items:center;padding:13px 25px;color:var(--text-primary);text-decoration:none;transition:all 0.2s ease;border-left:4px solid transparent; }
+        .nav-link:hover { background-color:rgba(168,53,53,0.05);color:var(--primary);border-left-color:rgba(168,53,53,0.3); }
+        .nav-link.active { background-color:rgba(168,53,53,0.08);color:var(--primary);border-left-color:var(--primary);font-weight:600; }
+        .nav-icon { width:22px;text-align:center;margin-right:14px;font-size:16px; }
+        .nav-text { font-size:15px; }
+        .user-section { margin-top:auto;padding:20px 25px;border-top:1px solid var(--border); }
+        .user-info { display:flex;align-items:center;margin-bottom:14px; }
+        .user-avatar { width:40px;height:40px;border-radius:50%;background-color:rgba(168,53,53,0.1);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:700;font-size:16px;margin-right:12px;flex-shrink:0; }
+        .user-name { font-weight:600;font-size:15px;color:var(--text-primary); }
+        .user-role { font-size:12px;color:var(--text-secondary);margin-top:2px; }
+        .logout-link { display:flex;align-items:center;gap:10px;padding:10px 14px;background-color:rgba(168,53,53,0.06);color:var(--primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600; }
+        .logout-link:hover { background-color:rgba(168,53,53,0.14); }
+        .main-content { flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column; }
+        .top-header { background-color:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10; }
+        .page-title { font-size:24px;font-weight:700; }
+        .page-subtitle { font-size:14px;color:var(--text-secondary);margin-top:4px; }
+        .content-container { padding:30px;flex-grow:1;display:flex;flex-direction:column;gap:28px; }
+        .alert { padding:13px 18px;border-radius:8px;font-size:14px;display:flex;align-items:center;gap:10px; }
+        .alert-success { background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7; }
+        .alert-error { background:#fff0f0;color:#c62828;border:1px solid #ef9a9a; }
+
+        /* Form card */
+        .card { background-color:var(--white);border-radius:12px;overflow:hidden;box-shadow:var(--card-shadow);border:1px solid var(--border); }
+        .card-header { padding:20px 28px;border-bottom:1px solid var(--border);background-color:rgba(168,53,53,0.03); }
+        .card-title { font-size:17px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:10px; }
+        .card-desc { font-size:13px;color:var(--text-secondary);margin-top:6px; }
+        .card-body { padding:28px; }
+
+        /* Payment form grid */
+        .pay-grid { display:grid;grid-template-columns:repeat(2,1fr);gap:20px;margin-bottom:20px; }
+        .full { grid-column:span 2; }
+        .form-label { display:block;margin-bottom:8px;font-weight:600;font-size:14px;color:var(--text-primary); }
+        .form-label span { font-weight:400;color:var(--text-secondary);font-size:13px; }
         .form-select, .form-input {
-            width: 100%;
-            padding: 14px 16px;
-            border: 1.5px solid var(--border);
-            border-radius: 8px;
-            font-size: 15px;
-            transition: all 0.2s ease;
-            background-color: var(--white);
-            color: var(--text);
+            width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:8px;
+            font-size:14px;background-color:var(--accent);color:var(--text-primary);transition:all 0.2s;
         }
-        
-        .form-input.readonly {
-            background-color: rgba(168, 53, 53, 0.05);
-            color: var(--light-text);
-            cursor: not-allowed;
+        .form-select:focus,.form-input:focus { outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(168,53,53,0.08);background:var(--white); }
+        .form-input[readonly] { background:rgba(168,53,53,0.05);color:var(--text-secondary);cursor:not-allowed; }
+
+        /* File upload */
+        .file-zone { border:2px dashed var(--border);border-radius:8px;padding:28px;text-align:center;background:rgba(168,53,53,0.02);cursor:pointer;transition:all 0.2s;position:relative; }
+        .file-zone:hover,.file-zone.drag { border-color:var(--primary);background:rgba(168,53,53,0.05); }
+        .file-zone input[type=file] { position:absolute;inset:0;opacity:0;cursor:pointer; }
+        .file-zone i { font-size:28px;color:var(--primary);opacity:0.6;margin-bottom:8px;display:block; }
+        .file-zone p { font-size:14px;color:var(--text-secondary); }
+        .file-zone small { font-size:12px;color:var(--text-secondary); }
+        .file-selected { margin-top:12px;padding:12px 16px;background:rgba(168,53,53,0.05);border-radius:8px;border:1px solid var(--border);display:none;align-items:center;justify-content:space-between; }
+        .file-selected.show { display:flex; }
+        .file-selected-name { font-size:13px;font-weight:600;color:var(--text-primary); }
+        .file-clear { background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:16px;padding:2px 6px;border-radius:4px; }
+        .file-clear:hover { color:#c62828; }
+
+        /* Proof toggle */
+        .proof-section { display:none; }
+        .proof-section.show { display:block; }
+
+        /* Submit btn */
+        .submit-btn { padding:13px 32px;background-color:var(--primary);color:white;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;transition:background-color 0.2s;display:inline-flex;align-items:center;gap:10px; }
+        .submit-btn:hover { background-color:#8b2a2a; }
+
+        /* History table */
+        .history-table { width:100%;border-collapse:collapse; }
+        .history-table thead { background:rgba(168,53,53,0.04);border-bottom:2px solid var(--border); }
+        .history-table th { padding:12px 18px;text-align:left;font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap; }
+        .history-table tbody tr { border-bottom:1px solid var(--border);transition:background 0.15s; }
+        .history-table tbody tr:last-child { border-bottom:none; }
+        .history-table tbody tr:hover { background:rgba(168,53,53,0.02); }
+        .history-table td { padding:14px 18px;font-size:13px;color:var(--text-primary);vertical-align:middle; }
+        .pay-ref { font-weight:700;color:var(--primary);font-family:monospace;font-size:12px; }
+        .empty-history { text-align:center;padding:30px;color:var(--text-secondary);font-size:14px; }
+
+        .page-footer { text-align:center;padding:22px;color:var(--text-secondary);font-size:13px;border-top:1px solid var(--border);background-color:var(--white); }
+        .footer-links { margin-top:8px; }
+        .footer-links a { color:var(--primary);text-decoration:none;margin:0 10px; }
+
+        @media (max-width:1024px) {
+            :root { --sidebar-width:70px; }
+            .logo-text,.nav-text,.user-details,.nav-title,.logout-link span { display:none; }
+            .logo-area,.nav-section,.user-section { padding:18px 12px; }
+            .nav-link { justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent; }
+            .nav-link:hover,.nav-link.active { border-left:none;border-right-color:var(--primary); }
+            .nav-icon { margin-right:0;font-size:20px; }
+            .logout-link { justify-content:center;padding:10px; }
         }
-        
-        .form-select:focus, .form-input:focus:not(.readonly) {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(168, 53, 53, 0.1);
-        }
-        
-        .form-full-width {
-            grid-column: span 2;
-        }
-        
-        /* File Upload */
-        .file-upload-container {
-            grid-column: span 2;
-            margin-top: 10px;
-        }
-        
-        .file-upload-label {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-        
-        .file-upload-box {
-            border: 2px dashed var(--border);
-            border-radius: 8px;
-            padding: 30px;
-            text-align: center;
-            background-color: rgba(168, 53, 53, 0.02);
-            transition: all 0.3s ease;
-            cursor: pointer;
-        }
-        
-        .file-upload-box:hover {
-            border-color: var(--primary);
-            background-color: rgba(168, 53, 53, 0.05);
-        }
-        
-        .file-upload-icon {
-            font-size: 32px;
-            color: var(--primary);
-            margin-bottom: 10px;
-            opacity: 0.7;
-        }
-        
-        .file-upload-text {
-            font-size: 15px;
-            color: var(--light-text);
-            margin-bottom: 5px;
-        }
-        
-        .file-upload-hint {
-            font-size: 13px;
-            color: var(--light-text);
-        }
-        
-        /* Selected File Display */
-        .selected-file {
-            margin-top: 15px;
-            padding: 15px;
-            background-color: rgba(168, 53, 53, 0.05);
-            border-radius: 8px;
-            border: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        
-        .file-info {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        
-        .file-icon {
-            color: var(--primary);
-            font-size: 20px;
-        }
-        
-        .file-name {
-            font-weight: 600;
-            color: var(--text);
-            font-size: 14px;
-        }
-        
-        .file-remove {
-            color: var(--light-text);
-            background: none;
-            border: none;
-            font-size: 18px;
-            cursor: pointer;
-            padding: 5px;
-            border-radius: 5px;
-            transition: all 0.2s ease;
-        }
-        
-        .file-remove:hover {
-            color: var(--primary);
-            background-color: rgba(168, 53, 53, 0.1);
-        }
-        
-        /* Action Buttons */
-        .action-section {
-            margin-top: 30px;
-        }
-        
-        .primary-button {
-            padding: 16px 40px;
-            background-color: var(--primary);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-weight: 600;
-            font-size: 16px;
-            cursor: pointer;
-            transition: background-color 0.2s ease;
-            display: inline-flex;
-            align-items: center;
-            gap: 12px;
-        }
-        
-        .primary-button:hover {
-            background-color: #8b2a2a;
-        }
-        
-        /* Payment History */
-        .payment-history {
-            margin-top: 40px;
-            padding-top: 30px;
-            border-top: 1px solid var(--border);
-        }
-        
-        .history-title {
-            font-size: 20px;
-            color: var(--primary);
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-        }
-        
-        .history-title i {
-            margin-right: 12px;
-        }
-        
-        .history-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        
-        .history-table thead {
-            background-color: rgba(168, 53, 53, 0.05);
-            border-bottom: 2px solid var(--border);
-        }
-        
-        .history-table th {
-            padding: 16px 20px;
-            text-align: left;
-            font-weight: 600;
-            color: var(--text);
-            font-size: 14px;
-        }
-        
-        .history-table tbody tr {
-            border-bottom: 1px solid var(--border);
-            transition: background-color 0.2s ease;
-        }
-        
-        .history-table tbody tr:hover {
-            background-color: rgba(168, 53, 53, 0.02);
-        }
-        
-        .history-table td {
-            padding: 18px 20px;
-            vertical-align: middle;
-            color: var(--text);
-            font-size: 14px;
-        }
-        
-        .payment-ref {
-            font-weight: 600;
-            color: var(--primary);
-        }
-        
-        .payment-status {
-            display: inline-block;
-            padding: 6px 14px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        
-        .status-verified {
-            background-color: rgba(76, 175, 80, 0.1);
-            color: #4CAF50;
-            border: 1px solid rgba(76, 175, 80, 0.3);
-        }
-        
-        .status-pending {
-            background-color: rgba(244, 162, 97, 0.1);
-            color: var(--secondary);
-            border: 1px solid rgba(244, 162, 97, 0.3);
-        }
-        
-        .status-rejected {
-            background-color: rgba(244, 67, 54, 0.1);
-            color: #F44336;
-            border: 1px solid rgba(244, 67, 54, 0.3);
-        }
-        
-        /* Footer */
-        .dashboard-footer {
-            text-align: center;
-            padding: 25px;
-            color: var(--light-text);
-            font-size: 14px;
-            border-top: 1px solid var(--border);
-            background-color: var(--white);
-        }
-        
-        .footer-links {
-            margin-top: 10px;
-        }
-        
-        .footer-links a {
-            color: var(--primary);
-            text-decoration: none;
-            margin: 0 10px;
-        }
-        
-        .footer-links a:hover {
-            text-decoration: underline;
-        }
-        
-        /* Responsive */
-        @media (max-width: 1100px) {
-            .payment-form {
-                grid-template-columns: 1fr;
-            }
-            
-            .form-full-width, .file-upload-container {
-                grid-column: span 1;
-            }
-        }
-        
-        @media (max-width: 1024px) {
-            :root {
-                --sidebar-width: 70px;
-            }
-            
-            .logo-text, .nav-text, .user-details, .nav-title {
-                display: none;
-            }
-            
-            .logo-area, .nav-section, .user-section {
-                padding: 20px 15px;
-            }
-            
-            .nav-link {
-                justify-content: center;
-                padding: 15px;
-                border-left: none;
-                border-right: 4px solid transparent;
-            }
-            
-            .nav-link:hover, .nav-link.active {
-                border-left: none;
-                border-right-color: var(--primary);
-            }
-            
-            .nav-icon {
-                margin-right: 0;
-                font-size: 20px;
-            }
-            
-            .history-table {
-                display: block;
-                overflow-x: auto;
-            }
-        }
-        
-        @media (max-width: 768px) {
-            .history-table th, 
-            .history-table td {
-                padding: 12px 10px;
-                font-size: 13px;
-            }
-            
-            .payment-status {
-                min-width: 100px;
-                font-size: 11px;
-                padding: 5px 10px;
-            }
+        @media (max-width:768px) {
+            .pay-grid { grid-template-columns:1fr; }
+            .full { grid-column:span 1; }
         }
     </style>
 </head>
 <body>
-    <?php include 'c_sidebar.php'; ?>
-    
-    <!-- Main Content Area -->
-    <main class="main-content">
-        <!-- Top Header -->
-        <header class="top-header">
-            <h1 class="page-title">Payment Record</h1>
-            <p class="page-subtitle">Submit payment records for your pre-orders or orders</p>
-        </header>
-        
-        <!-- Content Container -->
-        <div class="content-container">
-            <!-- Payment Record Section -->
-            <div class="section-card">
-                <div class="section-header">
-                    <h2 class="section-title">
-                        <i class="fas fa-money-check-alt"></i> Payment Record Submission
-                    </h2>
-                    <p class="section-description">
-                        Submit payment records for your pre-orders or orders. This is for record-keeping purposes only.
-                    </p>
-                </div>
-                
-                <div class="section-content">
-                    <!-- Payment Record Form -->
-                    <form class="payment-form">
-                        <!-- Related Record Selection -->
-                        <div class="form-group form-full-width">
-                            <label class="form-label">Select Related Record (Tempahan / Pesanan)</label>
-                            <select class="form-select">
-                                <option value="">-- Select Tempahan or Pesanan --</option>
-                                <option value="SP-2023-085" selected>#SP-2023-085 - Business Card Printing (Tempahan)</option>
-                                <option value="SP-2023-089">#SP-2023-089 - A4 Paper & Printing Order (Tempahan)</option>
-                                <option value="SP-2023-087">#SP-2023-087 - Thesis Printing & Binding (Pesanan)</option>
-                                <option value="SP-2023-082">#SP-2023-082 - Stationery Set (Pesanan)</option>
+
+<?php include 'c_sidebar.php'; ?>
+
+<main class="main-content">
+    <header class="top-header">
+        <h1 class="page-title">Payment Record</h1>
+        <p class="page-subtitle">Submit payment proof for your orders and pre-orders</p>
+    </header>
+
+    <div class="content-container">
+
+        <?php if ($message): ?>
+        <div class="alert alert-<?= $msgType ?>">
+            <i class="fas <?= $msgType==='success' ? 'fa-check-circle' : 'fa-exclamation-circle' ?>"></i>
+            <?= $message ?>
+        </div>
+        <?php endif; ?>
+
+        <!-- Submission Form -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title"><i class="fas fa-file-invoice-dollar"></i> Submit Payment Record</div>
+                <div class="card-desc">Record your payment here. Staff will verify and update your order status.</div>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="c_payment.php" enctype="multipart/form-data">
+
+                    <div class="pay-grid">
+
+                        <!-- Order/Preorder selector -->
+                        <div class="full">
+                            <label class="form-label">Order / Pre-order <span>(select the one you are paying for)</span></label>
+                            <select name="selected_id" class="form-select" id="recordSelect" required onchange="updateAmount(this)">
+                                <option value="">-- Select record --</option>
+                                <?php if (!empty($unpaidOrders)): ?>
+                                <optgroup label="Orders">
+                                    <?php foreach ($unpaidOrders as $r): ?>
+                                    <?php $amt = isset($r['amount']) && $r['amount'] !== null ? (float)$r['amount'] : null; ?>
+                                    <option value="<?= htmlspecialchars($r['id']) ?>"
+                                            data-type="order"
+                                            data-amount="<?= $amt !== null ? $amt : '' ?>">
+                                        <?= htmlspecialchars($r['id']) ?> <?= $amt !== null ? '— RM ' . number_format($amt, 2) : '(amount pending)' ?>
+                                    </option>
+                                    <?php endforeach; ?>
+                                </optgroup>
+                                <?php endif; ?>
+                                <?php if (!empty($unpaidPreorders)): ?>
+                                <optgroup label="Pre-orders">
+                                    <?php foreach ($unpaidPreorders as $r): ?>
+                                    <option value="<?= htmlspecialchars($r['id']) ?>"
+                                            data-type="preorder"
+                                            data-amount="">
+                                        <?= htmlspecialchars($r['id']) ?> (amount TBC by staff)
+                                    </option>
+                                    <?php endforeach; ?>
+                                </optgroup>
+                                <?php endif; ?>
+                                <?php if (empty($unpaidAll)): ?>
+                                <option disabled>No pending orders found</option>
+                                <?php endif; ?>
                             </select>
+                            <input type="hidden" name="rec_type" id="recTypeInput" value="">
                         </div>
-                        
-                        <!-- Payment Method -->
-                        <div class="form-group">
+
+                        <!-- Method -->
+                        <div>
                             <label class="form-label">Payment Method</label>
-                            <select class="form-select">
-                                <option value="">-- Select Payment Method --</option>
-                                <option value="cash">Cash</option>
-                                <option value="bank-transfer" selected>Bank Transfer</option>
-                                <option value="ewallet">E-Wallet (Touch 'n Go, GrabPay, etc.)</option>
-                                <option value="credit-card">Credit/Debit Card</option>
+                            <select name="method" class="form-select" id="methodSelect" required onchange="toggleProof(this.value)">
+                                <option value="">-- Select method --</option>
+                                <option value="CASH">Cash</option>
+                                <option value="TRANSFER">Bank Transfer</option>
+                                <option value="OTHER">E-Wallet / Other</option>
                             </select>
                         </div>
-                        
+
                         <!-- Amount -->
-                        <div class="form-group">
-                            <label class="form-label">Amount (RM)</label>
-                            <input type="text" class="form-input readonly" value="127.50" readonly>
+                        <div>
+                            <label class="form-label">Amount (RM) <span>(auto-filled from order)</span></label>
+                            <input type="number" name="amount" id="amountInput" class="form-input"
+                                   placeholder="0.00" step="0.01" min="0.01" required>
                         </div>
-                        
-                        <!-- Reference Number -->
-                        <div class="form-group">
-                            <label class="form-label">Reference Number <span class="optional">(Optional)</span></label>
-                            <input type="text" class="form-input" placeholder="e.g., TRX-123456789">
+
+                        <!-- Reference -->
+                        <div>
+                            <label class="form-label">Reference Number <span>(optional)</span></label>
+                            <input type="text" name="reference" class="form-input" placeholder="e.g. TRX-123456789">
                         </div>
-                        
-                        <!-- Payment Date -->
-                        <div class="form-group">
+
+                        <!-- Date -->
+                        <div>
                             <label class="form-label">Payment Date</label>
-                            <input type="date" class="form-input" value="2023-11-15">
+                            <input type="date" name="pay_date" class="form-input"
+                                   value="<?= date('Y-m-d') ?>" required>
                         </div>
-                        
-                        <!-- Proof Upload (only for e-wallet) -->
-                        <div class="file-upload-container">
-                            <div class="file-upload-label">
-                                <label class="form-label">Proof Upload</label>
-                                <span class="optional">(Required for E-Wallet payments only)</span>
+
+                        <!-- Proof upload -->
+                        <div class="full proof-section" id="proofSection">
+                            <label class="form-label">
+                                Payment Proof
+                                <span id="proofRequired">(required for Bank Transfer / E-Wallet)</span>
+                            </label>
+                            <div class="file-zone" id="fileZone">
+                                <input type="file" name="proof" id="proofFile" accept=".jpg,.jpeg,.png,.pdf"
+                                       onchange="showFile(this)">
+                                <i class="fas fa-cloud-upload-alt"></i>
+                                <p>Click or drag to upload screenshot / receipt</p>
+                                <small>JPG, PNG or PDF — max 5MB</small>
                             </div>
-                            <div class="file-upload-box" id="uploadBox">
-                                <div class="file-upload-icon">
-                                    <i class="fas fa-cloud-upload-alt"></i>
-                                </div>
-                                <div class="file-upload-text">
-                                    Click to upload payment screenshot/proof
-                                </div>
-                                <div class="file-upload-hint">
-                                    Supported formats: JPG, PNG, PDF (Max 5MB)
-                                </div>
-                            </div>
-                            
-                            <!-- Selected File Display -->
-                            <div class="selected-file" id="selectedFile" style="display: none;">
-                                <div class="file-info">
-                                    <div class="file-icon">
-                                        <i class="fas fa-file-image"></i>
-                                    </div>
-                                    <div>
-                                        <div class="file-name" id="fileName">payment_screenshot.png</div>
-                                    </div>
-                                </div>
-                                <button type="button" class="file-remove" id="removeFile">
+                            <div class="file-selected" id="fileSelected">
+                                <span class="file-selected-name" id="fileSelectedName"></span>
+                                <button type="button" class="file-clear" onclick="clearFile()">
                                     <i class="fas fa-times"></i>
                                 </button>
                             </div>
                         </div>
-                    </form>
-                    
-                    <!-- Submit Button -->
-                    <div class="action-section">
-                        <button class="primary-button" id="submitPayment">
-                            <i class="fas fa-paper-plane"></i> Submit Payment Record
-                        </button>
-                    </div>
-                    
-                    <!-- Payment History -->
-                    <div class="payment-history">
-                        <h3 class="history-title">
-                            <i class="fas fa-history"></i> Recent Payment Records
-                        </h3>
-                        
-                        <table class="history-table">
-                            <thead>
-                                <tr>
-                                    <th>Date</th>
-                                    <th>Reference</th>
-                                    <th>Order ID</th>
-                                    <th>Amount</th>
-                                    <th>Method</th>
-                                    <th>Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td>14 Nov 2023</td>
-                                    <td class="payment-ref">TRX-789012345</td>
-                                    <td>#SP-2023-089</td>
-                                    <td>RM 85.00</td>
-                                    <td>Bank Transfer</td>
-                                    <td>
-                                        <span class="payment-status status-verified">Verified</span>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>12 Nov 2023</td>
-                                    <td class="payment-ref">TRX-678901234</td>
-                                    <td>#SP-2023-087</td>
-                                    <td>RM 210.00</td>
-                                    <td>E-Wallet</td>
-                                    <td>
-                                        <span class="payment-status status-verified">Verified</span>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>10 Nov 2023</td>
-                                    <td class="payment-ref">TRX-567890123</td>
-                                    <td>#SP-2023-085</td>
-                                    <td>RM 127.50</td>
-                                    <td>Cash</td>
-                                    <td>
-                                        <span class="payment-status status-pending">Pending</span>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>05 Nov 2023</td>
-                                    <td class="payment-ref">TRX-456789012</td>
-                                    <td>#SP-2023-082</td>
-                                    <td>RM 45.90</td>
-                                    <td>Credit Card</td>
-                                    <td>
-                                        <span class="payment-status status-verified">Verified</span>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>01 Nov 2023</td>
-                                    <td class="payment-ref">TRX-345678901</td>
-                                    <td>#SP-2023-079</td>
-                                    <td>RM 68.00</td>
-                                    <td>Bank Transfer</td>
-                                    <td>
-                                        <span class="payment-status status-rejected">Rejected</span>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+
+                    </div><!-- /.pay-grid -->
+
+                    <button type="submit" class="submit-btn">
+                        <i class="fas fa-paper-plane"></i> Submit Payment Record
+                    </button>
+
+                </form>
             </div>
         </div>
-        
-        <!-- Footer -->
-        <footer class="dashboard-footer">
-            <div>© 2023 StationaryPlus - Stationery & Printing Management System</div>
-            <div class="footer-links">
-                <a href="#">Help Center</a> | 
-                <a href="#">Contact Support</a> | 
-                <a href="#">Privacy Policy</a>
+
+        <!-- Payment History -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title"><i class="fas fa-history"></i> Recent Payment Records</div>
             </div>
-        </footer>
-    </main>
-    
-    <script>
-        // Navigation is handled by PHP sidebar - active state set dynamically
-        
-        // File Upload Functionality
-        const uploadBox = document.getElementById('uploadBox');
-        const selectedFile = document.getElementById('selectedFile');
-        const fileName = document.getElementById('fileName');
-        const removeFile = document.getElementById('removeFile');
-        
-        uploadBox.addEventListener('click', function() {
-            // In a real application, this would trigger a file input dialog
-            // For this UI mockup, we'll simulate file selection
-            const simulatedFileName = "payment_proof_" + new Date().getTime() + ".png";
-            fileName.textContent = simulatedFileName;
-            selectedFile.style.display = 'flex';
-            
-            alert(`File "${simulatedFileName}" selected. This is a UI mockup only. In a real system, this would upload the file.`);
-        });
-        
-        removeFile.addEventListener('click', function(e) {
-            e.stopPropagation();
-            selectedFile.style.display = 'none';
-            alert("File removed. This is a UI mockup only.");
-        });
-        
-        // Submit Payment Record button
-        document.getElementById('submitPayment').addEventListener('click', function() {
-            const selectedOrder = document.querySelector('.form-select').value;
-            const paymentMethod = document.querySelectorAll('.form-select')[1].value;
-            const amount = document.querySelector('.form-input.readonly').value;
-            const reference = document.querySelectorAll('.form-input')[1].value || 'Not provided';
-            const date = document.querySelectorAll('.form-input')[2].value;
-            const hasProof = selectedFile.style.display !== 'none';
-            
-            // Validation (UI only)
-            if (!selectedOrder) {
-                alert("Please select a related record (Tempahan/Pesanan).");
-                return;
-            }
-            
-            if (!paymentMethod) {
-                alert("Please select a payment method.");
-                return;
-            }
-            
-            if (paymentMethod === 'ewallet' && !hasProof) {
-                alert("Please upload payment proof for E-Wallet payments.");
-                return;
-            }
-            
-            alert(`Payment Record Submitted:\n\nRelated Order: ${selectedOrder}\nPayment Method: ${paymentMethod}\nAmount: RM ${amount}\nReference: ${reference}\nPayment Date: ${date}\nProof Uploaded: ${hasProof ? 'Yes' : 'No'}\n\nThis is a UI mockup only. In a real system, this would submit data to a server.`);
-            
-            // Reset form after 1 second (UI simulation)
-            setTimeout(() => {
-                document.querySelectorAll('.form-select')[0].selectedIndex = 0;
-                document.querySelectorAll('.form-select')[1].selectedIndex = 0;
-                document.querySelectorAll('.form-input')[1].value = '';
-                selectedFile.style.display = 'none';
-                
-                alert('Payment record submitted successfully! This is a UI mockup only.');
-            }, 1000);
-        });
-        
-        // Update amount based on selected order (UI simulation)
-        const orderSelect = document.querySelectorAll('.form-select')[0];
-        orderSelect.addEventListener('change', function() {
-            if (this.value) {
-                // Simulate different amounts based on selected order
-                const amounts = {
-                    'SP-2023-085': '127.50',
-                    'SP-2023-089': '85.00',
-                    'SP-2023-087': '210.00',
-                    'SP-2023-082': '45.90'
-                };
-                
-                const amountField = document.querySelector('.form-input.readonly');
-                amountField.value = amounts[this.value] || '0.00';
-            }
-        });
-        
-        // Set initial amount for pre-selected order
-        const amountField = document.querySelector('.form-input.readonly');
-        amountField.value = '127.50';
-        
-        // Set today's date as default for payment date
-        const today = new Date();
-        const formattedDate = today.toISOString().split('T')[0];
-        document.querySelector('input[type="date"]').value = formattedDate;
-    </script>
+            <div style="overflow-x:auto;">
+                <?php if (empty($paymentHistory)): ?>
+                    <div class="empty-history">No payment records yet.</div>
+                <?php else: ?>
+                <table class="history-table">
+                    <thead>
+                        <tr>
+                            <th>Payment ID</th>
+                            <th>Date</th>
+                            <th>Linked To</th>
+                            <th>Method</th>
+                            <th>Amount</th>
+                            <th>Reference</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($paymentHistory as $pay): ?>
+                        <tr>
+                            <td><span class="pay-ref"><?= htmlspecialchars($pay['payment_id']) ?></span></td>
+                            <td><?= date('d M Y', strtotime($pay['record_date'])) ?></td>
+                            <td style="font-family:monospace;font-size:12px;">
+                                <?= htmlspecialchars($pay['order_id'] ?? $pay['preorder_id'] ?? '—') ?>
+                            </td>
+                            <td><?= methodLabel($pay['payment_method']) ?></td>
+                            <td style="font-weight:600;">RM <?= number_format($pay['amount'],2) ?></td>
+                            <td style="color:var(--text-secondary);"><?= htmlspecialchars($pay['reference_number'] ?? '—') ?></td>
+                            <td><?= verificationBadge($pay['verification_status']) ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <?php endif; ?>
+            </div>
+        </div>
+
+    </div><!-- /.content-container -->
+
+    <footer class="page-footer">
+        <div>&copy; <?= date('Y') ?> StationaryPlus &mdash; Stationery &amp; Printing Management System</div>
+        <div class="footer-links"><a href="#">Help Center</a> | <a href="#">Contact Support</a> | <a href="#">Privacy Policy</a></div>
+    </footer>
+</main>
+
+<script>
+function updateAmount(select) {
+    const opt    = select.options[select.selectedIndex];
+    const amount = opt.getAttribute('data-amount');
+    const type   = opt.getAttribute('data-type') || '';
+    const input  = document.getElementById('amountInput');
+
+    if (amount !== null && amount !== '' && !isNaN(parseFloat(amount))) {
+        input.value       = parseFloat(amount).toFixed(2);
+        input.readOnly    = true;
+        input.placeholder = '';
+        input.style.background = 'rgba(168,53,53,0.05)';
+        input.style.color      = 'var(--text-secondary)';
+        input.style.cursor     = 'not-allowed';
+    } else {
+        // Preorder or order with no amount yet — let user enter manually
+        input.value       = '';
+        input.readOnly    = false;
+        input.placeholder = type === 'preorder' ? 'Enter amount when known' : '0.00';
+        input.style.background = '';
+        input.style.color      = '';
+        input.style.cursor     = '';
+    }
+    document.getElementById('recTypeInput').value = type;
+}
+
+function toggleProof(method) {
+    const section = document.getElementById('proofSection');
+    section.classList.toggle('show', method === 'TRANSFER' || method === 'OTHER');
+}
+
+function showFile(input) {
+    if (input.files && input.files[0]) {
+        document.getElementById('fileSelectedName').textContent = input.files[0].name;
+        document.getElementById('fileSelected').classList.add('show');
+    }
+}
+
+function clearFile() {
+    document.getElementById('proofFile').value = '';
+    document.getElementById('fileSelected').classList.remove('show');
+}
+
+// Drag styles
+const zone = document.getElementById('fileZone');
+if (zone) {
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+    zone.addEventListener('drop', e => {
+        e.preventDefault(); zone.classList.remove('drag');
+        const input = document.getElementById('proofFile');
+        input.files = e.dataTransfer.files;
+        showFile(input);
+    });
+}
+</script>
+
 </body>
 </html>

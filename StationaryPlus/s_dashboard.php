@@ -1,847 +1,445 @@
+<?php
+// ============================================================
+//  s_dashboard.php — Staff Dashboard
+// ============================================================
+
+if (session_status() === PHP_SESSION_NONE) session_start();
+
+require_once 'auth.php';
+require_role(['STAFF', 'ADMIN']);
+require_once 'db.php';
+
+$userName = $_SESSION['user_name'];
+$branchId = $_SESSION['branch_id'] ?? null;
+
+// ── Branch filter — staff only see their own branch ───────────
+$branchSQL   = $branchId ? "AND i.branch_id = ?" : '';
+$branchSQL2  = $branchId ? "AND branch_id = ?"   : '';
+
+// ── Stat 1: Orders to process (NEW or PROCESSING) ─────────────
+$stmt = $conn->prepare(
+    "SELECT COUNT(*) AS cnt FROM orders WHERE order_status IN ('NEW','PROCESSING')"
+);
+$stmt->execute();
+$ordersToProcess = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
+$stmt->close();
+
+// Orders new today
+$stmt = $conn->prepare(
+    "SELECT COUNT(*) AS cnt FROM orders
+     WHERE order_status = 'NEW' AND DATE(order_date) = CURDATE()"
+);
+$stmt->execute();
+$newToday = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
+$stmt->close();
+
+// ── Stat 2: Low stock alerts (stock_quantity <= minimum_level) ─
+if ($branchId) {
+    $stmt = $conn->prepare(
+        "SELECT COUNT(*) AS cnt FROM inventory
+         WHERE stock_quantity <= minimum_level AND branch_id = ?"
+    );
+    $stmt->bind_param('s', $branchId);
+} else {
+    $stmt = $conn->prepare(
+        "SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity <= minimum_level"
+    );
+}
+$stmt->execute();
+$lowStockCount = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
+$stmt->close();
+
+// Critical (stock = 0)
+if ($branchId) {
+    $stmt = $conn->prepare(
+        "SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity = 0 AND branch_id = ?"
+    );
+    $stmt->bind_param('s', $branchId);
+} else {
+    $stmt = $conn->prepare(
+        "SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity = 0"
+    );
+}
+$stmt->execute();
+$criticalCount = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
+$stmt->close();
+
+// ── Stat 3: Pending payments to verify ────────────────────────
+$stmt = $conn->prepare(
+    "SELECT COUNT(*) AS cnt FROM payments WHERE verification_status = 'PENDING'"
+);
+$stmt->execute();
+$pendingPayments = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
+$stmt->close();
+
+// ── Stat 4: Preorders submitted (awaiting staff action) ────────
+$stmt = $conn->prepare(
+    "SELECT COUNT(*) AS cnt FROM preorders WHERE order_status = 'SUBMITTED'"
+);
+$stmt->execute();
+$pendingPreorders = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
+$stmt->close();
+
+// ── Recent orders (last 8) ─────────────────────────────────────
+$stmt = $conn->prepare(
+    "SELECT o.order_id, o.order_date, o.order_status, o.estimated_total,
+            u.name AS customer_name,
+            COUNT(oi.order_item_id) AS item_count
+     FROM orders o
+     JOIN users u       ON o.user_id = u.user_id
+     LEFT JOIN order_items oi ON o.order_id = oi.order_id
+     GROUP BY o.order_id
+     ORDER BY o.order_date DESC
+     LIMIT 8"
+);
+$stmt->execute();
+$recentOrders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$stmt->close();
+
+// ── Low stock items (top 5) ────────────────────────────────────
+if ($branchId) {
+    $stmt = $conn->prepare(
+        "SELECT p.product_name, p.category, i.stock_quantity, i.minimum_level, b.branch_name
+         FROM inventory i
+         JOIN products p  ON i.product_id  = p.product_id
+         JOIN branches b  ON i.branch_id   = b.branch_id
+         WHERE i.stock_quantity <= i.minimum_level AND i.branch_id = ?
+         ORDER BY i.stock_quantity ASC
+         LIMIT 5"
+    );
+    $stmt->bind_param('s', $branchId);
+} else {
+    $stmt = $conn->prepare(
+        "SELECT p.product_name, p.category, i.stock_quantity, i.minimum_level, b.branch_name
+         FROM inventory i
+         JOIN products p  ON i.product_id  = p.product_id
+         JOIN branches b  ON i.branch_id   = b.branch_id
+         WHERE i.stock_quantity <= i.minimum_level
+         ORDER BY i.stock_quantity ASC
+         LIMIT 5"
+    );
+}
+$stmt->execute();
+$lowStockItems = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$stmt->close();
+
+// ── Helpers ────────────────────────────────────────────────────
+function orderStatusBadge(string $status): string {
+    $map = [
+        'NEW'        => ['#3b82f6','#eff6ff','New'],
+        'PROCESSING' => ['#f59e0b','#fffbeb','Processing'],
+        'READY'      => ['#10b981','#ecfdf5','Ready'],
+        'COLLECTED'  => ['#6b7280','#f3f4f6','Collected'],
+        'CANCELLED'  => ['#ef4444','#fef2f2','Cancelled'],
+    ];
+    [$color,$bg,$label] = $map[$status] ?? ['#6b7280','#f3f4f6',$status];
+    return "<span style='background:$bg;color:$color;border:1px solid {$color}55;
+                padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;
+                white-space:nowrap;'>$label</span>";
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StationaryPlus - Staff Dashboard</title>
+    <title>StationaryPlus — Staff Dashboard</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
-            --primary: #A83535;      /* Brick Red */
-            --secondary: #F4A261;    /* Muted Orange */
-            --background: #FAFAFA;   /* Light Grey */
-            --text: #2E2E2E;         /* Dark Charcoal */
-            --light-text: #707070;   /* Secondary Text */
-            --border: #E0E0E0;       /* Border Grey */
+            --primary: #A83535;
+            --secondary: #F4A261;
+            --accent: #F1EDE8;
+            --background: #FAFAFA;
+            --text-primary: #2E2E2E;
+            --text-secondary: #707070;
+            --border: #E0E0E0;
             --white: #FFFFFF;
             --sidebar-width: 260px;
-            --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-            --alert-bg: rgba(244, 162, 97, 0.1);
-        }
-        
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Segoe UI', system-ui, sans-serif;
-        }
-        
-        body {
-            background-color: var(--background);
-            color: var(--text);
-            min-height: 100vh;
-            display: flex;
-            overflow: hidden;
-        }
-        
-        /* Sidebar Navigation */
-        .sidebar {
-            width: var(--sidebar-width);
-            background-color: var(--white);
-            border-right: 1px solid var(--border);
-            height: 100vh;
-            position: fixed;
-            left: 0;
-            top: 0;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.03);
-        }
-        
-        .logo-area {
-            padding: 25px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-        }
-        
-        .logo-icon {
-            background-color: var(--primary);
-            width: 40px;
-            height: 40px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-right: 12px;
-            color: white;
-            font-size: 20px;
-        }
-        
-        .logo-text {
-            font-size: 20px;
-            font-weight: 700;
-            color: var(--primary);
-        }
-        
-        .nav-section {
-            padding: 20px 0;
-            border-bottom: 1px solid var(--border);
-        }
-        
-        .nav-title {
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--light-text);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            padding: 0 25px 10px 25px;
-        }
-        
-        .nav-menu {
-            list-style: none;
-        }
-        
-        .nav-item {
-            margin-bottom: 2px;
-        }
-        
-        .nav-link {
-            display: flex;
-            align-items: center;
-            padding: 14px 25px;
-            color: var(--text);
-            text-decoration: none;
-            transition: all 0.2s ease;
-            border-left: 4px solid transparent;
-        }
-        
-        .nav-link:hover {
-            background-color: rgba(168, 53, 53, 0.05);
-            color: var(--primary);
-            border-left-color: rgba(168, 53, 53, 0.3);
-        }
-        
-        .nav-link.active {
-            background-color: rgba(168, 53, 53, 0.08);
-            color: var(--primary);
-            border-left-color: var(--primary);
-            font-weight: 600;
-        }
-        
-        .nav-icon {
-            width: 20px;
-            text-align: center;
-            margin-right: 15px;
-            font-size: 16px;
-        }
-        
-        .nav-text {
-            font-size: 15px;
-        }
-        
-        .user-section {
-            margin-top: auto;
-            padding: 20px;
-            border-top: 1px solid var(--border);
-        }
-        
-        .user-info {
-            display: flex;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-        
-        .user-avatar {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background-color: rgba(168, 53, 53, 0.1);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--primary);
-            font-weight: 600;
-            font-size: 16px;
-            margin-right: 12px;
-        }
-        
-        .user-details {
-            flex-grow: 1;
-        }
-        
-        .user-name {
-            font-weight: 600;
-            font-size: 15px;
-            color: var(--text);
-            margin-bottom: 2px;
-        }
-        
-        .user-role {
-            font-size: 13px;
-            color: var(--light-text);
-        }
-        
-        .logout-btn {
-            width: 100%;
-            padding: 10px;
-            background-color: rgba(168, 53, 53, 0.1);
-            color: var(--primary);
-            border: 1.5px solid var(--primary);
-            border-radius: 6px;
-            font-weight: 600;
-            font-size: 14px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
-        
-        .logout-btn:hover {
-            background-color: rgba(168, 53, 53, 0.2);
-        }
-        
-        /* Main Content Area */
-        .main-content {
-            flex-grow: 1;
-            margin-left: var(--sidebar-width);
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-        
-        .top-header {
-            background-color: var(--white);
-            padding: 18px 30px;
-            border-bottom: 1px solid var(--border);
-            flex-shrink: 0;
-        }
-        
-        .page-title {
-            font-size: 24px;
-            color: var(--text);
-            margin-bottom: 4px;
-        }
-        
-        .page-subtitle {
-            font-size: 14px;
-            color: var(--light-text);
-        }
-        
-        /* Dashboard Content - Grid Layout */
-        .dashboard-grid {
-            flex-grow: 1;
-            padding: 25px;
-            display: grid;
-            grid-template-columns: 1fr;
-            grid-template-rows: auto auto 1fr;
-            gap: 25px;
-            height: calc(100vh - 110px); /* Adjust based on header height */
-            overflow: hidden;
-        }
-        
-        /* Summary Cards - Compact */
-        .summary-section {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 20px;
-            flex-shrink: 0;
-        }
-        
-        .summary-card {
-            background-color: var(--white);
-            border-radius: 10px;
-            padding: 20px;
-            box-shadow: var(--card-shadow);
-            border: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-        }
-        
-        .summary-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 15px;
-        }
-        
-        .summary-title {
-            font-size: 15px;
-            font-weight: 600;
-            color: var(--text);
-        }
-        
-        .summary-icon {
-            width: 40px;
-            height: 40px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 18px;
-        }
-        
-        .orders-icon {
-            background-color: rgba(168, 53, 53, 0.1);
-            color: var(--primary);
-        }
-        
-        .alerts-icon {
-            background-color: var(--alert-bg);
-            color: var(--secondary);
-        }
-        
-        .updates-icon {
-            background-color: rgba(0, 0, 0, 0.05);
-            color: var(--light-text);
-        }
-        
-        .summary-value {
-            font-size: 28px;
-            font-weight: 700;
-            color: var(--primary);
-            margin-bottom: 6px;
-        }
-        
-        .summary-subtitle {
-            font-size: 13px;
-            color: var(--light-text);
-            margin-bottom: 10px;
-        }
-        
-        .summary-footer {
-            margin-top: auto;
-            font-size: 12px;
-            color: var(--light-text);
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        
-        .summary-footer i {
-            font-size: 11px;
-        }
-        
-        /* Navigation Cards - Compact */
-        .navigation-section {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 20px;
-            flex-shrink: 0;
-        }
-        
-        .nav-card {
-            background-color: var(--white);
-            border-radius: 10px;
-            padding: 20px;
-            box-shadow: var(--card-shadow);
-            border: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            text-align: center;
-            transition: all 0.2s ease;
-            cursor: pointer;
-        }
-        
-        .nav-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.08);
-            border-color: var(--primary);
-        }
-        
-        .nav-icon-card {
-            width: 50px;
-            height: 50px;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 15px;
-            font-size: 22px;
-            color: var(--white);
-        }
-        
-        .nav-orders {
-            background-color: var(--primary);
-        }
-        
-        .nav-update {
-            background-color: #4A6FA5; /* Blue shade */
-        }
-        
-        .nav-inventory {
-            background-color: #4CAF50; /* Green shade */
-        }
-        
-        .nav-alerts {
-            background-color: var(--secondary);
-        }
-        
-        .nav-title-card {
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--text);
-            margin-bottom: 8px;
-        }
-        
-        .nav-description {
-            font-size: 13px;
-            color: var(--light-text);
-            line-height: 1.4;
-        }
-        
-        /* Recent Orders Table - Compact */
-        .orders-section {
-            background-color: var(--white);
-            border-radius: 10px;
-            box-shadow: var(--card-shadow);
-            border: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            flex-grow: 1;
-        }
-        
-        .orders-header {
-            padding: 20px;
-            border-bottom: 1px solid var(--border);
-            background-color: rgba(168, 53, 53, 0.03);
-            flex-shrink: 0;
-        }
-        
-        .orders-title {
-            font-size: 18px;
-            color: var(--primary);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        .orders-title i {
-            font-size: 18px;
-        }
-        
-        .table-container {
-            flex-grow: 1;
-            overflow: hidden;
-            padding: 0;
-        }
-        
-        .orders-table {
-            width: 100%;
-            border-collapse: collapse;
-            height: 100%;
-        }
-        
-        .orders-table thead {
-            background-color: rgba(168, 53, 53, 0.03);
-            position: sticky;
-            top: 0;
-        }
-        
-        .orders-table th {
-            padding: 15px 20px;
-            text-align: left;
-            font-weight: 600;
-            color: var(--text);
-            font-size: 14px;
-            border-bottom: 1px solid var(--border);
-        }
-        
-        .orders-table td {
-            padding: 15px 20px;
-            border-bottom: 1px solid var(--border);
-            font-size: 14px;
-            color: var(--text);
-        }
-        
-        .orders-table tr:last-child td {
-            border-bottom: none;
-        }
-        
-        .orders-table tr:hover {
-            background-color: rgba(168, 53, 53, 0.02);
-        }
-        
-        .order-id {
-            font-weight: 600;
-            color: var(--primary);
-            font-size: 13px;
-        }
-        
-        .customer-name {
-            font-weight: 500;
-        }
-        
-        .order-status {
-            display: inline-block;
-            padding: 5px 10px;
-            border-radius: 15px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        
-        .status-pending {
-            background-color: rgba(244, 162, 97, 0.2);
-            color: var(--secondary);
-        }
-        
-        .status-processing {
-            background-color: rgba(76, 175, 80, 0.1);
-            color: #4CAF50;
-        }
-        
-        .status-ready {
-            background-color: rgba(33, 150, 243, 0.1);
-            color: #2196F3;
-        }
-        
-        .order-total {
-            font-weight: 600;
-            font-size: 14px;
-        }
-        
-        .view-btn {
-            padding: 6px 12px;
-            background-color: rgba(168, 53, 53, 0.1);
-            color: var(--primary);
-            border: 1px solid var(--primary);
-            border-radius: 5px;
-            font-weight: 600;
-            font-size: 13px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-        
-        .view-btn:hover {
-            background-color: rgba(168, 53, 53, 0.2);
-        }
-        
-        /* No Scrollbar Design */
-        .table-container::-webkit-scrollbar {
-            width: 6px;
-        }
-        
-        .table-container::-webkit-scrollbar-track {
-            background: #f1f1f1;
-            border-radius: 3px;
-        }
-        
-        .table-container::-webkit-scrollbar-thumb {
-            background: rgba(168, 53, 53, 0.3);
-            border-radius: 3px;
-        }
-        
-        .table-container::-webkit-scrollbar-thumb:hover {
-            background: rgba(168, 53, 53, 0.5);
-        }
-        
-        /* Responsive adjustments for documentation */
-        @media (max-width: 1200px) {
-            .summary-section, .navigation-section {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-        
-        @media (max-width: 768px) {
-            :root {
-                --sidebar-width: 70px;
-            }
-            
-            .logo-text, .nav-text, .user-details, .nav-title, .nav-description {
-                display: none;
-            }
-            
-            .logo-area, .nav-section, .user-section {
-                padding: 15px;
-            }
-            
-            .nav-link {
-                justify-content: center;
-                padding: 15px;
-                border-left: none;
-                border-right: 4px solid transparent;
-            }
-            
-            .nav-link:hover, .nav-link.active {
-                border-left: none;
-                border-right-color: var(--primary);
-            }
-            
-            .nav-icon {
-                margin-right: 0;
-                font-size: 18px;
-            }
-            
-            .logout-btn span {
-                display: none;
-            }
-            
-            .logout-btn {
-                justify-content: center;
-                padding: 10px;
-            }
-        }
+            --card-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+
+        * { margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif; }
+
+        body { background-color:var(--background);color:var(--text-primary);min-height:100vh;display:flex; }
+
+        /* ── Sidebar ── */
+        .sidebar { width:var(--sidebar-width);background-color:var(--white);border-right:1px solid var(--border);height:100vh;position:fixed;left:0;top:0;display:flex;flex-direction:column;box-shadow:2px 0 10px rgba(0,0,0,0.03);overflow-y:auto; }
+        .logo-area { padding:25px;border-bottom:1px solid var(--border);display:flex;align-items:center;flex-shrink:0; }
+        .logo-icon { background-color:var(--primary);width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:12px;color:white;font-size:20px; }
+        .logo-text { font-size:22px;font-weight:700;color:var(--primary); }
+        .nav-section { padding:20px 0;border-bottom:1px solid var(--border); }
+        .nav-title { font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.8px;padding:0 25px 10px 25px; }
+        .nav-menu { list-style:none; }
+        .nav-item { margin-bottom:2px; }
+        .nav-link { display:flex;align-items:center;padding:13px 25px;color:var(--text-primary);text-decoration:none;transition:all 0.2s;border-left:4px solid transparent; }
+        .nav-link:hover { background-color:rgba(168,53,53,0.05);color:var(--primary);border-left-color:rgba(168,53,53,0.3); }
+        .nav-link.active { background-color:rgba(168,53,53,0.08);color:var(--primary);border-left-color:var(--primary);font-weight:600; }
+        .nav-icon { width:22px;text-align:center;margin-right:14px;font-size:16px; }
+        .nav-text { font-size:15px; }
+        .user-section { margin-top:auto;padding:20px 25px;border-top:1px solid var(--border); }
+        .user-info { display:flex;align-items:center;margin-bottom:14px; }
+        .user-avatar { width:40px;height:40px;border-radius:50%;background-color:rgba(168,53,53,0.1);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:700;font-size:16px;margin-right:12px;flex-shrink:0; }
+        .user-name { font-weight:600;font-size:15px;color:var(--text-primary); }
+        .user-role { font-size:12px;color:var(--text-secondary);margin-top:2px; }
+        .logout-link { display:flex;align-items:center;gap:10px;padding:10px 14px;background-color:rgba(168,53,53,0.06);color:var(--primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;transition:background-color 0.2s; }
+        .logout-link:hover { background-color:rgba(168,53,53,0.14); }
+
+        /* ── Main ── */
+        .main-content { flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column; }
+        .top-header { background-color:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10; }
+        .page-title { font-size:24px;font-weight:700;color:var(--text-primary); }
+        .page-subtitle { font-size:14px;color:var(--text-secondary);margin-top:4px; }
+
+        .dashboard-content { padding:28px 30px;flex-grow:1;display:flex;flex-direction:column;gap:26px; }
+
+        /* ── Welcome ── */
+        .welcome-card { background:linear-gradient(135deg,rgba(168,53,53,0.06) 0%,rgba(244,162,97,0.06) 100%);border-radius:12px;padding:22px 28px;border-left:5px solid var(--primary); }
+        .welcome-title { font-size:22px;font-weight:700;color:var(--text-primary);margin-bottom:6px; }
+        .welcome-sub { font-size:14px;color:var(--text-secondary);line-height:1.6; }
+
+        /* ── Stat cards ── */
+        .stats-grid { display:grid;grid-template-columns:repeat(4,1fr);gap:18px; }
+        .stat-card { background-color:var(--white);border-radius:10px;padding:20px;box-shadow:var(--card-shadow);border:1px solid var(--border);transition:transform 0.2s; }
+        .stat-card:hover { transform:translateY(-2px); }
+        .stat-header { display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px; }
+        .stat-label { font-size:13px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px; }
+        .stat-icon { width:38px;height:38px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:17px; }
+        .icon-red    { background:rgba(168,53,53,0.1);color:var(--primary); }
+        .icon-orange { background:rgba(244,162,97,0.15);color:#d97706; }
+        .icon-blue   { background:rgba(59,130,246,0.1);color:#3b82f6; }
+        .icon-green  { background:rgba(16,185,129,0.1);color:#10b981; }
+        .stat-value { font-size:30px;font-weight:700;color:var(--primary);margin-bottom:4px; }
+        .stat-footer { font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:5px; }
+
+        /* ── Quick action cards ── */
+        .actions-grid { display:grid;grid-template-columns:repeat(3,1fr);gap:18px; }
+        .action-card { background-color:var(--white);border-radius:10px;padding:20px;box-shadow:var(--card-shadow);border:1px solid var(--border);text-align:center;text-decoration:none;transition:all 0.2s;display:block; }
+        .action-card:hover { transform:translateY(-3px);box-shadow:0 8px 20px rgba(0,0,0,0.09);border-color:var(--primary); }
+        .action-icon { width:52px;height:52px;border-radius:10px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:22px; }
+        .action-title { font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:5px; }
+        .action-desc { font-size:13px;color:var(--text-secondary); }
+
+        /* ── Two-column bottom ── */
+        .bottom-grid { display:grid;grid-template-columns:1fr 340px;gap:22px; }
+
+        /* ── Table card ── */
+        .table-card { background-color:var(--white);border-radius:10px;box-shadow:var(--card-shadow);border:1px solid var(--border);overflow:hidden; }
+        .card-header { padding:18px 22px;border-bottom:1px solid var(--border);background:rgba(168,53,53,0.03);display:flex;justify-content:space-between;align-items:center; }
+        .card-title { font-size:16px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:8px; }
+        .card-link { font-size:13px;color:var(--primary);text-decoration:none;font-weight:600; }
+        .card-link:hover { text-decoration:underline; }
+        .data-table { width:100%;border-collapse:collapse; }
+        .data-table thead { background:rgba(168,53,53,0.03);border-bottom:2px solid var(--border); }
+        .data-table th { padding:11px 18px;text-align:left;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap; }
+        .data-table tbody tr { border-bottom:1px solid var(--border);transition:background 0.15s; }
+        .data-table tbody tr:last-child { border-bottom:none; }
+        .data-table tbody tr:hover { background:rgba(168,53,53,0.02); }
+        .data-table td { padding:13px 18px;font-size:13px;color:var(--text-primary);vertical-align:middle; }
+        .order-id { font-weight:700;color:var(--primary);font-family:monospace;font-size:12px; }
+        .process-btn { padding:6px 14px;background:var(--primary);color:white;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block;transition:background 0.2s; }
+        .process-btn:hover { background:#8b2a2a; }
+
+        /* ── Low stock panel ── */
+        .stock-panel { background-color:var(--white);border-radius:10px;box-shadow:var(--card-shadow);border:1px solid var(--border);overflow:hidden; }
+        .stock-item { padding:14px 18px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:6px; }
+        .stock-item:last-child { border-bottom:none; }
+        .stock-name { font-size:13px;font-weight:600;color:var(--text-primary); }
+        .stock-meta { font-size:12px;color:var(--text-secondary); }
+        .stock-bar-wrap { height:6px;background:var(--border);border-radius:3px;overflow:hidden; }
+        .stock-bar { height:100%;border-radius:3px; }
+        .bar-critical { background:#ef4444; }
+        .bar-low      { background:#f59e0b; }
+        .empty-state { padding:40px 20px;text-align:center;color:var(--text-secondary);font-size:14px; }
+        .empty-state i { font-size:36px;opacity:0.2;margin-bottom:10px;display:block; }
+
+        /* Footer */
+        .page-footer { text-align:center;padding:20px;color:var(--text-secondary);font-size:13px;border-top:1px solid var(--border);background-color:var(--white);margin-top:auto; }
+
+        @media (max-width:1200px) { .stats-grid { grid-template-columns:repeat(2,1fr); } .bottom-grid { grid-template-columns:1fr; } }
+        @media (max-width:1024px) {
+            :root { --sidebar-width:70px; }
+            .logo-text,.nav-text,.user-details,.nav-title,.logout-link span { display:none; }
+            .logo-area,.nav-section,.user-section { padding:18px 12px; }
+            .nav-link { justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent; }
+            .nav-link:hover,.nav-link.active { border-left:none;border-right-color:var(--primary); }
+            .nav-icon { margin-right:0;font-size:20px; }
+            .logout-link { justify-content:center;padding:10px; }
+        }
+        @media (max-width:768px) { .stats-grid { grid-template-columns:repeat(2,1fr); } .actions-grid { grid-template-columns:repeat(2,1fr); } }
     </style>
 </head>
 <body>
-    <!-- Sidebar Navigation -->
-    <nav class="sidebar">
-        <div class="logo-area">
-            <div class="logo-icon">
-                <i class="fas fa-pen-nib"></i>
+
+<?php include 's_sidebar.php'; ?>
+
+<main class="main-content">
+
+    <header class="top-header">
+        <h1 class="page-title">Staff Dashboard</h1>
+        <p class="page-subtitle">Manage orders, inventory and alerts for your branch</p>
+    </header>
+
+    <div class="dashboard-content">
+
+        <!-- Welcome -->
+        <div class="welcome-card">
+            <div class="welcome-title">Welcome, <?= htmlspecialchars($userName) ?>!</div>
+            <div class="welcome-sub">
+                You have <strong><?= $ordersToProcess ?></strong> order<?= $ordersToProcess !== 1 ? 's' : '' ?> to process,
+                <strong><?= $lowStockCount ?></strong> low stock alert<?= $lowStockCount !== 1 ? 's' : '' ?>,
+                and <strong><?= $pendingPayments ?></strong> payment<?= $pendingPayments !== 1 ? 's' : '' ?> awaiting verification.
             </div>
-            <div class="logo-text">StationaryPlus</div>
         </div>
-        
-        <div class="nav-section">
-            <div class="nav-title">Staff Dashboard</div>
-            <ul class="nav-menu">
-                <li class="nav-item">
-                    <a href="#" class="nav-link active">
-                        <div class="nav-icon">
-                            <i class="fas fa-tachometer-alt"></i>
-                        </div>
-                        <div class="nav-text">Dashboard</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-tasks"></i>
-                        </div>
-                        <div class="nav-text">Manage Orders</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-boxes"></i>
-                        </div>
-                        <div class="nav-text">Inventory</div>
-                    </a>
-                </li>
-            </ul>
-        </div>
-        
-        
-        <div class="user-section">
-            <div class="user-info">
-                <div class="user-avatar">JS</div>
-                <div class="user-details">
-                    <div class="user-name">Jamie Smith</div>
-                    <div class="user-role">Inventory Manager</div>
+
+        <!-- Stats -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-header">
+                    <div class="stat-label">Orders to Process</div>
+                    <div class="stat-icon icon-red"><i class="fas fa-clipboard-list"></i></div>
                 </div>
+                <div class="stat-value"><?= $ordersToProcess ?></div>
+                <div class="stat-footer"><i class="fas fa-clock"></i> <?= $newToday ?> new today</div>
             </div>
-            <button class="logout-btn">
-                <i class="fas fa-sign-out-alt"></i>
-                <span>Logout</span>
-            </button>
+
+            <div class="stat-card">
+                <div class="stat-header">
+                    <div class="stat-label">Low Stock Alerts</div>
+                    <div class="stat-icon icon-orange"><i class="fas fa-exclamation-triangle"></i></div>
+                </div>
+                <div class="stat-value"><?= $lowStockCount ?></div>
+                <div class="stat-footer"><i class="fas fa-times-circle"></i> <?= $criticalCount ?> out of stock</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-header">
+                    <div class="stat-label">Pending Payments</div>
+                    <div class="stat-icon icon-blue"><i class="fas fa-file-invoice-dollar"></i></div>
+                </div>
+                <div class="stat-value"><?= $pendingPayments ?></div>
+                <div class="stat-footer"><i class="fas fa-hourglass-half"></i> Awaiting verification</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-header">
+                    <div class="stat-label">Pending Pre-orders</div>
+                    <div class="stat-icon icon-green"><i class="fas fa-clipboard-check"></i></div>
+                </div>
+                <div class="stat-value"><?= $pendingPreorders ?></div>
+                <div class="stat-footer"><i class="fas fa-user-clock"></i> Submitted by customers</div>
+            </div>
         </div>
-    </nav>
-    
-    <!-- Main Content Area -->
-    <main class="main-content">
-        <!-- Top Header -->
-        <header class="top-header">
-            <h1 class="page-title">Staff Dashboard</h1>
-            <p class="page-subtitle">Manage orders, inventory, and monitor system alerts</p>
-        </header>
-        
-        <!-- Dashboard Grid -->
-        <div class="dashboard-grid">
-            <!-- Summary Cards -->
-            <section class="summary-section">
-                <div class="summary-card">
-                    <div class="summary-header">
-                        <h3 class="summary-title">Orders to Process</h3>
-                        <div class="summary-icon orders-icon">
-                            <i class="fas fa-clipboard-list"></i>
-                        </div>
-                    </div>
-                    <div class="summary-value">24</div>
-                    <p class="summary-subtitle">Awaiting processing</p>
-                    <div class="summary-footer">
-                        <i class="fas fa-clock"></i> 8 new today
-                    </div>
+
+        <!-- Quick Actions -->
+        <div class="actions-grid">
+            <a href="s_ordermanagement.php" class="action-card">
+                <div class="action-icon" style="background:rgba(168,53,53,0.1);color:var(--primary);">
+                    <i class="fas fa-tasks"></i>
                 </div>
-                
-                <div class="summary-card">
-                    <div class="summary-header">
-                        <h3 class="summary-title">Low Stock Alerts</h3>
-                        <div class="summary-icon alerts-icon">
-                            <i class="fas fa-exclamation-triangle"></i>
-                        </div>
-                    </div>
-                    <div class="summary-value">12</div>
-                    <p class="summary-subtitle">Items below minimum</p>
-                    <div class="summary-footer">
-                        <i class="fas fa-arrow-down"></i> 3 critical
-                    </div>
+                <div class="action-title">Manage Orders</div>
+                <div class="action-desc">View, process and update customer orders</div>
+            </a>
+            <a href="s_inv.php" class="action-card">
+                <div class="action-icon" style="background:rgba(16,185,129,0.1);color:#10b981;">
+                    <i class="fas fa-boxes"></i>
                 </div>
-                
-                <div class="summary-card">
-                    <div class="summary-header">
-                        <h3 class="summary-title">Recent Updates</h3>
-                        <div class="summary-icon updates-icon">
-                            <i class="fas fa-bell"></i>
-                        </div>
-                    </div>
-                    <div class="summary-value">7</div>
-                    <p class="summary-subtitle">New notifications</p>
-                    <div class="summary-footer">
-                        <i class="fas fa-info-circle"></i> Updated 2h ago
-                    </div>
+                <div class="action-title">Inventory</div>
+                <div class="action-desc">Check stock levels and update quantities</div>
+            </a>
+            <a href="s_ordermanagement.php?filter=preorder" class="action-card">
+                <div class="action-icon" style="background:rgba(244,162,97,0.15);color:#d97706;">
+                    <i class="fas fa-clipboard-check"></i>
                 </div>
-            </section>
-            
-            <!-- Navigation Cards -->
-            <section class="navigation-section">
-                <div class="nav-card">
-                    <div class="nav-icon-card nav-orders">
-                        <i class="fas fa-tasks"></i>
-                    </div>
-                    <h3 class="nav-title-card">Manage Orders</h3>
-                    <p class="nav-description">View, process, and fulfill customer orders</p>
-                </div>
-                
-                <div class="nav-card">
-                    <div class="nav-icon-card nav-update">
-                        <i class="fas fa-sync-alt"></i>
-                    </div>
-                    <h3 class="nav-title-card">Update Order Status</h3>
-                    <p class="nav-description">Track and update order progress</p>
-                </div>
-                
-                <div class="nav-card">
-                    <div class="nav-icon-card nav-inventory">
-                        <i class="fas fa-boxes"></i>
-                    </div>
-                    <h3 class="nav-title-card">Manage Inventory</h3>
-                    <p class="nav-description">Stock levels, reordering, and tracking</p>
-                </div>
-                
-                <div class="nav-card">
-                    <div class="nav-icon-card nav-alerts">
-                        <i class="fas fa-exclamation-circle"></i>
-                    </div>
-                    <h3 class="nav-title-card">Low Stock Alerts</h3>
-                    <p class="nav-description">Review and manage stock warnings</p>
-                </div>
-            </section>
-            
-            <!-- Recent Orders Table -->
-            <section class="orders-section">
-                <div class="orders-header">
-                    <h2 class="orders-title">
-                        <i class="fas fa-history"></i> Recent Orders
-                    </h2>
-                </div>
-                
-                <div class="table-container">
-                    <table class="orders-table">
-                        <thead>
-                            <tr>
-                                <th>Order ID</th>
-                                <th>Customer</th>
-                                <th>Date</th>
-                                <th>Status</th>
-                                <th>Items</th>
-                                <th>Total</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td class="order-id">#SP-2023-156</td>
-                                <td class="customer-name">Ahmad Faris</td>
-                                <td>Nov 15</td>
-                                <td><span class="order-status status-pending">Pending</span></td>
-                                <td>3 items</td>
-                                <td class="order-total">RM121.50</td>
-                                <td><button class="view-btn">Process</button></td>
-                            </tr>
-                            <tr>
-                                <td class="order-id">#SP-2023-155</td>
-                                <td class="customer-name">Sarah Johnson</td>
-                                <td>Nov 14</td>
-                                <td><span class="order-status status-processing">Processing</span></td>
-                                <td>5 items</td>
-                                <td class="order-total">RM89.90</td>
-                                <td><button class="view-btn">View</button></td>
-                            </tr>
-                            <tr>
-                                <td class="order-id">#SP-2023-154</td>
-                                <td class="customer-name">Global Solutions</td>
-                                <td>Nov 14</td>
-                                <td><span class="order-status status-ready">Ready</span></td>
-                                <td>12 items</td>
-                                <td class="order-total">RM450.25</td>
-                                <td><button class="view-btn">Complete</button></td>
-                            </tr>
-                            <tr>
-                                <td class="order-id">#SP-2023-153</td>
-                                <td class="customer-name">Michael Chen</td>
-                                <td>Nov 13</td>
-                                <td><span class="order-status status-pending">Pending</span></td>
-                                <td>2 items</td>
-                                <td class="order-total">RM34.50</td>
-                                <td><button class="view-btn">Process</button></td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </section>
+                <div class="action-title">Pre-orders</div>
+                <div class="action-desc">Review and action submitted pre-orders</div>
+            </a>
         </div>
-    </main>
-    
-    <script>
-        // Navigation interactions
-        document.querySelectorAll('.nav-link').forEach(link => {
-            link.addEventListener('click', function(e) {
-                document.querySelectorAll('.nav-link').forEach(item => {
-                    item.classList.remove('active');
-                });
-                this.classList.add('active');
-                e.preventDefault();
-            });
-        });
-        
-        // Navigation card interactions
-        document.querySelectorAll('.nav-card').forEach(card => {
-            card.addEventListener('click', function() {
-                const title = this.querySelector('.nav-title-card').textContent;
-                alert(`This would navigate to: ${title} page (UI mockup only)`);
-            });
-        });
-        
-        // View button interactions
-        document.querySelectorAll('.view-btn').forEach(button => {
-            button.addEventListener('click', function(e) {
-                e.stopPropagation();
-                const orderId = this.closest('tr').querySelector('.order-id').textContent;
-                alert(`This would show details for: ${orderId} (UI mockup only)`);
-            });
-        });
-        
-        // Logout button
-        document.querySelector('.logout-btn').addEventListener('click', function() {
-            alert('Logout functionality would be implemented here (UI mockup only)');
-        });
-        
-        // Summary card interactions
-        document.querySelectorAll('.summary-card').forEach(card => {
-            card.addEventListener('click', function() {
-                const title = this.querySelector('.summary-title').textContent;
-                alert(`This would show more details for: ${title} (UI mockup only)`);
-            });
-        });
-        
-        // Keep the sidebar active when clicking on content
-        document.querySelector('.main-content').addEventListener('click', function() {
-            // Keep the dashboard link active
-            document.querySelectorAll('.nav-link').forEach(item => {
-                if (item.querySelector('.nav-text').textContent === 'Dashboard') {
-                    item.classList.add('active');
-                } else {
-                    item.classList.remove('active');
-                }
-            });
-        });
-    </script>
+
+        <!-- Bottom: Orders table + Low stock -->
+        <div class="bottom-grid">
+
+            <!-- Recent Orders -->
+            <div class="table-card">
+                <div class="card-header">
+                    <div class="card-title"><i class="fas fa-history"></i> Recent Orders</div>
+                    <a href="s_ordermanagement.php" class="card-link">View all &rarr;</a>
+                </div>
+                <?php if (empty($recentOrders)): ?>
+                    <div class="empty-state"><i class="fas fa-clipboard-list"></i>No orders yet.</div>
+                <?php else: ?>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Order ID</th>
+                            <th>Customer</th>
+                            <th>Date</th>
+                            <th>Items</th>
+                            <th>Total</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($recentOrders as $o): ?>
+                        <tr>
+                            <td><span class="order-id"><?= htmlspecialchars($o['order_id']) ?></span></td>
+                            <td><?= htmlspecialchars($o['customer_name']) ?></td>
+                            <td style="color:var(--text-secondary);font-size:12px;"><?= date('d M', strtotime($o['order_date'])) ?></td>
+                            <td style="color:var(--text-secondary);"><?= $o['item_count'] ?> item<?= $o['item_count'] != 1 ? 's' : '' ?></td>
+                            <td style="font-weight:600;">RM <?= number_format($o['estimated_total'], 2) ?></td>
+                            <td><?= orderStatusBadge($o['order_status']) ?></td>
+                            <td>
+                                <a href="s_ordermanagement.php?order_id=<?= urlencode($o['order_id']) ?>" class="process-btn">
+                                    <?= $o['order_status'] === 'NEW' ? 'Process' : 'View' ?>
+                                </a>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <?php endif; ?>
+            </div>
+
+            <!-- Low Stock Panel -->
+            <div class="stock-panel">
+                <div class="card-header">
+                    <div class="card-title"><i class="fas fa-exclamation-triangle"></i> Low Stock</div>
+                    <a href="s_inv.php?filter=low" class="card-link">View all &rarr;</a>
+                </div>
+                <?php if (empty($lowStockItems)): ?>
+                    <div class="empty-state"><i class="fas fa-check-circle"></i>All stock levels are healthy.</div>
+                <?php else: ?>
+                    <?php foreach ($lowStockItems as $item):
+                        $pct = $item['minimum_level'] > 0
+                            ? min(100, round(($item['stock_quantity'] / $item['minimum_level']) * 100))
+                            : 0;
+                        $barClass = $item['stock_quantity'] == 0 ? 'bar-critical' : 'bar-low';
+                    ?>
+                    <div class="stock-item">
+                        <div class="stock-name"><?= htmlspecialchars($item['product_name']) ?></div>
+                        <div class="stock-meta">
+                            <?= htmlspecialchars($item['branch_name']) ?> &bull;
+                            Stock: <strong><?= $item['stock_quantity'] ?></strong> /
+                            Min: <?= $item['minimum_level'] ?>
+                        </div>
+                        <div class="stock-bar-wrap">
+                            <div class="stock-bar <?= $barClass ?>" style="width:<?= $pct ?>%"></div>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </div>
+
+        </div><!-- /.bottom-grid -->
+
+    </div><!-- /.dashboard-content -->
+
+    <footer class="page-footer">
+        &copy; <?= date('Y') ?> StationaryPlus &mdash; Stationery &amp; Printing Management System
+    </footer>
+
+</main>
+
 </body>
 </html>

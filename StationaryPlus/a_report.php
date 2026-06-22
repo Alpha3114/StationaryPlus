@@ -1,1337 +1,799 @@
+<?php
+// ============================================================
+//  a_report.php — Admin Analytics Dashboard (Full Live Data)
+// ============================================================
+
+if (session_status() === PHP_SESSION_NONE) session_start();
+
+require_once 'auth.php';
+require_role('ADMIN');
+require_once 'db.php';
+
+// ── Period & tab ──────────────────────────────────────────────
+$period   = $_GET['period']    ?? 'month';
+$tab      = $_GET['tab']       ?? 'overview';
+$dateFrom = $_GET['date_from'] ?? '';
+$dateTo   = $_GET['date_to']   ?? '';
+
+// Build date range SQL (orders table alias = o, payments alias = p)
+if ($period === 'custom' && $dateFrom && $dateTo) {
+    $rangeSQL    = "AND DATE(o.order_date) BETWEEN '$dateFrom' AND '$dateTo'";
+    $rangePaySQL = "AND DATE(p.record_date) BETWEEN '$dateFrom' AND '$dateTo'";
+    $periodLabel = date('d M Y', strtotime($dateFrom)) . ' – ' . date('d M Y', strtotime($dateTo));
+} else {
+    [$rangeSQL, $rangePaySQL, $periodLabel] = match($period) {
+        'today'     => [
+            "AND DATE(o.order_date)=CURDATE()",
+            "AND DATE(p.record_date)=CURDATE()",
+            'Today',
+        ],
+        'week'      => [
+            "AND o.order_date>=DATE_SUB(NOW(),INTERVAL 7 DAY)",
+            "AND p.record_date>=DATE_SUB(NOW(),INTERVAL 7 DAY)",
+            'Last 7 Days',
+        ],
+        'month'     => [
+            "AND MONTH(o.order_date)=MONTH(NOW()) AND YEAR(o.order_date)=YEAR(NOW())",
+            "AND MONTH(p.record_date)=MONTH(NOW()) AND YEAR(p.record_date)=YEAR(NOW())",
+            'This Month',
+        ],
+        'lastmonth' => [
+            "AND MONTH(o.order_date)=MONTH(DATE_SUB(NOW(),INTERVAL 1 MONTH)) AND YEAR(o.order_date)=YEAR(DATE_SUB(NOW(),INTERVAL 1 MONTH))",
+            "AND MONTH(p.record_date)=MONTH(DATE_SUB(NOW(),INTERVAL 1 MONTH)) AND YEAR(p.record_date)=YEAR(DATE_SUB(NOW(),INTERVAL 1 MONTH))",
+            'Last Month',
+        ],
+        'quarter'   => [
+            "AND o.order_date>=DATE_SUB(NOW(),INTERVAL 3 MONTH)",
+            "AND p.record_date>=DATE_SUB(NOW(),INTERVAL 3 MONTH)",
+            'This Quarter',
+        ],
+        'year'      => [
+            "AND YEAR(o.order_date)=YEAR(NOW())",
+            "AND YEAR(p.record_date)=YEAR(NOW())",
+            'This Year',
+        ],
+        'alltime'   => ["", "", 'All Time'],
+        default     => [
+            "AND MONTH(o.order_date)=MONTH(NOW()) AND YEAR(o.order_date)=YEAR(NOW())",
+            "AND MONTH(p.record_date)=MONTH(NOW()) AND YEAR(p.record_date)=YEAR(NOW())",
+            'This Month',
+        ],
+    };
+}
+
+// Previous period SQL (for growth %)
+$prevSQL = match($period) {
+    'today'     => "AND DATE(o.order_date)=DATE_SUB(CURDATE(),INTERVAL 1 DAY)",
+    'week'      => "AND o.order_date>=DATE_SUB(NOW(),INTERVAL 14 DAY) AND o.order_date<DATE_SUB(NOW(),INTERVAL 7 DAY)",
+    'month'     => "AND MONTH(o.order_date)=MONTH(DATE_SUB(NOW(),INTERVAL 1 MONTH)) AND YEAR(o.order_date)=YEAR(DATE_SUB(NOW(),INTERVAL 1 MONTH))",
+    'lastmonth' => "AND MONTH(o.order_date)=MONTH(DATE_SUB(NOW(),INTERVAL 2 MONTH)) AND YEAR(o.order_date)=YEAR(DATE_SUB(NOW(),INTERVAL 2 MONTH))",
+    'quarter'   => "AND o.order_date>=DATE_SUB(NOW(),INTERVAL 6 MONTH) AND o.order_date<DATE_SUB(NOW(),INTERVAL 3 MONTH)",
+    'year'      => "AND YEAR(o.order_date)=YEAR(NOW())-1",
+    default     => "",
+};
+
+function growthPct(float $cur, float $prev): array {
+    if ($prev == 0) { $pct = $cur > 0 ? 100 : 0; $dir = $cur > 0 ? 'up' : 'flat'; }
+    else { $pct = (($cur - $prev) / $prev) * 100; $dir = $pct > 0 ? 'up' : ($pct < 0 ? 'down' : 'flat'); }
+    return ['pct' => ($dir==='up'?'+':'') . number_format($pct,1) . '%', 'dir' => $dir];
+}
+
+// ==============================================================
+//  OVERVIEW STATS
+// ==============================================================
+$res = $conn->query("SELECT COALESCE(SUM(p.amount),0) AS revenue, COUNT(DISTINCT p.order_id) AS order_count FROM payments p JOIN orders o ON p.order_id=o.order_id WHERE p.verification_status='VALID' $rangeSQL");
+$curr = $res->fetch_assoc();
+$totalRevenue = (float)$curr['revenue'];
+$totalOrders  = (int)$curr['order_count'];
+$avgOrder     = $totalOrders > 0 ? $totalRevenue / $totalOrders : 0;
+
+$res = $conn->query("SELECT COALESCE(SUM(p.amount),0) AS revenue, COUNT(DISTINCT p.order_id) AS order_count FROM payments p JOIN orders o ON p.order_id=o.order_id WHERE p.verification_status='VALID' $prevSQL");
+$prev = $res->fetch_assoc();
+$prevRevenue = (float)$prev['revenue'];
+$prevOrders  = (int)$prev['order_count'];
+$prevAvg     = $prevOrders > 0 ? $prevRevenue / $prevOrders : 0;
+
+$revGrowth = growthPct($totalRevenue, $prevRevenue);
+$ordGrowth = growthPct($totalOrders,  $prevOrders);
+$avgGrowth = growthPct($avgOrder,     $prevAvg);
+
+$res = $conn->query("SELECT COUNT(DISTINCT o.user_id) AS cnt FROM orders o WHERE 1=1 $rangeSQL");
+$activeCustomers = (int)$res->fetch_assoc()['cnt'];
+
+$res = $conn->query("SELECT COUNT(*) AS cnt, COALESCE(SUM(amount),0) AS total FROM payments WHERE verification_status='PENDING'");
+$pend = $res->fetch_assoc();
+$pendingCount = (int)$pend['cnt']; $pendingAmt = (float)$pend['total'];
+
+$res = $conn->query("SELECT COUNT(*) AS cnt FROM orders o WHERE o.order_status='CANCELLED' $rangeSQL");
+$cancelledOrders = (int)$res->fetch_assoc()['cnt'];
+
+$res = $conn->query("SELECT COUNT(*) AS cnt FROM preorders");
+$totalPreorders = (int)$res->fetch_assoc()['cnt'];
+
+// ==============================================================
+//  REVENUE TREND — fixed: generate all 12 month slots in PHP,
+//  then merge with DB data so months with zero still show
+// ==============================================================
+$trendMonths = 12;
+$monthSlots  = [];
+for ($i = $trendMonths - 1; $i >= 0; $i--) {
+    $ts = strtotime("-$i month");
+    $monthSlots[] = ['key' => date('Y-m', $ts), 'label' => date('M', $ts)];
+}
+
+$res = $conn->query(
+    "SELECT DATE_FORMAT(o.order_date,'%Y-%m') AS mkey,
+            COALESCE(SUM(p.amount),0) AS revenue,
+            COUNT(DISTINCT p.order_id) AS orders
+     FROM payments p JOIN orders o ON p.order_id=o.order_id
+     WHERE p.verification_status='VALID'
+       AND o.order_date >= DATE_SUB(NOW(), INTERVAL {$trendMonths} MONTH)
+     GROUP BY mkey ORDER BY mkey ASC"
+);
+$trendDB = [];
+while ($row = $res->fetch_assoc()) $trendDB[$row['mkey']] = $row;
+
+$trendFinal = [];
+foreach ($monthSlots as $slot) {
+    $trendFinal[] = [
+        'label'   => $slot['label'],
+        'revenue' => (float)($trendDB[$slot['key']]['revenue'] ?? 0),
+        'orders'  => (int)($trendDB[$slot['key']]['orders']   ?? 0),
+    ];
+}
+$maxTrend = max(array_column($trendFinal, 'revenue')) ?: 1;
+
+// Daily trend (7 days) — same zero-fill approach
+$dailySlots = [];
+for ($i = 6; $i >= 0; $i--) {
+    $ts = strtotime("-$i day");
+    $dailySlots[] = ['key' => date('Y-m-d', $ts), 'label' => date('D', $ts)];
+}
+$res = $conn->query(
+    "SELECT DATE(o.order_date) AS dkey, COALESCE(SUM(p.amount),0) AS revenue, COUNT(DISTINCT p.order_id) AS orders
+     FROM payments p JOIN orders o ON p.order_id=o.order_id
+     WHERE p.verification_status='VALID' AND o.order_date>=DATE_SUB(NOW(),INTERVAL 7 DAY)
+     GROUP BY dkey ORDER BY dkey ASC"
+);
+$dailyDB = [];
+while ($row = $res->fetch_assoc()) $dailyDB[$row['dkey']] = $row;
+$dailyFinal = [];
+foreach ($dailySlots as $s) {
+    $dailyFinal[] = ['label'=>$s['label'],'revenue'=>(float)($dailyDB[$s['key']]['revenue']??0),'orders'=>(int)($dailyDB[$s['key']]['orders']??0)];
+}
+$maxDaily = max(array_column($dailyFinal, 'revenue')) ?: 1;
+
+$showDailyTrend = in_array($period, ['week','today']);
+$activeTrend    = $showDailyTrend ? $dailyFinal : $trendFinal;
+$activeMax      = $showDailyTrend ? $maxDaily   : $maxTrend;
+$trendLabel     = $showDailyTrend ? 'Daily – Last 7 Days' : 'Monthly – Last 12 Months (all periods shown)';
+
+// ==============================================================
+//  CATEGORY, BRANCH, PRODUCTS, STATUS
+// ==============================================================
+$catColours = ['#A83535','#F4A261','#4CAF50','#2196F3','#9C27B0','#FF9800','#00BCD4','#E91E63'];
+
+$res = $conn->query("SELECT COALESCE(p.category,'Uncategorised') AS category, SUM(oi.quantity) AS total_qty, SUM(oi.quantity*oi.unit_price) AS cat_revenue FROM order_items oi JOIN products p ON oi.product_id=p.product_id JOIN orders o ON oi.order_id=o.order_id WHERE 1=1 $rangeSQL GROUP BY category ORDER BY cat_revenue DESC LIMIT 8");
+$categoryRows = $res->fetch_all(MYSQLI_ASSOC);
+$catTotal = array_sum(array_column($categoryRows,'cat_revenue')) ?: 1;
+$stops=[]; $cum=0;
+foreach($categoryRows as $i=>$cat){ $pct=($cat['cat_revenue']/$catTotal)*100; $col=$catColours[$i%count($catColours)]; $stops[]="$col {$cum}% ".($cum+$pct)."%"; $cum+=$pct; }
+$pieGradient = $stops ? implode(', ',$stops) : '#E0E0E0 0% 100%';
+
+$res = $conn->query("SELECT p.product_id, p.product_name, p.category, SUM(oi.quantity) AS total_qty, SUM(oi.quantity*oi.unit_price) AS total_revenue, COUNT(DISTINCT oi.order_id) AS order_count FROM order_items oi JOIN products p ON oi.product_id=p.product_id JOIN orders o ON oi.order_id=o.order_id WHERE 1=1 $rangeSQL GROUP BY p.product_id ORDER BY total_revenue DESC LIMIT 10");
+$topProducts = $res->fetch_all(MYSQLI_ASSOC);
+$maxProdRev  = !empty($topProducts) ? (float)$topProducts[0]['total_revenue'] : 1;
+
+$res = $conn->query("SELECT b.branch_name, COALESCE(SUM(p.amount),0) AS branch_revenue, COUNT(DISTINCT p.order_id) AS branch_orders FROM payments p JOIN orders o ON p.order_id=o.order_id JOIN users u ON o.user_id=u.user_id JOIN branches b ON u.branch_id=b.branch_id WHERE p.verification_status='VALID' $rangeSQL GROUP BY b.branch_id ORDER BY branch_revenue DESC");
+$branchRows  = $res->fetch_all(MYSQLI_ASSOC);
+if (empty($branchRows)) { $res2=$conn->query("SELECT branch_name,0 AS branch_revenue,0 AS branch_orders FROM branches WHERE status='ACTIVE' LIMIT 8"); $branchRows=$res2->fetch_all(MYSQLI_ASSOC); }
+$branchTotal = array_sum(array_column($branchRows,'branch_revenue')) ?: 1;
+$brMaxRev    = max(array_column($branchRows,'branch_revenue')) ?: 1;
+
+$res = $conn->query("SELECT order_status, COUNT(*) AS cnt FROM orders o WHERE 1=1 $rangeSQL GROUP BY order_status ORDER BY cnt DESC");
+$orderStatuses = $res->fetch_all(MYSQLI_ASSOC);
+$totalStatusOrders = array_sum(array_column($orderStatuses,'cnt')) ?: 1;
+$statusColours = ['NEW'=>'#3b82f6','PROCESSING'=>'#f59e0b','READY'=>'#10b981','COLLECTED'=>'#6b7280','CANCELLED'=>'#ef4444'];
+
+// Inventory
+$res=$conn->query("SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity=0"); $outOfStock=(int)$res->fetch_assoc()['cnt'];
+$res=$conn->query("SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity>0 AND stock_quantity<=minimum_level"); $lowStock=(int)$res->fetch_assoc()['cnt'];
+$res=$conn->query("SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity>minimum_level"); $healthyStock=(int)$res->fetch_assoc()['cnt'];
+
+$res=$conn->query("SELECT p.product_name, p.category, b.branch_name, i.stock_quantity, i.minimum_level, (i.minimum_level-i.stock_quantity) AS shortage FROM inventory i JOIN products p ON i.product_id=p.product_id JOIN branches b ON i.branch_id=b.branch_id WHERE i.stock_quantity<=i.minimum_level AND p.product_status='ACTIVE' ORDER BY i.stock_quantity ASC LIMIT 10");
+$lowStockItems = $res->fetch_all(MYSQLI_ASSOC);
+
+// Customers
+$res=$conn->query("SELECT COUNT(*) AS cnt FROM users WHERE user_role='CUSTOMER' AND account_status='ACTIVE'"); $totalCustomers=(int)$res->fetch_assoc()['cnt'];
+$res=$conn->query("SELECT u.name, u.email, COUNT(DISTINCT o.order_id) AS order_count, COALESCE(SUM(p.amount),0) AS total_spent FROM payments p JOIN orders o ON p.order_id=o.order_id JOIN users u ON o.user_id=u.user_id WHERE p.verification_status='VALID' $rangeSQL GROUP BY u.user_id ORDER BY total_spent DESC LIMIT 8");
+$topCustomers = $res->fetch_all(MYSQLI_ASSOC);
+
+// Payments
+$res=$conn->query("SELECT payment_method, COUNT(*) AS cnt, COALESCE(SUM(amount),0) AS total FROM payments p JOIN orders o ON p.order_id=o.order_id WHERE p.verification_status='VALID' $rangeSQL GROUP BY payment_method ORDER BY total DESC");
+$paymentMethods=$res->fetch_all(MYSQLI_ASSOC);
+$payMethodTotal=array_sum(array_column($paymentMethods,'total')) ?: 1;
+
+$res=$conn->query("SELECT verification_status, COUNT(*) AS cnt, COALESCE(SUM(amount),0) AS total FROM payments GROUP BY verification_status");
+$payVerification=$res->fetch_all(MYSQLI_ASSOC);
+$pvTotal=array_sum(array_column($payVerification,'cnt')) ?: 1;
+
+$res=$conn->query("SELECT p.payment_id, p.record_date, p.amount, p.payment_method, p.verification_status, o.order_id, u.name AS customer_name FROM payments p JOIN orders o ON p.order_id=o.order_id JOIN users u ON o.user_id=u.user_id ORDER BY p.record_date DESC LIMIT 10");
+$recentPayments=$res->fetch_all(MYSQLI_ASSOC);
+
+$res=$conn->query("SELECT order_status, COUNT(*) AS cnt FROM preorders GROUP BY order_status");
+$preorderStatuses=$res->fetch_all(MYSQLI_ASSOC);
+$totalPreorderRows=array_sum(array_column($preorderStatuses,'cnt')) ?: 1;
+
+$res2=$conn->query("SELECT COUNT(*) AS cnt FROM products WHERE product_status='ACTIVE'");
+$activeProducts=(int)$res2->fetch_assoc()['cnt'];
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StationaryPlus - Sales Report Dashboard</title>
+    <title>StationaryPlus – Analytics Dashboard</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
- :root {
-    --primary: #A83535;      /* Brick Red */
-    --secondary: #F4A261;    /* Muted Orange */
-    --background: #FAFAFA;   /* Light Grey */
-    --text: #2E2E2E;         /* Dark Charcoal */
-    --light-text: #707070;   /* Secondary Text */
-    --border: #E0E0E0;       /* Border Grey */
-    --white: #FFFFFF;
-    --sidebar-width: 260px;
-    --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-}
-
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-    font-family: 'Segoe UI', system-ui, sans-serif;
-}
-
-body {
-    background-color: var(--background);
-    color: var(--text);
-    min-height: 100vh;
-    display: flex;
-}
-
-/* Sidebar Navigation */
-.sidebar {
-    width: var(--sidebar-width);
-    background-color: var(--white);
-    border-right: 1px solid var(--border);
-    height: 100vh;
-    position: fixed;
-    left: 0;
-    top: 0;
-    display: flex;
-    flex-direction: column;
-    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.03);
-}
-
-.logo-area {
-    padding: 25px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-}
-
-.logo-icon {
-    background-color: var(--primary);
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-right: 15px;
-    color: white;
-    font-size: 20px;
-}
-
-.logo-text {
-    font-size: 20px;
-    font-weight: 700;
-    color: var(--primary);
-}
-
-.admin-subtitle {
-    font-size: 13px;
-    color: var(--light-text);
-    margin-top: 4px;
-}
-
-.nav-section {
-    padding: 20px 0;
-    border-bottom: 1px solid var(--border);
-}
-
-.nav-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--light-text);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    padding: 0 25px 12px 25px;
-}
-
-.nav-menu {
-    list-style: none;
-}
-
-.nav-item {
-    margin-bottom: 5px;
-}
-
-.nav-link {
-    display: flex;
-    align-items: center;
-    padding: 16px 25px;
-    color: var(--text);
-    text-decoration: none;
-    transition: all 0.2s ease;
-    border-left: 4px solid transparent;
-}
-
-.nav-link:hover {
-    background-color: rgba(168, 53, 53, 0.05);
-    color: var(--primary);
-    border-left-color: rgba(168, 53, 53, 0.3);
-}
-
-.nav-link.active {
-    background-color: rgba(168, 53, 53, 0.08);
-    color: var(--primary);
-    border-left-color: var(--primary);
-    font-weight: 600;
-}
-
-.nav-icon {
-    width: 20px;
-    text-align: center;
-    margin-right: 16px;
-    font-size: 17px;
-}
-
-.nav-text {
-    font-size: 15px;
-}
-
-.user-section {
-    margin-top: auto;
-    padding: 25px;
-    border-top: 1px solid var(--border);
-}
-
-.user-info {
-    display: flex;
-    align-items: center;
-    margin-bottom: 20px;
-}
-
-.user-avatar {
-    width: 42px;
-    height: 42px;
-    border-radius: 50%;
-    background-color: rgba(168, 53, 53, 0.1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--primary);
-    font-weight: 600;
-    font-size: 16px;
-    margin-right: 15px;
-}
-
-.user-details {
-    flex-grow: 1;
-}
-
-.user-name {
-    font-weight: 600;
-    font-size: 15px;
-    color: var(--text);
-    margin-bottom: 3px;
-}
-
-.user-role {
-    font-size: 13px;
-    color: var(--light-text);
-}
-
-.logout-btn {
-    width: 100%;
-    padding: 12px;
-    background-color: rgba(168, 53, 53, 0.1);
-    color: var(--primary);
-    border: 1.5px solid var(--primary);
-    border-radius: 6px;
-    font-weight: 600;
-    font-size: 14px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-}
-
-.logout-btn:hover {
-    background-color: rgba(168, 53, 53, 0.2);
-}
-
-/* Main Content Area */
-.main-content {
-    flex-grow: 1;
-    margin-left: var(--sidebar-width);
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-}
-
-.top-header {
-    background-color: var(--white);
-    padding: 22px 30px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.header-left h1 {
-    font-size: 24px;
-    color: var(--text);
-    margin-bottom: 6px;
-    font-weight: 700;
-}
-
-.header-left p {
-    font-size: 14px;
-    color: var(--light-text);
-}
-
-.header-right {
-    display: flex;
-    align-items: center;
-    gap: 25px;
-}
-
-.period-selector {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.period-label {
-    font-size: 14px;
-    color: var(--light-text);
-}
-
-.period-select {
-    padding: 10px 15px;
-    border: 1.5px solid var(--border);
-    border-radius: 8px;
-    font-size: 14px;
-    background-color: var(--white);
-    color: var(--text);
-    min-width: 160px;
-}
-
-.export-btn {
-    padding: 12px 24px;
-    background-color: rgba(168, 53, 53, 0.1);
-    color: var(--primary);
-    border: 1.5px solid var(--primary);
-    border-radius: 8px;
-    font-weight: 600;
-    font-size: 14px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    transition: all 0.2s ease;
-}
-
-.export-btn:hover {
-    background-color: rgba(168, 53, 53, 0.2);
-}
-
-/* Sales Dashboard Content */
-.sales-dashboard {
-    flex-grow: 1;
-    padding: 30px;
-    display: flex;
-    flex-direction: column;
-    gap: 30px;
-}
-
-/* Top Summary Cards */
-.summary-cards {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 25px;
-}
-
-.summary-card {
-    background-color: var(--white);
-    border-radius: 12px;
-    padding: 25px;
-    box-shadow: var(--card-shadow);
-    border: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    transition: all 0.3s ease;
-}
-
-.summary-card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
-}
-
-.summary-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
-}
-
-.summary-title {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text);
-}
-
-.summary-icon {
-    width: 48px;
-    height: 48px;
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 22px;
-}
-
-.revenue-icon {
-    background-color: rgba(168, 53, 53, 0.1);
-    color: var(--primary);
-}
-
-.orders-icon {
-    background-color: rgba(244, 162, 97, 0.15);
-    color: var(--secondary);
-}
-
-.average-icon {
-    background-color: rgba(76, 175, 80, 0.1);
-    color: #4CAF50;
-}
-
-.growth-icon {
-    background-color: rgba(33, 150, 243, 0.1);
-    color: #2196F3;
-}
-
-.summary-value {
-    font-size: 32px;
-    font-weight: 700;
-    color: var(--primary);
-    margin-bottom: 10px;
-}
-
-.summary-trend {
-    font-size: 14px;
-    color: var(--light-text);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: auto;
-}
-
-.trend-up {
-    color: #4CAF50;
-}
-
-.trend-down {
-    color: var(--primary);
-}
-
-/* Main Charts Grid */
-.charts-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    grid-template-rows: auto auto auto;
-    gap: 30px;
-}
-
-/* Chart Containers */
-.chart-container {
-    background-color: var(--white);
-    border-radius: 12px;
-    box-shadow: var(--card-shadow);
-    border: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    min-height: 380px;
-}
-
-.chart-header {
-    padding: 22px 25px;
-    border-bottom: 1px solid var(--border);
-    background-color: rgba(168, 53, 53, 0.03);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.chart-header h3 {
-    font-size: 17px;
-    color: var(--primary);
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.chart-header h3 i {
-    font-size: 17px;
-}
-
-.chart-content {
-    flex-grow: 1;
-    padding: 25px;
-    display: flex;
-    flex-direction: column;
-    position: relative;
-}
-
-/* Sales Trend Chart (Bar Chart) */
-.sales-trend-chart {
-    min-height: 400px;
-}
-
-.chart-bars {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    height: 220px;
-    margin-top: 25px;
-    padding: 0 15px;
-}
-
-.bar-group {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    width: 9%;
-}
-
-.bar-label {
-    font-size: 12px;
-    color: var(--light-text);
-    text-align: center;
-}
-
-.bar {
-    width: 24px;
-    border-radius: 6px 6px 0 0;
-    transition: height 0.3s ease;
-}
-
-.current-bar {
-    background-color: var(--primary);
-}
-
-.previous-bar {
-    background-color: rgba(168, 53, 53, 0.3);
-}
-
-.bar-value {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text);
-    margin-top: 8px;
-}
-
-/* Category Breakdown (Pie Chart) */
-.category-chart {
-    position: relative;
-    min-height: 400px;
-}
-
-.pie-chart {
-    width: 220px;
-    height: 220px;
-    border-radius: 50%;
-    background: conic-gradient(
-        #A83535 0% 25%,
-        #F4A261 25% 45%,
-        #4CAF50 45% 65%,
-        #2196F3 65% 80%,
-        #9C27B0 80% 100%
-    );
-    margin: 0 auto;
-    position: relative;
-}
-
-.pie-center {
-    position: absolute;
-    width: 100px;
-    height: 100px;
-    background-color: var(--white);
-    border-radius: 50%;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-}
-
-.pie-center-value {
-    font-size: 22px;
-    font-weight: 700;
-    color: var(--primary);
-}
-
-.pie-center-label {
-    font-size: 12px;
-    color: var(--light-text);
-}
-
-.category-legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 20px;
-    margin-top: 30px;
-    justify-content: center;
-}
-
-.legend-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 15px;
-    background-color: rgba(168, 53, 53, 0.03);
-    border-radius: 8px;
-}
-
-.legend-color {
-    width: 14px;
-    height: 14px;
-    border-radius: 4px;
-}
-
-.legend-text {
-    font-size: 13px;
-    color: var(--text);
-}
-
-.legend-value {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--primary);
-    margin-left: 6px;
-}
-
-/* Revenue by Branch (Donut Chart) */
-.branch-chart {
-    min-height: 400px;
-}
-
-.donut-chart {
-    width: 200px;
-    height: 200px;
-    border-radius: 50%;
-    background: conic-gradient(
-        #A83535 0% 40%,
-        rgba(168, 53, 53, 0.7) 40% 65%,
-        rgba(168, 53, 53, 0.4) 65% 85%,
-        rgba(168, 53, 53, 0.2) 85% 100%
-    );
-    margin: 0 auto;
-    position: relative;
-}
-
-.donut-center {
-    position: absolute;
-    width: 120px;
-    height: 120px;
-    background-color: var(--white);
-    border-radius: 50%;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-}
-
-.branch-list {
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-    margin-top: 25px;
-}
-
-.branch-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 15px 20px;
-    background-color: rgba(168, 53, 53, 0.03);
-    border-radius: 8px;
-    border-left: 5px solid var(--primary);
-}
-
-.branch-name {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text);
-}
-
-.branch-revenue {
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--primary);
-}
-
-/* Top Products (Horizontal Bar Chart) */
-.products-chart {
-    min-height: 400px;
-}
-
-.horizontal-bars {
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-    margin-top: 20px;
-}
-
-.product-bar {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-}
-
-.product-name {
-    font-size: 14px;
-    color: var(--text);
-    width: 140px;
-    min-width: 140px;
-}
-
-.bar-track {
-    flex-grow: 1;
-    height: 24px;
-    background-color: rgba(168, 53, 53, 0.1);
-    border-radius: 12px;
-    overflow: hidden;
-}
-
-.bar-fill {
-    height: 100%;
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    padding-right: 12px;
-    font-size: 12px;
-    font-weight: 600;
-    color: white;
-}
-
-.fill-1 {
-    background-color: var(--primary);
-    width: 85%;
-}
-
-.fill-2 {
-    background-color: rgba(168, 53, 53, 0.8);
-    width: 72%;
-}
-
-.fill-3 {
-    background-color: rgba(168, 53, 53, 0.6);
-    width: 68%;
-}
-
-.fill-4 {
-    background-color: rgba(244, 162, 97, 0.8);
-    width: 55%;
-}
-
-.fill-5 {
-    background-color: rgba(244, 162, 97, 0.6);
-    width: 48%;
-}
-
-.product-value {
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--primary);
-    min-width: 80px;
-    text-align: right;
-}
-
-/* Recent Transactions List */
-.transactions-list {
-    grid-column: 1 / -1;
-    min-height: 450px;
-}
-
-.transactions-content {
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-    max-height: 300px;
-    overflow-y: auto;
-    padding-right: 10px;
-}
-
-.transaction-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 18px 20px;
-    background-color: rgba(168, 53, 53, 0.02);
-    border-radius: 10px;
-    border-left: 5px solid transparent;
-    transition: all 0.2s ease;
-    margin-bottom: 5px;
-}
-
-.transaction-item:hover {
-    background-color: rgba(168, 53, 53, 0.05);
-    border-left-color: var(--primary);
-}
-
-.transaction-info {
-    display: flex;
-    align-items: center;
-    gap: 18px;
-}
-
-.transaction-icon {
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    background-color: rgba(168, 53, 53, 0.1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--primary);
-    font-size: 18px;
-}
-
-.transaction-details {
-    display: flex;
-    flex-direction: column;
-}
-
-.transaction-id {
-    font-weight: 600;
-    font-size: 14px;
-    color: var(--primary);
-}
-
-.transaction-date {
-    font-size: 13px;
-    color: var(--light-text);
-    margin-top: 4px;
-}
-
-.transaction-amount {
-    font-weight: 700;
-    font-size: 18px;
-    color: var(--primary);
-}
-
-.transaction-status {
-    display: inline-block;
-    padding: 6px 12px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 600;
-}
-
-.status-completed {
-    background-color: rgba(76, 175, 80, 0.1);
-    color: #4CAF50;
-}
-
-.status-pending {
-    background-color: rgba(244, 162, 97, 0.15);
-    color: var(--secondary);
-}
-
-/* Responsive adjustments */
-@media (max-width: 1400px) {
-    .summary-cards {
-        grid-template-columns: repeat(2, 1fr);
-    }
-    
-    .charts-grid {
-        grid-template-columns: 1fr;
-        grid-template-rows: auto;
-    }
-}
-
-@media (max-width: 1024px) {
-    :root {
-        --sidebar-width: 70px;
-    }
-    
-    .logo-text, .admin-subtitle, .nav-text, .user-details, .nav-title {
-        display: none;
-    }
-    
-    .logo-area, .nav-section, .user-section {
-        padding: 20px 15px;
-    }
-    
-    .logo-area {
-        justify-content: center;
-    }
-    
-    .logo-icon {
-        margin-right: 0;
-        width: 36px;
-        height: 36px;
-    }
-    
-    .nav-link {
-        justify-content: center;
-        padding: 16px;
-        border-left: none;
-        border-right: 4px solid transparent;
-    }
-    
-    .nav-link:hover, .nav-link.active {
-        border-left: none;
-        border-right-color: var(--primary);
-    }
-    
-    .nav-icon {
-        margin-right: 0;
-        font-size: 18px;
-    }
-    
-    .logout-btn span {
-        display: none;
-    }
-    
-    .logout-btn {
-        justify-content: center;
-        padding: 12px;
-    }
-    
-    .user-avatar {
-        margin-right: 0;
-        width: 36px;
-        height: 36px;
-    }
-}
-
-/* Scrollbar styling */
-.transactions-content::-webkit-scrollbar {
-    width: 8px;
-}
-
-.transactions-content::-webkit-scrollbar-track {
-    background: #f5f5f5;
-    border-radius: 4px;
-}
-
-.transactions-content::-webkit-scrollbar-thumb {
-    background: rgba(168, 53, 53, 0.3);
-    border-radius: 4px;
-}
-
-.transactions-content::-webkit-scrollbar-thumb:hover {
-    background: rgba(168, 53, 53, 0.5);
-}
+        :root{--primary:#A83535;--secondary:#F4A261;--bg:#FAFAFA;--text:#2E2E2E;--muted:#707070;--border:#E0E0E0;--white:#FFFFFF;--sidebar:260px;--shadow:0 4px 12px rgba(0,0,0,0.05);}
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif;}
+        body{background:var(--bg);color:var(--text);min-height:100vh;display:flex;}
+
+        /* Sidebar */
+        .sidebar{width:var(--sidebar);background:var(--white);border-right:1px solid var(--border);height:100vh;position:fixed;left:0;top:0;display:flex;flex-direction:column;box-shadow:2px 0 10px rgba(0,0,0,0.03);}
+        .logo-area{padding:22px;border-bottom:1px solid var(--border);display:flex;align-items:center;}
+        .logo-icon{background:var(--primary);width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:12px;color:#fff;font-size:18px;}
+        .logo-text{font-size:18px;font-weight:700;color:var(--primary);}
+        .admin-subtitle{font-size:12px;color:var(--muted);margin-top:2px;}
+        .nav-section{padding:18px 0;border-bottom:1px solid var(--border);}
+        .nav-title{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;padding:0 22px 10px;}
+        .nav-menu{list-style:none;}
+        .nav-item{margin-bottom:2px;}
+        .nav-link{display:flex;align-items:center;padding:14px 22px;color:var(--text);text-decoration:none;transition:all .2s;border-left:4px solid transparent;}
+        .nav-link:hover{background:rgba(168,53,53,.05);color:var(--primary);border-left-color:rgba(168,53,53,.3);}
+        .nav-link.active{background:rgba(168,53,53,.08);color:var(--primary);border-left-color:var(--primary);font-weight:600;}
+        .nav-icon{width:18px;text-align:center;margin-right:14px;font-size:16px;}
+        .nav-text{font-size:14px;}
+        .user-section{margin-top:auto;padding:20px;border-top:1px solid var(--border);}
+        .user-info{display:flex;align-items:center;margin-bottom:15px;}
+        .user-avatar{width:38px;height:38px;border-radius:50%;background:rgba(168,53,53,.1);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:600;font-size:15px;margin-right:12px;}
+        .user-name{font-weight:600;font-size:14px;}
+        .logout-btn{width:100%;padding:9px;background:rgba(168,53,53,.1);color:var(--primary);border:1.5px solid var(--primary);border-radius:5px;font-weight:600;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;transition:all .2s;}
+        .logout-btn:hover{background:rgba(168,53,53,.2);}
+
+        /* Main */
+        .main-content{flex-grow:1;margin-left:var(--sidebar);min-height:100vh;display:flex;flex-direction:column;}
+
+        /* Header */
+        .top-header{background:var(--white);padding:12px 22px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:20;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+        .header-title{font-size:19px;font-weight:700;}
+        .header-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+
+        /* Period controls */
+        .controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+        .period-btn{padding:6px 11px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;font-weight:600;color:var(--muted);background:var(--white);cursor:pointer;text-decoration:none;transition:all .2s;white-space:nowrap;}
+        .period-btn:hover{border-color:var(--primary);color:var(--primary);}
+        .period-btn.active{background:var(--primary);color:#fff;border-color:var(--primary);}
+        .date-input{padding:6px 9px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;color:var(--text);}
+        .date-input:focus{outline:none;border-color:var(--primary);}
+        .apply-btn{padding:6px 12px;background:var(--primary);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;}
+
+        /* Tabs */
+        .tab-bar{background:var(--white);border-bottom:1px solid var(--border);padding:0 22px;display:flex;gap:0;overflow-x:auto;}
+        .tab-link{padding:12px 16px;font-size:13px;font-weight:600;color:var(--muted);text-decoration:none;border-bottom:3px solid transparent;white-space:nowrap;transition:all .2s;display:flex;align-items:center;gap:6px;}
+        .tab-link:hover{color:var(--primary);}
+        .tab-link.active{color:var(--primary);border-bottom-color:var(--primary);}
+
+        /* Page body */
+        .page-body{padding:20px 22px;flex-grow:1;display:flex;flex-direction:column;gap:18px;overflow-y:auto;}
+
+        /* Stat cards */
+        .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+        .stat-card{background:var(--white);border-radius:10px;padding:18px;box-shadow:var(--shadow);border:1px solid var(--border);display:flex;flex-direction:column;transition:transform .2s;}
+        .stat-card:hover{transform:translateY(-2px);}
+        .stat-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;}
+        .stat-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
+        .stat-icon{width:38px;height:38px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:17px;}
+        .ic-red   {background:rgba(168,53,53,.1);color:var(--primary);}
+        .ic-orange{background:rgba(244,162,97,.15);color:#d97706;}
+        .ic-green {background:rgba(16,185,129,.1);color:#10b981;}
+        .ic-blue  {background:rgba(59,130,246,.1);color:#3b82f6;}
+        .ic-purple{background:rgba(139,92,246,.1);color:#7c3aed;}
+        .stat-value{font-size:24px;font-weight:700;color:var(--primary);margin-bottom:4px;}
+        .stat-trend{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px;margin-top:auto;}
+        .t-up{color:#10b981;} .t-dn{color:#ef4444;}
+
+        /* Layout grids */
+        .two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+        .three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;}
+
+        /* Card */
+        .card{background:var(--white);border-radius:10px;box-shadow:var(--shadow);border:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+        .card-head{padding:14px 18px;border-bottom:1px solid var(--border);background:rgba(168,53,53,.025);display:flex;justify-content:space-between;align-items:center;}
+        .card-title{font-size:13px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:7px;}
+        .card-sub{font-size:11px;color:var(--muted);}
+        .card-body{padding:16px 18px;flex-grow:1;}
+
+        /* Bar chart (trend) */
+        .bar-chart{display:flex;align-items:flex-end;justify-content:space-between;height:130px;gap:3px;padding:0 2px;}
+        .bar-col{display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;min-width:0;}
+        .bar-wrap{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100px;width:100%;}
+        .bar{width:100%;max-width:28px;border-radius:3px 3px 0 0;background:var(--primary);transition:height .8s ease;cursor:pointer;position:relative;}
+        .bar:hover{background:#8b2a2a;}
+        .bar[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:105%;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.75);color:#fff;padding:4px 8px;border-radius:5px;font-size:10px;white-space:nowrap;margin-bottom:2px;pointer-events:none;z-index:99;}
+        .bar-val{font-size:9px;font-weight:600;color:var(--muted);text-align:center;margin-bottom:2px;white-space:nowrap;overflow:hidden;width:100%;}
+        .bar-lbl{font-size:9px;color:var(--muted);text-align:center;margin-top:3px;}
+
+        /* Pie */
+        .pie-wrap{display:flex;align-items:center;gap:18px;flex-wrap:wrap;}
+        .pie{width:140px;height:140px;border-radius:50%;position:relative;flex-shrink:0;}
+        .pie-hole{position:absolute;width:62px;height:62px;background:var(--white);border-radius:50%;top:50%;left:50%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;flex-direction:column;}
+        .pie-hole-val{font-size:13px;font-weight:700;color:var(--primary);}
+        .pie-hole-lbl{font-size:9px;color:var(--muted);}
+        .legend{display:flex;flex-direction:column;gap:6px;flex:1;}
+        .legend-row{display:flex;align-items:center;gap:7px;}
+        .legend-dot{width:9px;height:9px;border-radius:2px;flex-shrink:0;}
+        .legend-name{font-size:11px;color:var(--text);flex:1;}
+        .legend-pct{font-size:11px;font-weight:700;color:var(--primary);}
+        .legend-amt{font-size:10px;color:var(--muted);}
+
+        /* Horizontal bars */
+        .h-bar-list{display:flex;flex-direction:column;gap:10px;}
+        .h-bar-row{display:flex;align-items:center;gap:8px;}
+        .h-bar-name{font-size:11px;color:var(--text);width:120px;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        .h-bar-track{flex:1;height:18px;background:rgba(168,53,53,.08);border-radius:6px;overflow:hidden;}
+        .h-bar-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--primary),rgba(168,53,53,.6));display:flex;align-items:center;padding-left:6px;font-size:9px;font-weight:700;color:#fff;transition:width 1s ease;}
+        .h-bar-val{font-size:11px;font-weight:700;color:var(--primary);min-width:68px;text-align:right;}
+
+        /* Status bars */
+        .status-grid{display:flex;flex-direction:column;gap:9px;}
+        .status-row{display:flex;align-items:center;gap:8px;}
+        .status-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
+        .status-name{font-size:12px;color:var(--text);flex:1;}
+        .status-bar-track{flex:2;height:7px;background:var(--border);border-radius:3px;overflow:hidden;}
+        .status-bar-fill{height:100%;border-radius:3px;}
+        .status-count{font-size:11px;font-weight:700;min-width:24px;text-align:right;}
+        .status-pct{font-size:10px;color:var(--muted);min-width:32px;text-align:right;}
+
+        /* Table */
+        .data-table{width:100%;border-collapse:collapse;}
+        .data-table thead{background:rgba(168,53,53,.03);border-bottom:2px solid var(--border);}
+        .data-table th{padding:9px 13px;text-align:left;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;}
+        .data-table tbody tr{border-bottom:1px solid var(--border);transition:background .15s;}
+        .data-table tbody tr:last-child{border-bottom:none;}
+        .data-table tbody tr:hover{background:rgba(168,53,53,.02);}
+        .data-table td{padding:10px 13px;font-size:12px;color:var(--text);vertical-align:middle;}
+        .mono{font-family:monospace;font-weight:700;color:var(--primary);font-size:11px;}
+
+        /* Badges */
+        .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;}
+        .b-green {background:rgba(16,185,129,.1);color:#059669;border:1px solid #a7f3d0;}
+        .b-yellow{background:rgba(245,158,11,.1);color:#d97706;border:1px solid #fde68a;}
+        .b-red   {background:rgba(239,68,68,.1);color:#dc2626;border:1px solid #fecaca;}
+        .b-blue  {background:rgba(59,130,246,.1);color:#2563eb;border:1px solid #bfdbfe;}
+        .b-gray  {background:rgba(107,114,128,.1);color:#4b5563;border:1px solid #d1d5db;}
+
+        /* Inventory health */
+        .inv-health{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+        .inv-hcard{padding:16px;border-radius:9px;text-align:center;}
+        .inv-hcard .hval{font-size:28px;font-weight:700;margin-bottom:4px;}
+        .inv-hcard .hlbl{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;}
+        .inv-out{background:rgba(239,68,68,.08);border:1px solid #fecaca;} .inv-out .hval,.inv-out .hlbl{color:#dc2626;}
+        .inv-low{background:rgba(245,158,11,.08);border:1px solid #fde68a;} .inv-low .hval,.inv-low .hlbl{color:#d97706;}
+        .inv-ok {background:rgba(16,185,129,.08);border:1px solid #a7f3d0;} .inv-ok  .hval,.inv-ok  .hlbl{color:#059669;}
+
+        /* Mini stock bar */
+        .stock-mini{display:flex;align-items:center;gap:5px;}
+        .stock-mini-bar{width:50px;height:5px;background:var(--border);border-radius:3px;overflow:hidden;}
+        .stock-mini-fill{height:100%;border-radius:3px;}
+
+        /* Method bars */
+        .method-grid{display:flex;flex-direction:column;gap:9px;}
+        .method-row{display:flex;align-items:center;gap:8px;}
+        .method-name{font-size:11px;font-weight:600;width:90px;}
+        .method-bar-track{flex:1;height:16px;background:rgba(168,53,53,.07);border-radius:5px;overflow:hidden;}
+        .method-bar-fill{height:100%;background:var(--primary);border-radius:5px;display:flex;align-items:center;padding-left:6px;font-size:9px;font-weight:700;color:#fff;}
+        .method-total{font-size:11px;font-weight:700;color:var(--primary);min-width:68px;text-align:right;}
+
+        /* No data */
+        .no-data{text-align:center;padding:30px 16px;color:var(--muted);}
+        .no-data i{font-size:26px;opacity:.2;display:block;margin-bottom:8px;}
+        .no-data p{font-size:12px;}
+
+        /* Responsive */
+        @media(max-width:1400px){.stat-grid{grid-template-columns:repeat(2,1fr);}}
+        @media(max-width:1100px){.two-col,.three-col{grid-template-columns:1fr;}}
+        @media(max-width:1024px){
+            :root{--sidebar:70px;}
+            .logo-text,.admin-subtitle,.nav-text,.user-details,.nav-title{display:none;}
+            .logo-area,.nav-section,.user-section{padding:16px 12px;}
+            .logo-area{justify-content:center;}
+            .nav-link{justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent;}
+            .nav-link:hover,.nav-link.active{border-left:none;border-right-color:var(--primary);}
+            .nav-icon{margin-right:0;}
+            .logout-btn span{display:none;}
+            .logout-btn{justify-content:center;padding:9px;}
+        }
+        @media(max-width:768px){.stat-grid{grid-template-columns:1fr 1fr;}}
     </style>
 </head>
 <body>
-    <!-- Sidebar Navigation -->
-    <nav class="sidebar">
-        <div class="logo-area">
-            <div class="logo-icon">
-                <i class="fas fa-pen-nib"></i>
+
+<?php include 'a_sidebar.php'; ?>
+
+<main class="main-content">
+
+<!-- Top header -->
+<header class="top-header">
+    <div>
+        <div class="header-title"><i class="fas fa-chart-line" style="color:var(--primary);margin-right:8px;"></i>Analytics Dashboard</div>
+        <div class="header-sub"><?= htmlspecialchars($periodLabel) ?> &nbsp;&bull;&nbsp; <?= date('d M Y, H:i') ?></div>
+    </div>
+    <form method="GET" action="a_report.php" class="controls">
+        <input type="hidden" name="tab" value="<?= htmlspecialchars($tab) ?>">
+        <?php foreach(['today'=>'Today','week'=>'7 Days','month'=>'This Month','lastmonth'=>'Last Month','quarter'=>'Quarter','year'=>'This Year','alltime'=>'All Time'] as $k=>$v): ?>
+        <a href="?tab=<?= $tab ?>&period=<?= $k ?>" class="period-btn <?= $period===$k?'active':'' ?>"><?= $v ?></a>
+        <?php endforeach; ?>
+        <input type="date" name="date_from" class="date-input" value="<?= htmlspecialchars($dateFrom) ?>">
+        <input type="date" name="date_to"   class="date-input" value="<?= htmlspecialchars($dateTo) ?>">
+        <input type="hidden" name="period" value="custom">
+        <button type="submit" class="apply-btn"><i class="fas fa-filter"></i> Custom</button>
+    </form>
+</header>
+
+<!-- Tabs -->
+<nav class="tab-bar">
+    <?php foreach(['overview'=>['fas fa-tachometer-alt','Overview'],'orders'=>['fas fa-clipboard-list','Orders'],'products'=>['fas fa-boxes','Products'],'inventory'=>['fas fa-warehouse','Inventory'],'customers'=>['fas fa-users','Customers'],'payments'=>['fas fa-receipt','Payments']] as $k=>[$icon,$label]): ?>
+    <a href="?tab=<?= $k ?>&period=<?= $period ?>&date_from=<?= urlencode($dateFrom) ?>&date_to=<?= urlencode($dateTo) ?>" class="tab-link <?= $tab===$k?'active':'' ?>">
+        <i class="<?= $icon ?>"></i> <?= $label ?>
+    </a>
+    <?php endforeach; ?>
+</nav>
+
+<div class="page-body">
+
+<?php if ($tab === 'overview'): ?>
+<!-- ==================== OVERVIEW ==================== -->
+
+<div class="stat-grid">
+    <?php
+    $cards=[
+        ['Total Revenue','RM '.number_format($totalRevenue,2),$revGrowth,'fas fa-money-bill-wave','ic-red'],
+        ['Total Orders',number_format($totalOrders),$ordGrowth,'fas fa-shopping-cart','ic-orange'],
+        ['Avg Order Value','RM '.number_format($avgOrder,2),$avgGrowth,'fas fa-chart-pie','ic-green'],
+        ['Active Customers',number_format($activeCustomers),['pct'=>'in period','dir'=>'flat'],'fas fa-users','ic-blue'],
+    ];
+    foreach($cards as [$lbl,$val,$g,$icon,$ic]):
+    ?>
+    <div class="stat-card">
+        <div class="stat-header"><div class="stat-label"><?= $lbl ?></div><div class="stat-icon <?= $ic ?>"><i class="<?= $icon ?>"></i></div></div>
+        <div class="stat-value"><?= $val ?></div>
+        <div class="stat-trend">
+            <?php if($g['dir']==='up'):?><i class="fas fa-arrow-up t-up"></i><span class="t-up"><?= $g['pct'] ?></span>
+            <?php elseif($g['dir']==='down'):?><i class="fas fa-arrow-down t-dn"></i><span class="t-dn"><?= $g['pct'] ?></span>
+            <?php else:?><i class="fas fa-minus"></i>
+            <?php endif;?>
+            <span>vs previous period</span>
+        </div>
+    </div>
+    <?php endforeach; ?>
+</div>
+
+<div class="stat-grid">
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Pending Payments</div><div class="stat-icon ic-orange"><i class="fas fa-hourglass-half"></i></div></div><div class="stat-value" style="font-size:20px;"><?= $pendingCount ?></div><div class="stat-trend"><i class="fas fa-exclamation-circle" style="color:#d97706;"></i> RM <?= number_format($pendingAmt,2) ?> unverified</div></div>
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Cancelled Orders</div><div class="stat-icon ic-red"><i class="fas fa-times-circle"></i></div></div><div class="stat-value" style="font-size:20px;"><?= $cancelledOrders ?></div><div class="stat-trend"><i class="fas fa-info-circle"></i> This period</div></div>
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Pre-orders</div><div class="stat-icon ic-purple"><i class="fas fa-clipboard-check"></i></div></div><div class="stat-value" style="font-size:20px;"><?= $totalPreorders ?></div><div class="stat-trend"><i class="fas fa-info-circle"></i> All time</div></div>
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Low Stock Alerts</div><div class="stat-icon" style="background:rgba(239,68,68,.1);color:#dc2626;"><i class="fas fa-exclamation-triangle"></i></div></div><div class="stat-value" style="font-size:20px;"><?= $lowStock+$outOfStock ?></div><div class="stat-trend"><i class="fas fa-times-circle" style="color:#dc2626;"></i> <?= $outOfStock ?> out of stock</div></div>
+</div>
+
+<!-- Trend + Category -->
+<div class="two-col">
+    <div class="card">
+        <div class="card-head"><div class="card-title"><i class="fas fa-chart-bar"></i> Revenue Trend</div><span class="card-sub"><?= $trendLabel ?></span></div>
+        <div class="card-body">
+            <?php if(max(array_column($activeTrend,'revenue'))===0.0): ?>
+                <div class="no-data"><i class="fas fa-chart-bar"></i><p>No revenue data yet.</p></div>
+            <?php else: ?>
+            <div class="bar-chart">
+                <?php foreach($activeTrend as $t):
+                    $h=$activeMax>0?max(3,($t['revenue']/$activeMax)*100):3;
+                    $tip=$t['label'].': RM '.number_format($t['revenue'],2).' ('.$t['orders'].' orders)';
+                ?>
+                <div class="bar-col">
+                    <div class="bar-wrap">
+                        <div class="bar-val"><?= $t['revenue']>0?($t['revenue']>=1000?'RM'.number_format($t['revenue']/1000,1).'k':'RM'.number_format($t['revenue'],0)):'' ?></div>
+                        <div class="bar" style="height:<?= $h ?>%;" data-tip="<?= htmlspecialchars($tip) ?>"></div>
+                    </div>
+                    <div class="bar-lbl"><?= htmlspecialchars($t['label']) ?></div>
+                </div>
+                <?php endforeach; ?>
             </div>
-            <div>
-                <div class="logo-text">StationaryPlus</div>
-                <div class="admin-subtitle">Administration</div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-head"><div class="card-title"><i class="fas fa-chart-pie"></i> Sales by Category</div><span class="card-sub"><?= htmlspecialchars($periodLabel) ?></span></div>
+        <div class="card-body">
+            <?php if(empty($categoryRows)): ?>
+                <div class="no-data"><i class="fas fa-chart-pie"></i><p>No category data.</p></div>
+            <?php else: ?>
+            <div class="pie-wrap">
+                <div class="pie" style="background:conic-gradient(<?= $pieGradient ?>);"><div class="pie-hole"><div class="pie-hole-val">RM<?= number_format($catTotal/1000,1) ?>k</div><div class="pie-hole-lbl">total</div></div></div>
+                <div class="legend">
+                    <?php foreach($categoryRows as $i=>$cat): $pct=round(($cat['cat_revenue']/$catTotal)*100,1); $col=$catColours[$i%count($catColours)]; ?>
+                    <div class="legend-row"><div class="legend-dot" style="background:<?= $col ?>;"></div><span class="legend-name"><?= htmlspecialchars($cat['category']) ?></span><span class="legend-pct"><?= $pct ?>%</span><span class="legend-amt">RM<?= number_format($cat['cat_revenue'],0) ?></span></div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
+
+<!-- Order status + Branch -->
+<div class="two-col">
+    <div class="card">
+        <div class="card-head"><div class="card-title"><i class="fas fa-tasks"></i> Order Status</div><span class="card-sub"><?= htmlspecialchars($periodLabel) ?></span></div>
+        <div class="card-body">
+            <?php if(empty($orderStatuses)): ?>
+                <div class="no-data"><i class="fas fa-tasks"></i><p>No orders this period.</p></div>
+            <?php else: ?>
+            <div class="status-grid">
+                <?php foreach($orderStatuses as $s): $col=$statusColours[$s['order_status']]??'#607D8B'; $pct=round(($s['cnt']/$totalStatusOrders)*100,1); ?>
+                <div class="status-row">
+                    <div class="status-dot" style="background:<?= $col ?>;"></div>
+                    <span class="status-name"><?= ucfirst(strtolower($s['order_status'])) ?></span>
+                    <div class="status-bar-track"><div class="status-bar-fill" style="width:<?= $pct ?>%;background:<?= $col ?>;"></div></div>
+                    <span class="status-count"><?= $s['cnt'] ?></span><span class="status-pct"><?= $pct ?>%</span>
+                </div>
+                <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-head"><div class="card-title"><i class="fas fa-store"></i> Revenue by Branch</div><span class="card-sub"><?= htmlspecialchars($periodLabel) ?></span></div>
+        <div class="card-body">
+            <?php if(empty($branchRows)): ?>
+                <div class="no-data"><i class="fas fa-store"></i><p>No branch data.</p></div>
+            <?php else: ?>
+            <div class="h-bar-list">
+                <?php foreach($branchRows as $br): $bPct=$brMaxRev>0?($br['branch_revenue']/$brMaxRev)*100:0; ?>
+                <div class="h-bar-row">
+                    <span class="h-bar-name" title="<?= htmlspecialchars($br['branch_name']) ?>"><?= htmlspecialchars($br['branch_name']) ?></span>
+                    <div class="h-bar-track"><div class="h-bar-fill" style="width:<?= max(3,$bPct) ?>%;"><?php if($bPct>20):?>RM<?= number_format($br['branch_revenue']/1000,1) ?>k<?php endif;?></div></div>
+                    <span class="h-bar-val">RM <?= number_format($br['branch_revenue'],0) ?></span>
+                </div>
+                <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
+
+<!-- Top 5 products quick table -->
+<div class="card">
+    <div class="card-head"><div class="card-title"><i class="fas fa-star"></i> Top 5 Products</div><a href="?tab=products&period=<?= $period ?>" style="font-size:11px;color:var(--primary);text-decoration:none;font-weight:600;">View all &rarr;</a></div>
+    <div style="overflow-x:auto;">
+        <?php if(empty($topProducts)): ?>
+            <div class="no-data"><i class="fas fa-boxes"></i><p>No product sales this period.</p></div>
+        <?php else: ?>
+        <table class="data-table">
+            <thead><tr><th>#</th><th>Product</th><th>Category</th><th>Qty Sold</th><th>Revenue</th><th>Orders</th></tr></thead>
+            <tbody>
+            <?php foreach(array_slice($topProducts,0,5) as $i=>$p): ?>
+            <tr><td style="font-weight:700;color:var(--muted);"><?= $i+1 ?></td><td style="font-weight:600;"><?= htmlspecialchars($p['product_name']) ?></td><td><span class="badge b-blue"><?= htmlspecialchars($p['category']?:'—') ?></span></td><td><?= number_format($p['total_qty']) ?></td><td style="font-weight:700;color:var(--primary);">RM <?= number_format($p['total_revenue'],2) ?></td><td><?= $p['order_count'] ?></td></tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php endif; ?>
+    </div>
+</div>
+
+<?php elseif($tab==='orders'): ?>
+<!-- ==================== ORDERS ==================== -->
+<?php
+$newOrd=0;$procOrd=0;$readyOrd=0;$collOrd=0;$cancOrd=0;
+foreach($orderStatuses as $s){match($s['order_status']){'NEW'=>$newOrd=$s['cnt'],'PROCESSING'=>$procOrd=$s['cnt'],'READY'=>$readyOrd=$s['cnt'],'COLLECTED'=>$collOrd=$s['cnt'],'CANCELLED'=>$cancOrd=$s['cnt'],default=>null};}
+?>
+<div class="stat-grid">
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Total Orders</div><div class="stat-icon ic-red"><i class="fas fa-clipboard-list"></i></div></div><div class="stat-value"><?= $totalOrders ?></div></div>
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">New</div><div class="stat-icon ic-blue"><i class="fas fa-plus-circle"></i></div></div><div class="stat-value"><?= $newOrd ?></div></div>
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Processing</div><div class="stat-icon ic-orange"><i class="fas fa-cog"></i></div></div><div class="stat-value"><?= $procOrd ?></div></div>
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Collected</div><div class="stat-icon ic-green"><i class="fas fa-check-circle"></i></div></div><div class="stat-value"><?= $collOrd ?></div></div>
+</div>
+
+<div class="two-col">
+    <div class="card">
+        <div class="card-head"><div class="card-title"><i class="fas fa-tasks"></i> Status Breakdown</div></div>
+        <div class="card-body">
+            <?php if(empty($orderStatuses)): ?><div class="no-data"><i class="fas fa-tasks"></i><p>No orders.</p></div><?php else: ?>
+            <div class="status-grid">
+                <?php foreach($orderStatuses as $s): $col=$statusColours[$s['order_status']]??'#607D8B'; $pct=round(($s['cnt']/$totalStatusOrders)*100,1); ?>
+                <div class="status-row"><div class="status-dot" style="background:<?= $col ?>;"></div><span class="status-name"><?= ucfirst(strtolower($s['order_status'])) ?></span><div class="status-bar-track"><div class="status-bar-fill" style="width:<?= $pct ?>%;background:<?= $col ?>;"></div></div><span class="status-count"><?= $s['cnt'] ?></span><span class="status-pct"><?= $pct ?>%</span></div>
+                <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-head"><div class="card-title"><i class="fas fa-chart-bar"></i> Order Volume Trend</div><span class="card-sub"><?= $trendLabel ?></span></div>
+        <div class="card-body">
+            <?php $maxOrdTrend=max(array_column($activeTrend,'orders'))?:1; ?>
+            <div class="bar-chart">
+                <?php foreach($activeTrend as $t): $h=$maxOrdTrend>0?max(3,($t['orders']/$maxOrdTrend)*100):3; ?>
+                <div class="bar-col"><div class="bar-wrap"><div class="bar-val"><?= $t['orders']>0?$t['orders']:'' ?></div><div class="bar" style="height:<?= $h ?>%;background:#3b82f6;" data-tip="<?= htmlspecialchars($t['label'].': '.$t['orders'].' orders') ?>"></div></div><div class="bar-lbl"><?= htmlspecialchars($t['label']) ?></div></div>
+                <?php endforeach; ?>
             </div>
         </div>
-        
-        <div class="nav-section">
-            <div class="nav-title">Administration</div>
-            <ul class="nav-menu">
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-tachometer-alt"></i>
-                        </div>
-                        <div class="nav-text">Dashboard</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-users-cog"></i>
-                        </div>
-                        <div class="nav-text">User Management</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-boxes"></i>
-                        </div>
-                        <div class="nav-text">Product Management</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link active">
-                        <div class="nav-icon">
-                            <i class="fas fa-chart-bar"></i>
-                        </div>
-                        <div class="nav-text">Sales Report</div>
-                    </a>
-                </li>
-            </ul>
+    </div>
+</div>
+
+<!-- Pre-orders -->
+<div class="card">
+    <div class="card-head"><div class="card-title"><i class="fas fa-clipboard-check"></i> Pre-order Status (All Time)</div></div>
+    <div class="card-body">
+        <?php if(empty($preorderStatuses)): ?><div class="no-data"><i class="fas fa-clipboard-check"></i><p>No pre-orders.</p></div><?php else: ?>
+        <div class="status-grid">
+            <?php $poCols=['SUBMITTED'=>'#A83535','PROCESSING'=>'#f59e0b','READY'=>'#10b981','CANCELLED'=>'#ef4444']; foreach($preorderStatuses as $ps): $col=$poCols[$ps['order_status']]??'#607D8B'; $pct=round(($ps['cnt']/$totalPreorderRows)*100,1); ?>
+            <div class="status-row"><div class="status-dot" style="background:<?= $col ?>;"></div><span class="status-name"><?= ucfirst(strtolower($ps['order_status'])) ?></span><div class="status-bar-track"><div class="status-bar-fill" style="width:<?= $pct ?>%;background:<?= $col ?>;"></div></div><span class="status-count"><?= $ps['cnt'] ?></span><span class="status-pct"><?= $pct ?>%</span></div>
+            <?php endforeach; ?>
         </div>
-        
-        <div class="user-section">
-            <div class="user-info">
-                <div class="user-avatar">AD</div>
-                <div class="user-details">
-                    <div class="user-name">Admin User</div>
-                    <div class="user-role">Sales Analyst</div>
-                </div>
+        <?php endif; ?>
+    </div>
+</div>
+
+<?php elseif($tab==='products'): ?>
+<!-- ==================== PRODUCTS ==================== -->
+<?php $totalProductRevenue=array_sum(array_column($topProducts,'total_revenue')); $totalQtySold=array_sum(array_column($topProducts,'total_qty')); ?>
+<div class="stat-grid">
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Active Products</div><div class="stat-icon ic-blue"><i class="fas fa-boxes"></i></div></div><div class="stat-value"><?= $activeProducts ?></div></div>
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Product Revenue</div><div class="stat-icon ic-red"><i class="fas fa-dollar-sign"></i></div></div><div class="stat-value" style="font-size:18px;">RM <?= number_format($totalProductRevenue,2) ?></div></div>
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Units Sold</div><div class="stat-icon ic-green"><i class="fas fa-box-open"></i></div></div><div class="stat-value"><?= number_format($totalQtySold) ?></div></div>
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Categories</div><div class="stat-icon ic-orange"><i class="fas fa-tags"></i></div></div><div class="stat-value"><?= count($categoryRows) ?></div></div>
+</div>
+
+<div class="two-col">
+    <div class="card">
+        <div class="card-head"><div class="card-title"><i class="fas fa-chart-pie"></i> Revenue by Category</div></div>
+        <div class="card-body">
+            <?php if(empty($categoryRows)): ?><div class="no-data"><i class="fas fa-chart-pie"></i><p>No data.</p></div><?php else: ?>
+            <div class="pie-wrap">
+                <div class="pie" style="background:conic-gradient(<?= $pieGradient ?>);"><div class="pie-hole"><div class="pie-hole-val"><?= count($categoryRows) ?></div><div class="pie-hole-lbl">cats</div></div></div>
+                <div class="legend"><?php foreach($categoryRows as $i=>$cat): $pct=round(($cat['cat_revenue']/$catTotal)*100,1); $col=$catColours[$i%count($catColours)]; ?>
+                    <div class="legend-row"><div class="legend-dot" style="background:<?= $col ?>;"></div><span class="legend-name"><?= htmlspecialchars($cat['category']) ?></span><span class="legend-pct"><?= $pct ?>%</span><span class="legend-amt"><?= number_format($cat['total_qty']) ?> units</span></div>
+                <?php endforeach; ?></div>
             </div>
-            <button class="logout-btn">
-                <i class="fas fa-sign-out-alt"></i>
-                <span>Logout</span>
-            </button>
+            <?php endif; ?>
         </div>
-    </nav>
-    
-    <!-- Main Content Area -->
-    <main class="main-content">
-        <!-- Top Header -->
-        <header class="top-header">
-            <div class="header-left">
-                <h1>Sales Report Dashboard</h1>
-                <p>Visual analytics and sales performance metrics</p>
-            </div>
-            <div class="header-right">
-                <div class="period-selector">
-                    <span class="period-label">Period:</span>
-                    <select class="period-select">
-                        <option>Last 7 Days</option>
-                        <option selected>This Month</option>
-                        <option>Last Month</option>
-                        <option>This Quarter</option>
-                        <option>This Year</option>
-                    </select>
-                </div>
-                <button class="export-btn">
-                    <i class="fas fa-download"></i> Export Report
-                </button>
-            </div>
-        </header>
-        
-        <!-- Sales Dashboard Content -->
-        <div class="sales-dashboard">
-            <!-- Top Summary Cards -->
-            <section class="summary-cards">
-                <div class="summary-card">
-                    <div class="summary-header">
-                        <h3 class="summary-title">Total Revenue</h3>
-                        <div class="summary-icon revenue-icon">
-                            <i class="fas fa-money-bill-wave"></i>
-                        </div>
-                    </div>
-                    <div class="summary-value">RM 42,850</div>
-                    <div class="summary-trend">
-                        <i class="fas fa-arrow-up trend-up"></i>
-                        <span>+12.5% from last month</span>
-                    </div>
-                </div>
-                
-                <div class="summary-card">
-                    <div class="summary-header">
-                        <h3 class="summary-title">Total Orders</h3>
-                        <div class="summary-icon orders-icon">
-                            <i class="fas fa-shopping-cart"></i>
-                        </div>
-                    </div>
-                    <div class="summary-value">1,248</div>
-                    <div class="summary-trend">
-                        <i class="fas fa-arrow-up trend-up"></i>
-                        <span>+8.2% from last month</span>
-                    </div>
-                </div>
-                
-                <div class="summary-card">
-                    <div class="summary-header">
-                        <h3 class="summary-title">Average Order</h3>
-                        <div class="summary-icon average-icon">
-                            <i class="fas fa-chart-pie"></i>
-                        </div>
-                    </div>
-                    <div class="summary-value">RM 54.76</div>
-                    <div class="summary-trend">
-                        <i class="fas fa-arrow-up trend-up"></i>
-                        <span>+RM 3.20 from last month</span>
-                    </div>
-                </div>
-                
-                <div class="summary-card">
-                    <div class="summary-header">
-                        <h3 class="summary-title">Growth Rate</h3>
-                        <div class="summary-icon growth-icon">
-                            <i class="fas fa-chart-line"></i>
-                        </div>
-                    </div>
-                    <div class="summary-value">+8.5%</div>
-                    <div class="summary-trend">
-                        <i class="fas fa-arrow-up trend-up"></i>
-                        <span>Month-over-month growth</span>
-                    </div>
-                </div>
-            </section>
-            
-            <!-- Main Charts Grid -->
-            <div class="charts-grid">
-              
-                <!-- Category Breakdown -->
-                <section class="chart-container category-chart">
-                    <div class="chart-header">
-                        <h3><i class="fas fa-chart-pie"></i> Sales by Category</h3>
-                        <span style="font-size: 13px; color: var(--light-text);">This month</span>
-                    </div>
-                    <div class="chart-content">
-                        <div class="pie-chart">
-                            <div class="pie-center">
-                                <div class="pie-center-value">100%</div>
-                                <div class="pie-center-label">Total</div>
-                            </div>
-                        </div>
-                        <div class="category-legend">
-                            <div class="legend-item">
-                                <div class="legend-color" style="background-color: #A83535;"></div>
-                                <span class="legend-text">Paper Products</span>
-                                <span class="legend-value">25%</span>
-                            </div>
-                            <div class="legend-item">
-                                <div class="legend-color" style="background-color: #F4A261;"></div>
-                                <span class="legend-text">Writing Tools</span>
-                                <span class="legend-value">20%</span>
-                            </div>
-                            <div class="legend-item">
-                                <div class="legend-color" style="background-color: #4CAF50;"></div>
-                                <span class="legend-text">Printing Services</span>
-                                <span class="legend-value">20%</span>
-                            </div>
-                            <div class="legend-item">
-                                <div class="legend-color" style="background-color: #2196F3;"></div>
-                                <span class="legend-text">Office Supplies</span>
-                                <span class="legend-value">15%</span>
-                            </div>
-                            <div class="legend-item">
-                                <div class="legend-color" style="background-color: #9C27B0;"></div>
-                                <span class="legend-text">Others</span>
-                                <span class="legend-value">20%</span>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-                
-                <!-- Revenue by Branch -->
-                <section class="chart-container branch-chart">
-                    <div class="chart-header">
-                        <h3><i class="fas fa-store"></i> Revenue by Branch</h3>
-                        <span style="font-size: 13px; color: var(--light-text);">This month</span>
-                    </div>
-                    <div class="chart-content">
-                        <div class="donut-chart">
-                            <div class="donut-center">
-                                <div class="pie-center-value">100%</div>
-                                <div class="pie-center-label">Total</div>
-                            </div>
-                        </div>
-                        <div class="branch-list">
-                            <div class="branch-item">
-                                <span class="branch-name">Main Branch</span>
-                                <span class="branch-revenue">RM 18,250</span>
-                            </div>
-                            <div class="branch-item">
-                                <span class="branch-name">Downtown Branch</span>
-                                <span class="branch-revenue">RM 12,540</span>
-                            </div>
-                            <div class="branch-item">
-                                <span class="branch-name">Westside Mall</span>
-                                <span class="branch-revenue">RM 8,420</span>
-                            </div>
-                            <div class="branch-item">
-                                <span class="branch-name">University Branch</span>
-                                <span class="branch-revenue">RM 3,640</span>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-                
-                <!-- Top Products -->
-                <section class="chart-container products-chart">
-                    <div class="chart-header">
-                        <h3><i class="fas fa-boxes"></i> Top Selling Products</h3>
-                        <span style="font-size: 13px; color: var(--light-text);">This month</span>
-                    </div>
-                    <div class="chart-content">
-                        <div class="horizontal-bars">
-                            <div class="product-bar">
-                                <span class="product-name">A4 Paper (80gsm)</span>
-                                <div class="bar-track">
-                                    <div class="bar-fill fill-1">85%</div>
-                                </div>
-                                <span class="product-value">RM 8,540</span>
-                            </div>
-                            <div class="product-bar">
-                                <span class="product-name">Color Printing Service</span>
-                                <div class="bar-track">
-                                    <div class="bar-fill fill-2">72%</div>
-                                </div>
-                                <span class="product-value">RM 7,210</span>
-                            </div>
-                            <div class="product-bar">
-                                <span class="product-name">Premium Ballpoint Pens</span>
-                                <div class="bar-track">
-                                    <div class="bar-fill fill-3">68%</div>
-                                </div>
-                                <span class="product-value">RM 6,830</span>
-                            </div>
-                            <div class="product-bar">
-                                <span class="product-name">Spiral Binding</span>
-                                <div class="bar-track">
-                                    <div class="bar-fill fill-4">55%</div>
-                                </div>
-                                <span class="product-value">RM 5,520</span>
-                            </div>
-                            <div class="product-bar">
-                                <span class="product-name">Report Folders (A4)</span>
-                                <div class="bar-track">
-                                    <div class="bar-fill fill-5">48%</div>
-                                </div>
-                                <span class="product-value">RM 4,810</span>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-                
-                <!-- Recent Transactions -->
-                <section class="chart-container transactions-list">
-                    <div class="chart-header">
-                        <h3><i class="fas fa-history"></i> Recent Transactions</h3>
-                        <span style="font-size: 13px; color: var(--light-text);">Latest 5 orders</span>
-                    </div>
-                    <div class="chart-content">
-                        <div class="transactions-content">
-                            <div class="transaction-item">
-                                <div class="transaction-info">
-                                    <div class="transaction-icon">
-                                        <i class="fas fa-receipt"></i>
-                                    </div>
-                                    <div class="transaction-details">
-                                        <span class="transaction-id">#SP-2023-156</span>
-                                        <span class="transaction-date">2023-11-20, 14:30</span>
-                                    </div>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 20px;">
-                                    <span class="transaction-status status-completed">Completed</span>
-                                    <span class="transaction-amount">RM 121.50</span>
-                                </div>
-                            </div>
-                            
-                            <div class="transaction-item">
-                                <div class="transaction-info">
-                                    <div class="transaction-icon">
-                                        <i class="fas fa-receipt"></i>
-                                    </div>
-                                    <div class="transaction-details">
-                                        <span class="transaction-id">#SP-2023-155</span>
-                                        <span class="transaction-date">2023-11-19, 11:15</span>
-                                    </div>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 20px;">
-                                    <span class="transaction-status status-completed">Completed</span>
-                                    <span class="transaction-amount">RM 89.90</span>
-                                </div>
-                            </div>
-                            
-                            <div class="transaction-item">
-                                <div class="transaction-info">
-                                    <div class="transaction-icon">
-                                        <i class="fas fa-receipt"></i>
-                                    </div>
-                                    <div class="transaction-details">
-                                        <span class="transaction-id">#SP-2023-154</span>
-                                        <span class="transaction-date">2023-11-18, 16:45</span>
-                                    </div>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 20px;">
-                                    <span class="transaction-status status-completed">Completed</span>
-                                    <span class="transaction-amount">RM 450.25</span>
-                                </div>
-                            </div>
-                            
-                            <div class="transaction-item">
-                                <div class="transaction-info">
-                                    <div class="transaction-icon">
-                                        <i class="fas fa-receipt"></i>
-                                    </div>
-                                    <div class="transaction-details">
-                                        <span class="transaction-id">#SP-2023-153</span>
-                                        <span class="transaction-date">2023-11-17, 09:20</span>
-                                    </div>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 20px;">
-                                    <span class="transaction-status status-pending">Pending</span>
-                                    <span class="transaction-amount">RM 34.50</span>
-                                </div>
-                            </div>
-                            
-                            <div class="transaction-item">
-                                <div class="transaction-info">
-                                    <div class="transaction-icon">
-                                        <i class="fas fa-receipt"></i>
-                                    </div>
-                                    <div class="transaction-details">
-                                        <span class="transaction-id">#SP-2023-152</span>
-                                        <span class="transaction-date">2023-11-16, 13:10</span>
-                                    </div>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 20px;">
-                                    <span class="transaction-status status-completed">Completed</span>
-                                    <span class="transaction-amount">RM 278.80</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-            </div>
+    </div>
+    <div class="card">
+        <div class="card-head"><div class="card-title"><i class="fas fa-chart-bar"></i> Top Products by Revenue</div></div>
+        <div class="card-body">
+            <?php if(empty($topProducts)): ?><div class="no-data"><i class="fas fa-boxes"></i><p>No sales.</p></div><?php else: ?>
+            <div class="h-bar-list"><?php foreach(array_slice($topProducts,0,7) as $p): $bPct=$maxProdRev>0?($p['total_revenue']/$maxProdRev)*100:0; ?>
+                <div class="h-bar-row"><span class="h-bar-name" title="<?= htmlspecialchars($p['product_name']) ?>"><?= htmlspecialchars($p['product_name']) ?></span><div class="h-bar-track"><div class="h-bar-fill" style="width:<?= max(3,$bPct) ?>%;"><?php if($bPct>20):?>RM<?= number_format($p['total_revenue'],0) ?><?php endif;?></div></div><span class="h-bar-val">RM <?= number_format($p['total_revenue'],0) ?></span></div>
+            <?php endforeach; ?></div>
+            <?php endif; ?>
         </div>
-    </main>
-    
-    <script>
-        // Navigation interactions
-        document.querySelectorAll('.nav-link').forEach(link => {
-            link.addEventListener('click', function(e) {
-                document.querySelectorAll('.nav-link').forEach(item => {
-                    item.classList.remove('active');
-                });
-                this.classList.add('active');
-                e.preventDefault();
-            });
-        });
-        
-        // Export button
-        document.querySelector('.export-btn').addEventListener('click', function() {
-            const period = document.querySelector('.period-select').value;
-            alert(`Report for "${period}" would be exported (UI mockup only)`);
-        });
-        
-        // Period select change
-        document.querySelector('.period-select').addEventListener('change', function() {
-            alert(`Report period changed to: ${this.value} (UI mockup only)`);
-        });
-        
-        // Logout button
-        document.querySelector('.logout-btn').addEventListener('click', function() {
-            alert('Logout functionality would be implemented here (UI mockup only)');
-        });
-        
-        // Animate chart bars on load
-        document.addEventListener('DOMContentLoaded', function() {
-            // Animate bar charts
-            const bars = document.querySelectorAll('.bar, .bar-fill');
-            bars.forEach(bar => {
-                const originalWidth = bar.style.width || bar.style.height;
-                
-                if (bar.classList.contains('bar')) {
-                    bar.style.height = '0%';
-                } else if (bar.classList.contains('bar-fill')) {
-                    bar.style.width = '0%';
-                }
-                
-                setTimeout(() => {
-                    bar.style.transition = 'all 1.5s ease';
-                    if (bar.classList.contains('bar')) {
-                        bar.style.height = originalWidth;
-                    } else if (bar.classList.contains('bar-fill')) {
-                        bar.style.width = originalWidth;
-                    }
-                }, 300);
-            });
-            
-            // Animate summary cards
-            const summaryCards = document.querySelectorAll('.summary-card');
-            summaryCards.forEach((card, index) => {
-                card.style.opacity = '0';
-                card.style.transform = 'translateY(20px)';
-                
-                setTimeout(() => {
-                    card.style.transition = 'all 0.5s ease';
-                    card.style.opacity = '1';
-                    card.style.transform = 'translateY(0)';
-                }, 100 * index);
-            });
-        });
-        
-        // Add hover effects
-        document.querySelectorAll('.summary-card').forEach(card => {
-            card.addEventListener('mouseenter', function() {
-                this.style.transform = 'translateY(-2px)';
-                this.style.boxShadow = '0 6px 15px rgba(0, 0, 0, 0.08)';
-            });
-            
-            card.addEventListener('mouseleave', function() {
-                this.style.transform = '';
-                this.style.boxShadow = '';
-            });
-        });
-        
-        // Add hover effects to chart containers
-        document.querySelectorAll('.chart-container').forEach(chart => {
-            chart.addEventListener('mouseenter', function() {
-                this.style.boxShadow = '0 6px 15px rgba(0, 0, 0, 0.1)';
-            });
-            
-            chart.addEventListener('mouseleave', function() {
-                this.style.boxShadow = '';
-            });
-        });
-    </script>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-head"><div class="card-title"><i class="fas fa-list"></i> Full Product Sales Table</div><span class="card-sub"><?= htmlspecialchars($periodLabel) ?></span></div>
+    <div style="overflow-x:auto;">
+        <?php if(empty($topProducts)): ?><div class="no-data"><i class="fas fa-boxes"></i><p>No product sales.</p></div><?php else: ?>
+        <table class="data-table">
+            <thead><tr><th>#</th><th>Product</th><th>Category</th><th>Qty Sold</th><th>Revenue</th><th>Avg Price</th><th>Orders</th></tr></thead>
+            <tbody><?php foreach($topProducts as $i=>$p): ?>
+            <tr><td style="font-weight:700;color:var(--muted);"><?= $i+1 ?></td><td style="font-weight:600;"><?= htmlspecialchars($p['product_name']) ?></td><td><span class="badge b-blue"><?= htmlspecialchars($p['category']?:'—') ?></span></td><td><?= number_format($p['total_qty']) ?></td><td style="font-weight:700;color:var(--primary);">RM <?= number_format($p['total_revenue'],2) ?></td><td>RM <?= $p['total_qty']>0?number_format($p['total_revenue']/$p['total_qty'],2):'—' ?></td><td><?= $p['order_count'] ?></td></tr>
+            <?php endforeach; ?></tbody>
+        </table>
+        <?php endif; ?>
+    </div>
+</div>
+
+<?php elseif($tab==='inventory'): ?>
+<!-- ==================== INVENTORY ==================== -->
+<div class="inv-health">
+    <div class="inv-hcard inv-out"><div class="hval"><?= $outOfStock ?></div><div class="hlbl">Out of Stock</div></div>
+    <div class="inv-hcard inv-low"><div class="hval"><?= $lowStock ?></div><div class="hlbl">Low Stock</div></div>
+    <div class="inv-hcard inv-ok"><div class="hval"><?= $healthyStock ?></div><div class="hlbl">Healthy</div></div>
+</div>
+
+<div class="card">
+    <div class="card-head"><div class="card-title"><i class="fas fa-exclamation-triangle"></i> Low &amp; Out-of-Stock Items</div><span class="card-sub">Across all branches</span></div>
+    <div style="overflow-x:auto;">
+        <?php if(empty($lowStockItems)): ?>
+            <div class="no-data" style="padding:26px;"><i class="fas fa-check-circle" style="color:#10b981;"></i><p>All stock levels healthy!</p></div>
+        <?php else: ?>
+        <table class="data-table">
+            <thead><tr><th>Product</th><th>Category</th><th>Branch</th><th>Stock</th><th>Min Level</th><th>Shortage</th><th>Health</th></tr></thead>
+            <tbody><?php foreach($lowStockItems as $item): $pct2=$item['minimum_level']>0?min(100,round(($item['stock_quantity']/$item['minimum_level'])*100)):0; $barCol=$item['stock_quantity']==0?'#ef4444':'#f59e0b'; $badge=$item['stock_quantity']==0?'b-red':'b-yellow'; $label=$item['stock_quantity']==0?'Out of Stock':'Low'; ?>
+            <tr><td style="font-weight:600;"><?= htmlspecialchars($item['product_name']) ?></td><td><span class="badge b-blue"><?= htmlspecialchars($item['category']?:'—') ?></span></td><td><?= htmlspecialchars($item['branch_name']) ?></td><td style="font-weight:700;color:<?= $barCol ?>;"><?= $item['stock_quantity'] ?></td><td><?= $item['minimum_level'] ?></td><td style="color:#ef4444;font-weight:700;">-<?= $item['shortage'] ?></td>
+            <td><div class="stock-mini"><div class="stock-mini-bar"><div class="stock-mini-fill" style="width:<?= $pct2 ?>%;background:<?= $barCol ?>;"></div></div><span class="badge <?= $badge ?>"><?= $label ?></span></div></td></tr>
+            <?php endforeach; ?></tbody>
+        </table>
+        <?php endif; ?>
+    </div>
+</div>
+
+<?php elseif($tab==='customers'): ?>
+<!-- ==================== CUSTOMERS ==================== -->
+<div class="stat-grid">
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Total Customers</div><div class="stat-icon ic-blue"><i class="fas fa-users"></i></div></div><div class="stat-value"><?= $totalCustomers ?></div></div>
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Active This Period</div><div class="stat-icon ic-green"><i class="fas fa-user-check"></i></div></div><div class="stat-value"><?= $activeCustomers ?></div></div>
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Top Spender</div><div class="stat-icon ic-red"><i class="fas fa-crown"></i></div></div><div class="stat-value" style="font-size:15px;"><?= !empty($topCustomers)?htmlspecialchars($topCustomers[0]['name']):'—' ?></div><div class="stat-trend"><?= !empty($topCustomers)?'RM '.number_format($topCustomers[0]['total_spent'],2):'' ?></div></div>
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Avg Spend / Customer</div><div class="stat-icon ic-orange"><i class="fas fa-chart-line"></i></div></div><div class="stat-value" style="font-size:20px;">RM <?= $activeCustomers>0?number_format($totalRevenue/$activeCustomers,2):'0.00' ?></div></div>
+</div>
+
+<div class="card">
+    <div class="card-head"><div class="card-title"><i class="fas fa-crown"></i> Top Customers by Spend</div><span class="card-sub"><?= htmlspecialchars($periodLabel) ?></span></div>
+    <div style="overflow-x:auto;">
+        <?php if(empty($topCustomers)): ?><div class="no-data"><i class="fas fa-users"></i><p>No activity this period.</p></div><?php else: $maxSpend=(float)$topCustomers[0]['total_spent']?:1; ?>
+        <table class="data-table">
+            <thead><tr><th>#</th><th>Customer</th><th>Email</th><th>Orders</th><th>Total Spent</th><th>Share</th></tr></thead>
+            <tbody><?php foreach($topCustomers as $i=>$c): $share=round(($c['total_spent']/$maxSpend)*100); ?>
+            <tr><td style="font-weight:700;color:var(--muted);"><?= $i+1 ?></td><td style="font-weight:600;"><?= htmlspecialchars($c['name']) ?></td><td style="font-size:11px;color:var(--muted);"><?= htmlspecialchars($c['email']) ?></td><td><?= $c['order_count'] ?></td><td style="font-weight:700;color:var(--primary);">RM <?= number_format($c['total_spent'],2) ?></td>
+            <td><div class="stock-mini"><div class="stock-mini-bar" style="width:70px;"><div class="stock-mini-fill" style="width:<?= $share ?>%;background:var(--primary);"></div></div><span style="font-size:10px;color:var(--muted);"><?= $share ?>%</span></div></td></tr>
+            <?php endforeach; ?></tbody>
+        </table>
+        <?php endif; ?>
+    </div>
+</div>
+
+<?php elseif($tab==='payments'): ?>
+<!-- ==================== PAYMENTS ==================== -->
+<?php $validTotal=0;$pendTotal=0;$invalidTotal=0; foreach($payVerification as $pv){match($pv['verification_status']){'VALID'=>$validTotal=(float)$pv['total'],'PENDING'=>$pendTotal=(float)$pv['total'],'INVALID'=>$invalidTotal=(float)$pv['total'],default=>null};} ?>
+<div class="stat-grid">
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Verified Revenue</div><div class="stat-icon ic-green"><i class="fas fa-check-circle"></i></div></div><div class="stat-value" style="font-size:18px;">RM <?= number_format($validTotal,2) ?></div></div>
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Pending</div><div class="stat-icon ic-orange"><i class="fas fa-hourglass-half"></i></div></div><div class="stat-value" style="font-size:18px;">RM <?= number_format($pendTotal,2) ?></div><div class="stat-trend"><?= $pendingCount ?> payments</div></div>
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Rejected</div><div class="stat-icon ic-red"><i class="fas fa-times-circle"></i></div></div><div class="stat-value" style="font-size:18px;">RM <?= number_format($invalidTotal,2) ?></div></div>
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Top Method</div><div class="stat-icon ic-blue"><i class="fas fa-credit-card"></i></div></div><div class="stat-value" style="font-size:16px;"><?= !empty($paymentMethods)?htmlspecialchars(match($paymentMethods[0]['payment_method']){'CASH'=>'Cash','TRANSFER'=>'Bank Transfer','OTHER'=>'E-Wallet',default=>$paymentMethods[0]['payment_method']}):'—' ?></div></div>
+</div>
+
+<div class="two-col">
+    <div class="card">
+        <div class="card-head"><div class="card-title"><i class="fas fa-credit-card"></i> Payment Methods</div><span class="card-sub"><?= htmlspecialchars($periodLabel) ?></span></div>
+        <div class="card-body">
+            <?php if(empty($paymentMethods)): ?><div class="no-data"><i class="fas fa-credit-card"></i><p>No payments.</p></div><?php else: ?>
+            <div class="method-grid"><?php foreach($paymentMethods as $pm): $mPct=$payMethodTotal>0?($pm['total']/$payMethodTotal)*100:0; $mLbl=match($pm['payment_method']){'CASH'=>'Cash','TRANSFER'=>'Bank Transfer','OTHER'=>'E-Wallet/Other',default=>$pm['payment_method']}; ?>
+                <div class="method-row"><span class="method-name"><?= $mLbl ?></span><div class="method-bar-track"><div class="method-bar-fill" style="width:<?= max(3,$mPct) ?>%;"><?php if($mPct>15):?><?= round($mPct) ?>%<?php endif;?></div></div><span class="method-total">RM <?= number_format($pm['total'],0) ?></span></div>
+            <?php endforeach; ?></div>
+            <?php endif; ?>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-head"><div class="card-title"><i class="fas fa-shield-alt"></i> Verification Status</div></div>
+        <div class="card-body">
+            <?php if(empty($payVerification)): ?><div class="no-data"><i class="fas fa-receipt"></i><p>No records.</p></div><?php else: $pvCols=['VALID'=>'#10b981','PENDING'=>'#f59e0b','INVALID'=>'#ef4444']; ?>
+            <div class="status-grid"><?php foreach($payVerification as $pv): $col=$pvCols[$pv['verification_status']]??'#607D8B'; $pct=round(($pv['cnt']/$pvTotal)*100,1); $lbl=match($pv['verification_status']){'VALID'=>'Verified','PENDING'=>'Pending','INVALID'=>'Rejected',default=>$pv['verification_status']}; ?>
+                <div class="status-row"><div class="status-dot" style="background:<?= $col ?>;"></div><span class="status-name"><?= $lbl ?></span><div class="status-bar-track"><div class="status-bar-fill" style="width:<?= $pct ?>%;background:<?= $col ?>;"></div></div><span class="status-count"><?= $pv['cnt'] ?></span><span class="status-pct"><?= $pct ?>%</span></div>
+            <?php endforeach; ?></div>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-head"><div class="card-title"><i class="fas fa-history"></i> Recent Transactions</div><span class="card-sub">Latest 10</span></div>
+    <div style="overflow-x:auto;">
+        <?php if(empty($recentPayments)): ?><div class="no-data"><i class="fas fa-receipt"></i><p>No payments found.</p></div><?php else: ?>
+        <table class="data-table">
+            <thead><tr><th>Payment ID</th><th>Date</th><th>Customer</th><th>Order</th><th>Method</th><th>Amount</th><th>Status</th></tr></thead>
+            <tbody><?php foreach($recentPayments as $pay): $bC=match($pay['verification_status']){'VALID'=>'b-green','PENDING'=>'b-yellow','INVALID'=>'b-red',default=>'b-gray'}; $bL=match($pay['verification_status']){'VALID'=>'Verified','PENDING'=>'Pending','INVALID'=>'Rejected',default=>$pay['verification_status']}; $mL=match($pay['payment_method']){'CASH'=>'Cash','TRANSFER'=>'Transfer','OTHER'=>'E-Wallet',default=>$pay['payment_method']}; ?>
+            <tr><td class="mono"><?= htmlspecialchars($pay['payment_id']) ?></td><td style="font-size:11px;color:var(--muted);"><?= date('d M Y H:i',strtotime($pay['record_date'])) ?></td><td><?= htmlspecialchars($pay['customer_name']) ?></td><td class="mono"><?= htmlspecialchars($pay['order_id']) ?></td><td><?= $mL ?></td><td style="font-weight:700;color:var(--primary);">RM <?= number_format($pay['amount'],2) ?></td><td><span class="badge <?= $bC ?>"><?= $bL ?></span></td></tr>
+            <?php endforeach; ?></tbody>
+        </table>
+        <?php endif; ?>
+    </div>
+</div>
+
+<?php endif; ?>
+
+</div><!-- /.page-body -->
+</main>
 </body>
 </html>

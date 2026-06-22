@@ -1,3 +1,168 @@
+<?php
+// ============================================================
+//  a_usermanagement.php — Admin User Management
+// ============================================================
+
+if (session_status() === PHP_SESSION_NONE) session_start();
+
+require_once 'auth.php';
+require_role('ADMIN');
+require_once 'db.php';
+
+// ── Helpers ───────────────────────────────────────────────────
+function generate_user_id(): string {
+    return 'USR-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
+}
+
+$message = '';
+$msgType = '';
+
+// ── Handle POST actions ───────────────────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action     = trim($_POST['action']         ?? '');
+    $userId     = trim($_POST['user_id']        ?? '');
+    $name       = trim($_POST['name']           ?? '');
+    $email      = trim($_POST['email']          ?? '');
+    $phone      = trim($_POST['phone_number']   ?? '');
+    $role       = trim($_POST['user_role']      ?? 'CUSTOMER');
+    $status     = trim($_POST['account_status'] ?? 'ACTIVE');
+    $password   = $_POST['password']            ?? '';
+
+    $validRoles    = ['ADMIN', 'STAFF', 'CUSTOMER'];
+    $validStatuses = ['ACTIVE', 'INACTIVE', 'PENDING'];
+
+    if (!in_array($role,   $validRoles))    $role   = 'CUSTOMER';
+    if (!in_array($status, $validStatuses)) $status = 'ACTIVE';
+
+    // ── Add new user ──────────────────────────────────────────
+    if ($action === 'add') {
+        if ($name === '' || $email === '') {
+            $message = 'Name and email are required.';
+            $msgType = 'error';
+        } elseif (strlen($password) < 8) {
+            $message = 'Password must be at least 8 characters for new users.';
+            $msgType = 'error';
+        } else {
+            // Check duplicate email
+            $chk = $conn->prepare("SELECT user_id FROM users WHERE email = ? LIMIT 1");
+            $chk->bind_param('s', $email);
+            $chk->execute();
+            $chk->store_result();
+            if ($chk->num_rows > 0) {
+                $message = 'A user with this email already exists.';
+                $msgType = 'error';
+            } else {
+                $newId = generate_user_id();
+                $hash  = password_hash($password, PASSWORD_DEFAULT);
+                $stmt  = $conn->prepare(
+                    "INSERT INTO users (user_id, name, email, password_hash, phone_number, user_role, account_status)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)"
+                );
+                $stmt->bind_param('sssssss', $newId, $name, $email, $hash, $phone, $role, $status);
+                $stmt->execute();
+                $stmt->close();
+                $message = "User <strong>$name</strong> added successfully (ID: $newId).";
+                $msgType = 'success';
+            }
+            $chk->close();
+        }
+
+    // ── Update existing user ──────────────────────────────────
+    } elseif ($action === 'update' && $userId !== '') {
+        if ($name === '' || $email === '') {
+            $message = 'Name and email are required.';
+            $msgType = 'error';
+        } else {
+            // Check duplicate email (exclude current user)
+            $chk = $conn->prepare("SELECT user_id FROM users WHERE email = ? AND user_id != ? LIMIT 1");
+            $chk->bind_param('ss', $email, $userId);
+            $chk->execute();
+            $chk->store_result();
+            if ($chk->num_rows > 0) {
+                $message = 'Another user already has this email address.';
+                $msgType = 'error';
+            } else {
+                if ($password !== '') {
+                    // Update with new password
+                    $hash = password_hash($password, PASSWORD_DEFAULT);
+                    $stmt = $conn->prepare(
+                        "UPDATE users SET name=?, email=?, phone_number=?, user_role=?, account_status=?, password_hash=?
+                         WHERE user_id=?"
+                    );
+                    $stmt->bind_param('sssssss', $name, $email, $phone, $role, $status, $hash, $userId);
+                } else {
+                    // Update without touching password
+                    $stmt = $conn->prepare(
+                        "UPDATE users SET name=?, email=?, phone_number=?, user_role=?, account_status=?
+                         WHERE user_id=?"
+                    );
+                    $stmt->bind_param('ssssss', $name, $email, $phone, $role, $status, $userId);
+                }
+                $stmt->execute();
+                $stmt->close();
+                $message = "User <strong>$name</strong> updated successfully.";
+                $msgType = 'success';
+            }
+            $chk->close();
+        }
+
+    // ── Deactivate user ───────────────────────────────────────
+    } elseif ($action === 'deactivate' && $userId !== '') {
+        // Prevent self-deactivation
+        if ($userId === $_SESSION['user_id']) {
+            $message = 'You cannot deactivate your own account.';
+            $msgType = 'error';
+        } else {
+            $stmt = $conn->prepare("UPDATE users SET account_status='INACTIVE' WHERE user_id=?");
+            $stmt->bind_param('s', $userId);
+            $stmt->execute();
+            $stmt->close();
+            $message = 'User deactivated successfully.';
+            $msgType = 'success';
+        }
+    }
+}
+
+// ── Fetch users with filters ──────────────────────────────────
+$search      = trim($_GET['search']  ?? '');
+$filterRole  = $_GET['role']         ?? 'all';
+$filterStatus= $_GET['status']       ?? 'all';
+
+$where  = ['1=1'];
+$params = [];
+$types  = '';
+
+if ($search !== '') {
+    $like     = "%$search%";
+    $where[]  = "(name LIKE ? OR email LIKE ? OR user_id LIKE ?)";
+    $params[] = $like; $params[] = $like; $params[] = $like;
+    $types   .= 'sss';
+}
+if ($filterRole !== 'all') {
+    $where[]  = "user_role = ?";
+    $params[] = $filterRole;
+    $types   .= 's';
+}
+if ($filterStatus !== 'all') {
+    $where[]  = "account_status = ?";
+    $params[] = $filterStatus;
+    $types   .= 's';
+}
+
+$whereSQL = implode(' AND ', $where);
+$sql = "SELECT user_id, name, email, phone_number, user_role, account_status
+        FROM users WHERE $whereSQL ORDER BY name ASC LIMIT 200";
+
+$stmt = $conn->prepare($sql);
+if ($types) $stmt->bind_param($types, ...$params);
+$stmt->execute();
+$users = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$stmt->close();
+
+// ── Counts for header ─────────────────────────────────────────
+$totalUsers  = $conn->query("SELECT COUNT(*) AS c FROM users")->fetch_assoc()['c'] ?? 0;
+$pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_status='PENDING'")->fetch_assoc()['c'] ?? 0;
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7,1020 +172,464 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
-            --primary: #A83535;      /* Brick Red */
-            --secondary: #F4A261;    /* Muted Orange */
-            --background: #FAFAFA;   /* Light Grey */
-            --text: #2E2E2E;         /* Dark Charcoal */
-            --light-text: #707070;   /* Secondary Text */
-            --border: #E0E0E0;       /* Border Grey */
+            --primary: #A83535;
+            --secondary: #F4A261;
+            --background: #FAFAFA;
+            --text: #2E2E2E;
+            --light-text: #707070;
+            --border: #E0E0E0;
             --white: #FFFFFF;
             --sidebar-width: 260px;
             --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
         }
-        
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Segoe UI', system-ui, sans-serif;
-        }
-        
-        body {
-            background-color: var(--background);
-            color: var(--text);
-            min-height: 100vh;
-            display: flex;
-            overflow: hidden;
-        }
-        
-        /* Sidebar Navigation */
-        .sidebar {
-            width: var(--sidebar-width);
-            background-color: var(--white);
-            border-right: 1px solid var(--border);
-            height: 100vh;
-            position: fixed;
-            left: 0;
-            top: 0;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.03);
-        }
-        
-        .logo-area {
-            padding: 22px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-        }
-        
-        .logo-icon {
-            background-color: var(--primary);
-            width: 36px;
-            height: 36px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-right: 12px;
-            color: white;
-            font-size: 18px;
-        }
-        
-        .logo-text {
-            font-size: 18px;
-            font-weight: 700;
-            color: var(--primary);
-        }
-        
-        .admin-subtitle {
-            font-size: 12px;
-            color: var(--light-text);
-            margin-top: 2px;
-        }
-        
-        .nav-section {
-            padding: 18px 0;
-            border-bottom: 1px solid var(--border);
-        }
-        
-        .nav-title {
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--light-text);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            padding: 0 22px 10px 22px;
-        }
-        
-        .nav-menu {
-            list-style: none;
-        }
-        
-        .nav-item {
-            margin-bottom: 2px;
-        }
-        
-        .nav-link {
-            display: flex;
-            align-items: center;
-            padding: 14px 22px;
-            color: var(--text);
-            text-decoration: none;
-            transition: all 0.2s ease;
-            border-left: 4px solid transparent;
-        }
-        
-        .nav-link:hover {
-            background-color: rgba(168, 53, 53, 0.05);
-            color: var(--primary);
-            border-left-color: rgba(168, 53, 53, 0.3);
-        }
-        
-        .nav-link.active {
-            background-color: rgba(168, 53, 53, 0.08);
-            color: var(--primary);
-            border-left-color: var(--primary);
-            font-weight: 600;
-        }
-        
-        .nav-icon {
-            width: 18px;
-            text-align: center;
-            margin-right: 14px;
-            font-size: 16px;
-        }
-        
-        .nav-text {
-            font-size: 14px;
-        }
-        
-        .user-section {
-            margin-top: auto;
-            padding: 20px;
-            border-top: 1px solid var(--border);
-        }
-        
-        .user-info {
-            display: flex;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-        
-        .user-avatar {
-            width: 38px;
-            height: 38px;
-            border-radius: 50%;
-            background-color: rgba(168, 53, 53, 0.1);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--primary);
-            font-weight: 600;
-            font-size: 15px;
-            margin-right: 12px;
-        }
-        
-        .user-details {
-            flex-grow: 1;
-        }
-        
-        .user-name {
-            font-weight: 600;
-            font-size: 14px;
-            color: var(--text);
-            margin-bottom: 2px;
-        }
-        
-        .user-role {
-            font-size: 12px;
-            color: var(--light-text);
-        }
-        
-        .logout-btn {
-            width: 100%;
-            padding: 9px;
-            background-color: rgba(168, 53, 53, 0.1);
-            color: var(--primary);
-            border: 1.5px solid var(--primary);
-            border-radius: 5px;
-            font-weight: 600;
-            font-size: 13px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-        }
-        
-        .logout-btn:hover {
-            background-color: rgba(168, 53, 53, 0.2);
-        }
-        
-        /* Main Content Area */
-        .main-content {
-            flex-grow: 1;
-            margin-left: var(--sidebar-width);
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-        
-        .top-header {
-            background-color: var(--white);
-            padding: 18px 28px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .header-left h1 {
-            font-size: 22px;
-            color: var(--text);
-            margin-bottom: 4px;
-            font-weight: 700;
-        }
-        
-        .header-left p {
-            font-size: 13px;
-            color: var(--light-text);
-        }
-        
-        .header-right {
-            font-size: 13px;
-            color: var(--light-text);
-            background-color: rgba(168, 53, 53, 0.05);
-            padding: 8px 15px;
-            border-radius: 20px;
-        }
-        
-        /* User Management Content */
-        .user-management {
-            flex-grow: 1;
-            padding: 25px;
-            display: grid;
-            grid-template-columns: 1fr 380px;
-            gap: 25px;
-            height: calc(100vh - 100px);
-            overflow: hidden;
-        }
-        
-        /* User Table Section */
-        .table-section {
-            background-color: var(--white);
-            border-radius: 10px;
-            box-shadow: var(--card-shadow);
-            border: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-        
-        .section-header {
-            padding: 20px;
-            border-bottom: 1px solid var(--border);
-            background-color: rgba(168, 53, 53, 0.03);
-        }
-        
-        .section-header h2 {
-            font-size: 18px;
-            color: var(--primary);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        .section-header h2 i {
-            font-size: 18px;
-        }
-        
-        .table-container {
-            flex-grow: 1;
-            overflow: hidden;
-        }
-        
-        .user-table {
-            width: 100%;
-            border-collapse: collapse;
-            table-layout: fixed;
-        }
-        
-        .user-table thead {
-            background-color: rgba(168, 53, 53, 0.03);
-            position: sticky;
-            top: 0;
-        }
-        
-        .user-table th {
-            padding: 16px 18px;
-            text-align: left;
-            font-weight: 600;
-            color: var(--text);
-            font-size: 13px;
-            border-bottom: 1px solid var(--border);
-            white-space: nowrap;
-        }
-        
-        .user-table td {
-            padding: 16px 18px;
-            border-bottom: 1px solid var(--border);
-            font-size: 13px;
-            color: var(--text);
-            vertical-align: middle;
-        }
-        
-        .user-table tbody tr:hover {
-            background-color: rgba(168, 53, 53, 0.02);
-            cursor: pointer;
-        }
-        
-        .user-table tbody tr.selected {
-            background-color: rgba(168, 53, 53, 0.05);
-        }
-        
-        .user-id {
-            font-weight: 600;
-            color: var(--primary);
-            font-size: 12px;
-        }
-        
-        .user-name-cell {
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        .user-avatar-small {
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            background-color: rgba(168, 53, 53, 0.1);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--primary);
-            font-weight: 600;
-            font-size: 13px;
-            flex-shrink: 0;
-        }
-        
-        .user-email {
-            font-size: 13px;
-            color: var(--light-text);
-        }
-        
-        .user-type {
-            display: inline-block;
-            padding: 5px 10px;
-            border-radius: 15px;
-            font-size: 11px;
-            font-weight: 600;
-            text-align: center;
-        }
-        
-        .type-customer {
-            background-color: rgba(33, 150, 243, 0.1);
-            color: #2196F3;
-        }
-        
-        .type-staff {
-            background-color: rgba(76, 175, 80, 0.1);
-            color: #4CAF50;
-        }
-        
-        .type-admin {
-            background-color: rgba(168, 53, 53, 0.15);
-            color: var(--primary);
-        }
-        
-        .user-status {
-            display: inline-block;
-            padding: 5px 10px;
-            border-radius: 15px;
-            font-size: 11px;
-            font-weight: 600;
-            text-align: center;
-        }
-        
-        .status-active {
-            background-color: rgba(76, 175, 80, 0.1);
-            color: #4CAF50;
-        }
-        
-        .status-inactive {
-            background-color: rgba(158, 158, 158, 0.15);
-            color: #757575;
-        }
-        
-        .status-pending {
-            background-color: rgba(244, 162, 97, 0.15);
-            color: var(--secondary);
-        }
-        
-        /* User Form Section */
-        .form-section {
-            background-color: var(--white);
-            border-radius: 10px;
-            box-shadow: var(--card-shadow);
-            border: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-        
-        .form-header {
-            padding: 20px;
-            border-bottom: 1px solid var(--border);
-            background-color: rgba(168, 53, 53, 0.03);
-        }
-        
-        .form-header h2 {
-            font-size: 18px;
-            color: var(--primary);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        .form-header h2 i {
-            font-size: 18px;
-        }
-        
-        .form-container {
-            flex-grow: 1;
-            padding: 25px;
-            display: flex;
-            flex-direction: column;
-        }
-        
-        .form-group {
-            margin-bottom: 20px;
-        }
-        
-        .form-label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: var(--text);
-            font-size: 13px;
-        }
-        
-        .form-input {
-            width: 100%;
-            padding: 11px 14px;
-            border: 1.5px solid var(--border);
-            border-radius: 6px;
-            font-size: 13px;
-            transition: all 0.2s ease;
-            background-color: var(--white);
-            color: var(--text);
-        }
-        
-        .form-input:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 2px rgba(168, 53, 53, 0.1);
-        }
-        
-        .form-select {
-            width: 100%;
-            padding: 11px 14px;
-            border: 1.5px solid var(--border);
-            border-radius: 6px;
-            font-size: 13px;
-            transition: all 0.2s ease;
-            background-color: var(--white);
-            color: var(--text);
-        }
-        
-        .form-select:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 2px rgba(168, 53, 53, 0.1);
-        }
-        
-        .radio-group {
-            display: flex;
-            gap: 20px;
-            margin-top: 5px;
-        }
-        
-        .radio-option {
-            display: flex;
-            align-items: center;
-        }
-        
-        .radio-option input {
-            margin-right: 6px;
-            accent-color: var(--primary);
-        }
-        
-        .radio-label {
-            color: var(--text);
-            font-size: 13px;
-        }
-        
-        /* Form Actions */
-        .form-actions {
-            margin-top: auto;
-            padding-top: 20px;
-            border-top: 1px solid var(--border);
-            display: flex;
-            gap: 12px;
-        }
-        
-        .primary-btn {
-            flex: 1;
-            padding: 12px;
-            background-color: var(--primary);
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-weight: 600;
-            font-size: 14px;
-            cursor: pointer;
-            transition: background-color 0.2s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
-        
-        .primary-btn:hover {
-            background-color: #8b2a2a;
-        }
-        
-        .secondary-btn {
-            flex: 1;
-            padding: 12px;
-            background-color: rgba(168, 53, 53, 0.1);
-            color: var(--primary);
-            border: 1.5px solid var(--primary);
-            border-radius: 6px;
-            font-weight: 600;
-            font-size: 14px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
-        
-        .secondary-btn:hover {
-            background-color: rgba(168, 53, 53, 0.2);
-        }
-        
-        .warning-btn {
-            flex: 1;
-            padding: 12px;
-            background-color: rgba(244, 162, 97, 0.1);
-            color: var(--secondary);
-            border: 1.5px solid var(--secondary);
-            border-radius: 6px;
-            font-weight: 600;
-            font-size: 14px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
-        
-        .warning-btn:hover {
-            background-color: rgba(244, 162, 97, 0.2);
-        }
-        
-        /* Empty form state */
-        .empty-form {
-            text-align: center;
-            color: var(--light-text);
-            font-size: 13px;
-            padding: 30px 20px;
-        }
-        
-        .empty-form i {
-            font-size: 40px;
-            margin-bottom: 15px;
-            opacity: 0.5;
-        }
-        
-        /* Responsive adjustments */
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; }
+
+        body { background-color: var(--background); color: var(--text); min-height: 100vh; display: flex; }
+
+        /* ── Sidebar (same tokens as a_sidebar.php) ── */
+        .sidebar { width: var(--sidebar-width); background-color: var(--white); border-right: 1px solid var(--border); height: 100vh; position: fixed; left: 0; top: 0; display: flex; flex-direction: column; box-shadow: 2px 0 10px rgba(0,0,0,0.03); }
+        .logo-area { padding: 22px; border-bottom: 1px solid var(--border); display: flex; align-items: center; }
+        .logo-icon { background-color: var(--primary); width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-right: 12px; color: white; font-size: 18px; }
+        .logo-text { font-size: 18px; font-weight: 700; color: var(--primary); }
+        .admin-subtitle { font-size: 12px; color: var(--light-text); margin-top: 2px; }
+        .nav-section { padding: 18px 0; border-bottom: 1px solid var(--border); }
+        .nav-title { font-size: 12px; font-weight: 600; color: var(--light-text); text-transform: uppercase; letter-spacing: 0.5px; padding: 0 22px 10px 22px; }
+        .nav-menu { list-style: none; }
+        .nav-item { margin-bottom: 2px; }
+        .nav-link { display: flex; align-items: center; padding: 14px 22px; color: var(--text); text-decoration: none; transition: all 0.2s ease; border-left: 4px solid transparent; }
+        .nav-link:hover { background-color: rgba(168,53,53,0.05); color: var(--primary); border-left-color: rgba(168,53,53,0.3); }
+        .nav-link.active { background-color: rgba(168,53,53,0.08); color: var(--primary); border-left-color: var(--primary); font-weight: 600; }
+        .nav-icon { width: 18px; text-align: center; margin-right: 14px; font-size: 16px; }
+        .nav-text { font-size: 14px; }
+        .user-section { margin-top: auto; padding: 20px; border-top: 1px solid var(--border); }
+        .user-info { display: flex; align-items: center; margin-bottom: 15px; }
+        .user-avatar { width: 38px; height: 38px; border-radius: 50%; background-color: rgba(168,53,53,0.1); display: flex; align-items: center; justify-content: center; color: var(--primary); font-weight: 600; font-size: 15px; margin-right: 12px; }
+        .user-name { font-weight: 600; font-size: 14px; color: var(--text); }
+        .user-role { font-size: 12px; color: var(--light-text); }
+        .logout-link { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background-color: rgba(168,53,53,0.08); color: var(--primary); border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 600; transition: background-color 0.2s; }
+        .logout-link:hover { background-color: rgba(168,53,53,0.18); }
+
+        /* ── Main ── */
+        .main-content { flex-grow: 1; margin-left: var(--sidebar-width); min-height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+        .top-header { background-color: var(--white); padding: 18px 28px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .header-left h1 { font-size: 22px; color: var(--text); margin-bottom: 4px; font-weight: 700; }
+        .header-left p { font-size: 13px; color: var(--light-text); }
+        .header-right { display: flex; gap: 10px; align-items: center; }
+        .header-stat { font-size: 13px; color: var(--light-text); background-color: rgba(168,53,53,0.05); padding: 7px 14px; border-radius: 20px; }
+
+        /* Alert */
+        .alert { margin: 14px 25px 0; padding: 12px 16px; border-radius: 8px; font-size: 14px; display: flex; align-items: center; gap: 10px; }
+        .alert-success { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+        .alert-error   { background: #fff0f0; color: #c62828; border: 1px solid #ef9a9a; }
+
+        /* ── User Management Grid ── */
+        .user-management { flex-grow: 1; padding: 20px 25px; display: grid; grid-template-columns: 1fr 380px; gap: 20px; height: calc(100vh - 100px); overflow: hidden; }
+
+        /* ── Left: table section ── */
+        .table-section { background-color: var(--white); border-radius: 10px; box-shadow: var(--card-shadow); border: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+
+        /* Filter bar */
+        .filter-bar { padding: 14px 18px; border-bottom: 1px solid var(--border); background: rgba(168,53,53,0.01); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .filter-bar form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex: 1; }
+        .search-wrap { position: relative; flex: 1; min-width: 160px; }
+        .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--light-text); font-size: 13px; }
+        .search-input { width: 100%; padding: 8px 10px 8px 32px; border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px; background: var(--white); }
+        .search-input:focus { outline: none; border-color: var(--primary); }
+        .filter-select { padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px; background: var(--white); cursor: pointer; }
+        .filter-select:focus { outline: none; border-color: var(--primary); }
+        .filter-btn { padding: 8px 16px; background: var(--primary); color: white; border: none; border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; }
+        .filter-btn:hover { background: #8b2a2a; }
+        .add-new-btn { padding: 8px 16px; background: rgba(168,53,53,0.08); color: var(--primary); border: 1.5px solid var(--primary); border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+        .add-new-btn:hover { background: rgba(168,53,53,0.16); }
+
+        .section-header { padding: 14px 18px; border-bottom: 1px solid var(--border); background-color: rgba(168,53,53,0.03); display: flex; justify-content: space-between; align-items: center; }
+        .section-header h2 { font-size: 16px; color: var(--primary); display: flex; align-items: center; gap: 10px; }
+        .result-count { font-size: 12px; color: var(--light-text); background: rgba(168,53,53,0.08); padding: 3px 10px; border-radius: 20px; font-weight: 600; }
+
+        .table-container { flex-grow: 1; overflow: auto; }
+
+        .user-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        .user-table thead { background-color: rgba(168,53,53,0.03); position: sticky; top: 0; z-index: 2; }
+        .user-table th { padding: 13px 16px; text-align: left; font-weight: 600; color: var(--text); font-size: 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+        .user-table td { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text); vertical-align: middle; }
+        .user-table tbody tr { transition: background 0.15s; cursor: pointer; }
+        .user-table tbody tr:hover { background-color: rgba(168,53,53,0.03); }
+        .user-table tbody tr.selected { background-color: rgba(168,53,53,0.07); }
+        .user-table tbody tr:last-child td { border-bottom: none; }
+
+        .user-id-cell { font-weight: 600; color: var(--primary); font-size: 11px; font-family: monospace; }
+        .user-name-cell { display: flex; align-items: center; gap: 10px; }
+        .user-avatar-sm { width: 30px; height: 30px; border-radius: 50%; background-color: rgba(168,53,53,0.1); display: flex; align-items: center; justify-content: center; color: var(--primary); font-weight: 700; font-size: 12px; flex-shrink: 0; }
+        .user-email { font-size: 12px; color: var(--light-text); }
+
+        .role-badge { display: inline-block; padding: 3px 9px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+        .role-CUSTOMER { background: rgba(33,150,243,0.1); color: #1565c0; }
+        .role-STAFF    { background: rgba(76,175,80,0.1);  color: #2e7d32; }
+        .role-ADMIN    { background: rgba(168,53,53,0.12); color: var(--primary); }
+
+        .status-badge { display: inline-block; padding: 3px 9px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+        .status-ACTIVE   { background: rgba(76,175,80,0.1);  color: #2e7d32; }
+        .status-INACTIVE { background: rgba(158,158,158,0.15); color: #616161; }
+        .status-PENDING  { background: rgba(244,162,97,0.15); color: #e65100; }
+
+        /* Column widths */
+        .user-table th:nth-child(1), .user-table td:nth-child(1) { width: 14%; }
+        .user-table th:nth-child(2), .user-table td:nth-child(2) { width: 22%; }
+        .user-table th:nth-child(3), .user-table td:nth-child(3) { width: 28%; }
+        .user-table th:nth-child(4), .user-table td:nth-child(4) { width: 14%; }
+        .user-table th:nth-child(5), .user-table td:nth-child(5) { width: 12%; }
+        .user-table th:nth-child(6), .user-table td:nth-child(6) { width: 10%; }
+
+        /* Empty state */
+        .empty-state { text-align: center; padding: 40px 20px; color: var(--light-text); font-size: 14px; }
+        .empty-state i { font-size: 36px; opacity: 0.2; margin-bottom: 10px; display: block; }
+
+        /* ── Right: form section ── */
+        .form-section { background-color: var(--white); border-radius: 10px; box-shadow: var(--card-shadow); border: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+        .form-header { padding: 16px 20px; border-bottom: 1px solid var(--border); background-color: rgba(168,53,53,0.03); display: flex; justify-content: space-between; align-items: center; }
+        .form-header h2 { font-size: 16px; color: var(--primary); display: flex; align-items: center; gap: 8px; }
+        .form-mode-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
+        .badge-edit   { background: rgba(168,53,53,0.1); color: var(--primary); }
+        .badge-new    { background: rgba(76,175,80,0.1); color: #2e7d32; }
+
+        .form-container { flex-grow: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; }
+
+        .form-group { margin-bottom: 16px; }
+        .form-label { display: block; margin-bottom: 6px; font-weight: 600; color: var(--text); font-size: 13px; }
+        .form-label .optional { font-weight: 400; color: var(--light-text); font-size: 12px; }
+        .form-input, .form-select { width: 100%; padding: 10px 13px; border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px; transition: all 0.2s ease; background-color: var(--white); color: var(--text); }
+        .form-input:focus, .form-select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(168,53,53,0.09); }
+        .form-input[readonly] { background: #f5f5f5; color: var(--light-text); cursor: not-allowed; }
+        .form-hint { font-size: 12px; color: var(--light-text); margin-top: 4px; }
+
+        .radio-group { display: flex; gap: 18px; margin-top: 5px; flex-wrap: wrap; }
+        .radio-option { display: flex; align-items: center; }
+        .radio-option input { margin-right: 6px; accent-color: var(--primary); }
+        .radio-label { color: var(--text); font-size: 13px; }
+
+        .form-divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+        .form-actions { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--border); display: flex; gap: 10px; flex-wrap: wrap; }
+
+        .btn-primary { flex: 1; padding: 11px; background-color: var(--primary); color: white; border: none; border-radius: 7px; font-weight: 600; font-size: 13px; cursor: pointer; transition: background-color 0.2s; display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 100px; }
+        .btn-primary:hover { background-color: #8b2a2a; }
+        .btn-secondary { flex: 1; padding: 11px; background-color: rgba(168,53,53,0.08); color: var(--primary); border: 1.5px solid var(--primary); border-radius: 7px; font-weight: 600; font-size: 13px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 100px; }
+        .btn-secondary:hover { background-color: rgba(168,53,53,0.16); }
+        .btn-danger { flex: 1; padding: 11px; background-color: rgba(239,68,68,0.08); color: #c62828; border: 1.5px solid #ef9a9a; border-radius: 7px; font-weight: 600; font-size: 13px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 100px; }
+        .btn-danger:hover { background-color: rgba(239,68,68,0.16); }
+
+        /* Placeholder state */
+        .form-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; flex-grow: 1; color: var(--light-text); text-align: center; padding: 30px; gap: 12px; }
+        .form-placeholder i { font-size: 38px; opacity: 0.2; }
+        .form-placeholder p { font-size: 14px; }
+
+        /* Responsive */
         @media (max-width: 1200px) {
-            .user-management {
-                grid-template-columns: 1fr 340px;
-                gap: 20px;
-            }
+            .user-management { grid-template-columns: 1fr; height: auto; overflow: visible; }
+            .table-section { height: 50vh; }
         }
-        
         @media (max-width: 1024px) {
-            :root {
-                --sidebar-width: 70px;
-            }
-            
-            .logo-text, .admin-subtitle, .nav-text, .user-details, .nav-title {
-                display: none;
-            }
-            
-            .logo-area, .nav-section, .user-section {
-                padding: 18px 15px;
-            }
-            
-            .logo-area {
-                justify-content: center;
-            }
-            
-            .nav-link {
-                justify-content: center;
-                padding: 14px;
-                border-left: none;
-                border-right: 4px solid transparent;
-            }
-            
-            .nav-link:hover, .nav-link.active {
-                border-left: none;
-                border-right-color: var(--primary);
-            }
-            
-            .nav-icon {
-                margin-right: 0;
-                font-size: 17px;
-            }
-            
-            .logout-btn span {
-                display: none;
-            }
-            
-            .logout-btn {
-                justify-content: center;
-                padding: 9px;
-            }
-        }
-        
-        @media (max-width: 900px) {
-            .user-management {
-                grid-template-columns: 1fr;
-                grid-template-rows: 1fr 1fr;
-            }
-        }
-        
-        /* Table column widths */
-        .user-table th:nth-child(1), .user-table td:nth-child(1) {
-            width: 15%;
-        }
-        
-        .user-table th:nth-child(2), .user-table td:nth-child(2) {
-            width: 25%;
-        }
-        
-        .user-table th:nth-child(3), .user-table td:nth-child(3) {
-            width: 30%;
-        }
-        
-        .user-table th:nth-child(4), .user-table td:nth-child(4) {
-            width: 15%;
-        }
-        
-        .user-table th:nth-child(5), .user-table td:nth-child(5) {
-            width: 15%;
+            :root { --sidebar-width: 70px; }
+            .logo-text, .admin-subtitle, .nav-text, .user-role, .user-name, .logout-link span, .nav-title { display: none; }
+            .logo-area, .nav-section, .user-section { padding: 16px 12px; }
+            .nav-link { justify-content: center; padding: 14px; border-left: none; border-right: 4px solid transparent; }
+            .nav-link:hover, .nav-link.active { border-left: none; border-right-color: var(--primary); }
+            .nav-icon { margin-right: 0; font-size: 18px; }
+            .logout-link { justify-content: center; padding: 10px; }
+            .user-info { justify-content: center; }
+            .user-avatar { margin-right: 0; }
         }
     </style>
 </head>
 <body>
-    <!-- Sidebar Navigation -->
-    <nav class="sidebar">
-        <div class="logo-area">
-            <div class="logo-icon">
-                <i class="fas fa-pen-nib"></i>
-            </div>
-            <div>
-                <div class="logo-text">StationaryPlus</div>
-                <div class="admin-subtitle">Administration</div>
-            </div>
+
+<?php include 'a_sidebar.php'; ?>
+
+<main class="main-content">
+    <header class="top-header">
+        <div class="header-left">
+            <h1>User Management</h1>
+            <p>Manage user accounts, roles, and access levels</p>
         </div>
-        
-        <div class="nav-section">
-            <div class="nav-title">Administration</div>
-            <ul class="nav-menu">
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-tachometer-alt"></i>
-                        </div>
-                        <div class="nav-text">Dashboard</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link active">
-                        <div class="nav-icon">
-                            <i class="fas fa-users-cog"></i>
-                        </div>
-                        <div class="nav-text">User Management</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-boxes"></i>
-                        </div>
-                        <div class="nav-text">Product Management</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-chart-bar"></i>
-                        </div>
-                        <div class="nav-text">Reports</div>
-                    </a>
-                </li>
-            </ul>
+        <div class="header-right">
+            <?php if ($pendingCount > 0): ?>
+                <div class="header-stat" style="background:rgba(244,162,97,0.12);color:#e65100;">
+                    <i class="fas fa-clock"></i> <?= $pendingCount ?> Pending
+                </div>
+            <?php endif; ?>
+            <div class="header-stat">Total Users: <?= $totalUsers ?></div>
         </div>
-        
-        <div class="user-section">
-            <div class="user-info">
-                <div class="user-avatar">AD</div>
-                <div class="user-details">
-                    <div class="user-name">Admin User</div>
-                    <div class="user-role">System Administrator</div>
-                </div>
-            </div>
-            <button class="logout-btn">
-                <i class="fas fa-sign-out-alt"></i>
-                <span>Logout</span>
-            </button>
-        </div>
-    </nav>
-    
-    <!-- Main Content Area -->
-    <main class="main-content">
-        <!-- Top Header -->
-        <header class="top-header">
-            <div class="header-left">
-                <h1>User Management</h1>
-                <p>Manage user accounts and permissions</p>
-            </div>
-            <div class="header-right">
-                Total Users: 124
-            </div>
-        </header>
-        
-        <!-- User Management Content -->
-        <div class="user-management">
-            <!-- Left Section: User Table -->
-            <section class="table-section">
-                <div class="section-header">
-                    <h2><i class="fas fa-users"></i> User Directory</h2>
-                </div>
-                
-                <div class="table-container">
-                    <table class="user-table">
-                        <thead>
-                            <tr>
-                                <th>User ID</th>
-                                <th>Name</th>
-                                <th>Email</th>
-                                <th>User Type</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr class="selected">
-                                <td class="user-id">USR-001</td>
-                                <td>
-                                    <div class="user-name-cell">
-                                        <div class="user-avatar-small">AF</div>
-                                        Ahmad Faris
-                                    </div>
-                                </td>
-                                <td class="user-email">ahmad.faris@email.com</td>
-                                <td><span class="user-type type-customer">Customer</span></td>
-                                <td><span class="user-status status-active">Active</span></td>
-                            </tr>
-                            <tr>
-                                <td class="user-id">USR-002</td>
-                                <td>
-                                    <div class="user-name-cell">
-                                        <div class="user-avatar-small">SJ</div>
-                                        Sarah Johnson
-                                    </div>
-                                </td>
-                                <td class="user-email">sarah.j@email.com</td>
-                                <td><span class="user-type type-staff">Staff</span></td>
-                                <td><span class="user-status status-active">Active</span></td>
-                            </tr>
-                            <tr>
-                                <td class="user-id">USR-003</td>
-                                <td>
-                                    <div class="user-name-cell">
-                                        <div class="user-avatar-small">MC</div>
-                                        Michael Chen
-                                    </div>
-                                </td>
-                                <td class="user-email">michael.chen@email.com</td>
-                                <td><span class="user-type type-customer">Customer</span></td>
-                                <td><span class="user-status status-inactive">Inactive</span></td>
-                            </tr>
-                            <tr>
-                                <td class="user-id">USR-004</td>
-                                <td>
-                                    <div class="user-name-cell">
-                                        <div class="user-avatar-small">LS</div>
-                                        Lisa Smith
-                                    </div>
-                                </td>
-                                <td class="user-email">lisa.smith@email.com</td>
-                                <td><span class="user-type type-admin">Admin</span></td>
-                                <td><span class="user-status status-active">Active</span></td>
-                            </tr>
-                            <tr>
-                                <td class="user-id">USR-005</td>
-                                <td>
-                                    <div class="user-name-cell">
-                                        <div class="user-avatar-small">RK</div>
-                                        Robert Kim
-                                    </div>
-                                </td>
-                                <td class="user-email">robert.k@email.com</td>
-                                <td><span class="user-type type-staff">Staff</span></td>
-                                <td><span class="user-status status-active">Active</span></td>
-                            </tr>
-                            <tr>
-                                <td class="user-id">USR-006</td>
-                                <td>
-                                    <div class="user-name-cell">
-                                        <div class="user-avatar-small">DG</div>
-                                        David Garcia
-                                    </div>
-                                </td>
-                                <td class="user-email">david.g@email.com</td>
-                                <td><span class="user-type type-customer">Customer</span></td>
-                                <td><span class="user-status status-active">Active</span></td>
-                            </tr>
-                            <tr>
-                                <td class="user-id">USR-007</td>
-                                <td>
-                                    <div class="user-name-cell">
-                                        <div class="user-avatar-small">EJ</div>
-                                        Emily Jones
-                                    </div>
-                                </td>
-                                <td class="user-email">emily.j@email.com</td>
-                                <td><span class="user-type type-customer">Customer</span></td>
-                                <td><span class="user-status status-inactive">Inactive</span></td>
-                            </tr>
-                            <tr>
-                                <td class="user-id">USR-008</td>
-                                <td>
-                                    <div class="user-name-cell">
-                                        <div class="user-avatar-small">TP</div>
-                                        Thomas Parker
-                                    </div>
-                                </td>
-                                <td class="user-email">thomas.p@email.com</td>
-                                <td><span class="user-type type-staff">Staff</span></td>
-                                <td><span class="user-status status-active">Active</span></td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-            
-            <!-- Right Section: User Form -->
-            <section class="form-section">
-                <div class="form-header">
-                    <h2><i class="fas fa-user-edit"></i> Add / Update User</h2>
-                </div>
-                
-                <div class="form-container">
-                    <!-- Empty form state -->
-                    <div class="empty-form" id="emptyForm">
-                        <i class="fas fa-user-plus"></i>
-                        <p>Select a user from the table to edit, or fill the form to add a new user.</p>
+    </header>
+
+    <?php if ($message): ?>
+    <div class="alert alert-<?= $msgType ?>">
+        <i class="fas <?= $msgType === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle' ?>"></i>
+        <?= $message ?>
+    </div>
+    <?php endif; ?>
+
+    <div class="user-management">
+
+        <!-- ── LEFT: User Table ── -->
+        <section class="table-section">
+
+            <!-- Filter bar -->
+            <div class="filter-bar">
+                <form method="GET" action="a_usermanagement.php" style="display:contents;">
+                    <div class="search-wrap">
+                        <i class="fas fa-search search-icon"></i>
+                        <input type="text" name="search" class="search-input"
+                               placeholder="Search name, email, ID…"
+                               value="<?= htmlspecialchars($search) ?>">
                     </div>
-                    
-                    <!-- User form -->
-                    <div id="userForm" style="display: none;">
-                        <div class="form-group">
-                            <label class="form-label">Full Name</label>
-                            <input type="text" class="form-input" placeholder="Enter full name" value="Ahmad Faris">
-                        </div>
-                        
-                        <div class="form-group">
-                            <label class="form-label">Email Address</label>
-                            <input type="email" class="form-input" placeholder="Enter email address" value="ahmad.faris@email.com">
-                        </div>
-                        
-                        <div class="form-group">
-                            <label class="form-label">User Type</label>
-                            <select class="form-select">
-                                <option value="customer" selected>Customer</option>
-                                <option value="staff">Staff</option>
-                                <option value="admin">Administrator</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label class="form-label">Account Status</label>
-                            <div class="radio-group">
-                                <div class="radio-option">
-                                    <input type="radio" id="active" name="status" checked>
-                                    <label class="radio-label" for="active">Active</label>
+                    <select name="role" class="filter-select">
+                        <option value="all"     <?= $filterRole==='all'      ? 'selected':'' ?>>All Roles</option>
+                        <option value="CUSTOMER"<?= $filterRole==='CUSTOMER' ? 'selected':'' ?>>Customer</option>
+                        <option value="STAFF"   <?= $filterRole==='STAFF'    ? 'selected':'' ?>>Staff</option>
+                        <option value="ADMIN"   <?= $filterRole==='ADMIN'    ? 'selected':'' ?>>Admin</option>
+                    </select>
+                    <select name="status" class="filter-select">
+                        <option value="all"     <?= $filterStatus==='all'      ? 'selected':'' ?>>All Statuses</option>
+                        <option value="ACTIVE"  <?= $filterStatus==='ACTIVE'   ? 'selected':'' ?>>Active</option>
+                        <option value="INACTIVE"<?= $filterStatus==='INACTIVE' ? 'selected':'' ?>>Inactive</option>
+                        <option value="PENDING" <?= $filterStatus==='PENDING'  ? 'selected':'' ?>>Pending</option>
+                    </select>
+                    <button type="submit" class="filter-btn"><i class="fas fa-filter"></i> Filter</button>
+                </form>
+                <button class="add-new-btn" id="addNewBtn" onclick="clearForm()">
+                    <i class="fas fa-plus"></i> Add New
+                </button>
+            </div>
+
+            <div class="section-header">
+                <h2><i class="fas fa-users"></i> User Directory</h2>
+                <span class="result-count"><?= count($users) ?> user<?= count($users)!==1?'s':'' ?></span>
+            </div>
+
+            <div class="table-container">
+                <?php if (empty($users)): ?>
+                    <div class="empty-state">
+                        <i class="fas fa-users"></i>
+                        <p>No users match the selected filters.</p>
+                    </div>
+                <?php else: ?>
+                <table class="user-table">
+                    <thead>
+                        <tr>
+                            <th>User ID</th>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Phone</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($users as $u):
+                            $initial = strtoupper(mb_substr($u['name'], 0, 1));
+                        ?>
+                        <tr onclick="loadUser(<?= htmlspecialchars(json_encode($u), ENT_QUOTES) ?>)"
+                            data-id="<?= htmlspecialchars($u['user_id']) ?>">
+                            <td><span class="user-id-cell"><?= htmlspecialchars($u['user_id']) ?></span></td>
+                            <td>
+                                <div class="user-name-cell">
+                                    <div class="user-avatar-sm"><?= htmlspecialchars($initial) ?></div>
+                                    <?= htmlspecialchars($u['name']) ?>
                                 </div>
-                                <div class="radio-option">
-                                    <input type="radio" id="inactive" name="status">
-                                    <label class="radio-label" for="inactive">Inactive</label>
-                                </div>
-                                <div class="radio-option">
-                                    <input type="radio" id="pending" name="status">
-                                    <label class="radio-label" for="pending">Pending</label>
-                                </div>
+                            </td>
+                            <td class="user-email"><?= htmlspecialchars($u['email']) ?></td>
+                            <td><span class="role-badge role-<?= $u['user_role'] ?>"><?= ucfirst(strtolower($u['user_role'])) ?></span></td>
+                            <td><span class="status-badge status-<?= $u['account_status'] ?>"><?= ucfirst(strtolower($u['account_status'])) ?></span></td>
+                            <td style="color:var(--light-text);font-size:12px;"><?= htmlspecialchars($u['phone_number'] ?? '—') ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <?php endif; ?>
+            </div>
+        </section>
+
+        <!-- ── RIGHT: User Form ── -->
+        <section class="form-section">
+            <div class="form-header">
+                <h2><i class="fas fa-user-edit"></i> <span id="formTitle">User Details</span></h2>
+                <span class="form-mode-badge badge-new" id="modeBadge">New</span>
+            </div>
+
+            <div class="form-container" id="formContainer">
+
+                <!-- Placeholder (shown before any selection) -->
+                <div class="form-placeholder" id="formPlaceholder">
+                    <i class="fas fa-user-plus"></i>
+                    <p>Select a user from the table to edit,<br>or click <strong>Add New</strong> to create one.</p>
+                </div>
+
+                <!-- The actual form (hidden until selection or Add New) -->
+                <form method="POST" action="a_usermanagement.php?search=<?= urlencode($search) ?>&role=<?= urlencode($filterRole) ?>&status=<?= urlencode($filterStatus) ?>"
+                      id="userForm" style="display:none; flex-direction:column; flex-grow:1;">
+
+                    <input type="hidden" name="action" id="formAction" value="add">
+
+                    <div class="form-group">
+                        <label class="form-label">User ID <span class="optional">(auto-generated for new)</span></label>
+                        <input type="text" name="user_id" id="fieldUserId" class="form-input" readonly placeholder="Auto-generated">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Full Name</label>
+                        <input type="text" name="name" id="fieldName" class="form-input" placeholder="Enter full name" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Email Address</label>
+                        <input type="email" name="email" id="fieldEmail" class="form-input" placeholder="email@domain.com" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Phone Number <span class="optional">(optional)</span></label>
+                        <input type="text" name="phone_number" id="fieldPhone" class="form-input" placeholder="e.g. 0123456789">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Password <span class="optional" id="pwHint">(required for new user)</span></label>
+                        <input type="password" name="password" id="fieldPassword" class="form-input" placeholder="Min. 8 characters" autocomplete="new-password">
+                        <div class="form-hint" id="pwEditHint" style="display:none;">Leave blank to keep current password.</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">User Role</label>
+                        <select name="user_role" id="fieldRole" class="form-select">
+                            <option value="CUSTOMER">Customer</option>
+                            <option value="STAFF">Staff</option>
+                            <option value="ADMIN">Admin</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Account Status</label>
+                        <div class="radio-group">
+                            <div class="radio-option">
+                                <input type="radio" name="account_status" id="statusActive" value="ACTIVE" checked>
+                                <label class="radio-label" for="statusActive">Active</label>
+                            </div>
+                            <div class="radio-option">
+                                <input type="radio" name="account_status" id="statusInactive" value="INACTIVE">
+                                <label class="radio-label" for="statusInactive">Inactive</label>
+                            </div>
+                            <div class="radio-option">
+                                <input type="radio" name="account_status" id="statusPending" value="PENDING">
+                                <label class="radio-label" for="statusPending">Pending</label>
                             </div>
                         </div>
-                        
-                        <div class="form-actions">
-                            <button class="primary-btn" id="addBtn">
-                                <i class="fas fa-plus-circle"></i> Add User
-                            </button>
-                            <button class="secondary-btn" id="updateBtn">
-                                <i class="fas fa-save"></i> Update
-                            </button>
-                            <button class="warning-btn" id="deactivateBtn">
-                                <i class="fas fa-user-slash"></i> Deactivate
-                            </button>
-                        </div>
                     </div>
-                </div>
-            </section>
-        </div>
-    </main>
-    
-    <script>
-        // Navigation interactions
-        document.querySelectorAll('.nav-link').forEach(link => {
-            link.addEventListener('click', function(e) {
-                document.querySelectorAll('.nav-link').forEach(item => {
-                    item.classList.remove('active');
-                });
-                this.classList.add('active');
-                e.preventDefault();
-            });
-        });
-        
-        // Table row selection
-        document.querySelectorAll('.user-table tbody tr').forEach(row => {
-            row.addEventListener('click', function() {
-                // Remove selected class from all rows
-                document.querySelectorAll('.user-table tbody tr').forEach(r => {
-                    r.classList.remove('selected');
-                });
-                
-                // Add selected class to clicked row
-                this.classList.add('selected');
-                
-                // Show user form
-                document.getElementById('emptyForm').style.display = 'none';
-                document.getElementById('userForm').style.display = 'block';
-                
-                // Update form with user data
-                const userName = this.querySelector('.user-name-cell').textContent.trim();
-                const userEmail = this.querySelector('.user-email').textContent.trim();
-                const userType = this.querySelector('.user-type').textContent.trim();
-                const userStatus = this.querySelector('.user-status').textContent.trim();
-                
-                // Update form fields
-                document.querySelectorAll('.form-input')[0].value = userName;
-                document.querySelectorAll('.form-input')[1].value = userEmail;
-                
-                // Set user type
-                const typeSelect = document.querySelector('.form-select');
-                if (userType === 'Customer') typeSelect.value = 'customer';
-                if (userType === 'Staff') typeSelect.value = 'staff';
-                if (userType === 'Admin') typeSelect.value = 'admin';
-                
-                // Set status
-                document.querySelectorAll('input[name="status"]').forEach(radio => {
-                    radio.checked = false;
-                    if (radio.nextElementSibling.textContent === userStatus) {
-                        radio.checked = true;
-                    }
-                });
-            });
-        });
-        
-        // Form buttons
-        document.getElementById('addBtn').addEventListener('click', function() {
-            const name = document.querySelectorAll('.form-input')[0].value;
-            const email = document.querySelectorAll('.form-input')[1].value;
-            const userType = document.querySelector('.form-select').value;
-            const status = document.querySelector('input[name="status"]:checked').nextElementSibling.textContent;
-            
-            alert(`New user would be added:\nName: ${name}\nEmail: ${email}\nUser Type: ${userType}\nStatus: ${status}\n\n(UI mockup only)`);
-        });
-        
-        document.getElementById('updateBtn').addEventListener('click', function() {
-            const name = document.querySelectorAll('.form-input')[0].value;
-            alert(`User "${name}" would be updated (UI mockup only)`);
-        });
-        
-        document.getElementById('deactivateBtn').addEventListener('click', function() {
-            const name = document.querySelectorAll('.form-input')[0].value;
-            if (confirm(`Deactivate user "${name}"? (UI mockup only)`)) {
-                alert(`User "${name}" would be deactivated (UI mockup only)`);
-            }
-        });
-        
-        // Logout button
-        document.querySelector('.logout-btn').addEventListener('click', function() {
-            alert('Logout functionality would be implemented here (UI mockup only)');
-        });
-        
-        // Initialize with first row selected
-        document.querySelector('.user-table tbody tr').click();
-    </script>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn-primary" id="submitBtn">
+                            <i class="fas fa-save"></i> <span id="submitLabel">Add User</span>
+                        </button>
+                        <button type="button" class="btn-secondary" onclick="clearForm()">
+                            <i class="fas fa-plus"></i> New
+                        </button>
+                        <!-- Deactivate button — only shown in edit mode -->
+                        <button type="button" class="btn-danger" id="deactivateBtn" style="display:none;"
+                                onclick="deactivateUser()">
+                            <i class="fas fa-user-slash"></i> Deactivate
+                        </button>
+                    </div>
+
+                </form>
+
+                <!-- Hidden deactivate form — must be OUTSIDE the main form -->
+                <form method="POST" id="deactivateForm" style="display:none;"
+                      action="a_usermanagement.php?search=<?= urlencode($search) ?>&role=<?= urlencode($filterRole) ?>&status=<?= urlencode($filterStatus) ?>">
+                    <input type="hidden" name="action" value="deactivate">
+                    <input type="hidden" name="user_id" id="deactivateUserId">
+                </form>
+            </div>
+        </section>
+
+    </div><!-- /.user-management -->
+
+</main>
+
+<script>
+// Populate form from clicked row
+function loadUser(u) {
+    showForm(true);
+
+    document.getElementById('formAction').value   = 'update';
+    document.getElementById('fieldUserId').value  = u.user_id;
+    document.getElementById('fieldName').value    = u.name;
+    document.getElementById('fieldEmail').value   = u.email;
+    document.getElementById('fieldPhone').value   = u.phone_number || '';
+    document.getElementById('fieldPassword').value = '';
+    document.getElementById('fieldRole').value    = u.user_role;
+
+    // Set status radio
+    document.querySelectorAll('input[name="account_status"]').forEach(r => {
+        r.checked = (r.value === u.account_status);
+    });
+
+    // UI tweaks for edit mode
+    document.getElementById('formTitle').textContent = 'Edit User';
+    document.getElementById('modeBadge').textContent = 'Edit';
+    document.getElementById('modeBadge').className   = 'form-mode-badge badge-edit';
+    document.getElementById('submitLabel').textContent = 'Update User';
+    document.getElementById('pwHint').textContent     = '(optional for edit)';
+    document.getElementById('pwEditHint').style.display = 'block';
+    document.getElementById('deactivateBtn').style.display = 'flex';
+    document.getElementById('deactivateUserId').value = u.user_id;
+
+    // Highlight selected row
+    document.querySelectorAll('.user-table tbody tr').forEach(r => r.classList.remove('selected'));
+    const row = document.querySelector(`.user-table tbody tr[data-id="${u.user_id}"]`);
+    if (row) row.classList.add('selected');
+}
+
+// Clear / new user mode
+function clearForm() {
+    showForm(true);
+
+    document.getElementById('formAction').value   = 'add';
+    document.getElementById('fieldUserId').value  = '';
+    document.getElementById('fieldName').value    = '';
+    document.getElementById('fieldEmail').value   = '';
+    document.getElementById('fieldPhone').value   = '';
+    document.getElementById('fieldPassword').value = '';
+    document.getElementById('fieldRole').value    = 'CUSTOMER';
+    document.getElementById('statusActive').checked = true;
+
+    document.getElementById('formTitle').textContent = 'Add New User';
+    document.getElementById('modeBadge').textContent = 'New';
+    document.getElementById('modeBadge').className   = 'form-mode-badge badge-new';
+    document.getElementById('submitLabel').textContent = 'Add User';
+    document.getElementById('pwHint').textContent     = '(required for new user)';
+    document.getElementById('pwEditHint').style.display = 'none';
+    document.getElementById('deactivateBtn').style.display = 'none';
+
+    document.querySelectorAll('.user-table tbody tr').forEach(r => r.classList.remove('selected'));
+}
+
+function showForm(show) {
+    document.getElementById('formPlaceholder').style.display = show ? 'none' : 'flex';
+    document.getElementById('userForm').style.display        = show ? 'flex' : 'none';
+}
+
+function deactivateUser() {
+    const name = document.getElementById('fieldName').value;
+    if (confirm(`Deactivate "${name}"? Their account will be set to INACTIVE.`)) {
+        document.getElementById('deactivateForm').submit();
+    }
+}
+
+// If a message was shown after POST (meaning the form was submitted), stay in the right mode
+<?php if ($message && $msgType === 'success'): ?>
+// After successful action, reset to placeholder
+document.addEventListener('DOMContentLoaded', () => showForm(false));
+<?php endif; ?>
+</script>
+
 </body>
 </html>

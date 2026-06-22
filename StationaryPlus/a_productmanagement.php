@@ -1,5 +1,10 @@
 <?php
-include 'db.php';
+
+require_once 'auth.php';
+require_role(['STAFF', 'ADMIN']);
+require_once 'db.php';
+
+$userName = $_SESSION['user_name'];
 
 $products = [];
 if ($conn) {
@@ -845,70 +850,7 @@ if ($conn) {
     </style>
 </head>
 <body>
-    <!-- Sidebar Navigation -->
-    <nav class="sidebar">
-        <div class="logo-area">
-            <div class="logo-icon">
-                <i class="fas fa-pen-nib"></i>
-            </div>
-            <div>
-                <div class="logo-text">StationaryPlus</div>
-                <div class="admin-subtitle">Administration</div>
-            </div>
-        </div>
-        
-        <div class="nav-section">
-            <div class="nav-title">Administration</div>
-            <ul class="nav-menu">
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-tachometer-alt"></i>
-                        </div>
-                        <div class="nav-text">Dashboard</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-users-cog"></i>
-                        </div>
-                        <div class="nav-text">User Management</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link active">
-                        <div class="nav-icon">
-                            <i class="fas fa-boxes"></i>
-                        </div>
-                        <div class="nav-text">Product Management</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-chart-bar"></i>
-                        </div>
-                        <div class="nav-text">Reports</div>
-                    </a>
-                </li>
-            </ul>
-        </div>
-        
-        <div class="user-section">
-            <div class="user-info">
-                <div class="user-avatar">AD</div>
-                <div class="user-details">
-                    <div class="user-name">Admin User</div>
-                    <div class="user-role">Product Manager</div>
-                </div>
-            </div>
-            <button class="logout-btn">
-                <i class="fas fa-sign-out-alt"></i>
-                <span>Logout</span>
-            </button>
-        </div>
-    </nav>
+    <?php include 'a_sidebar.php'; ?>
     
     <!-- Main Content Area -->
     <main class="main-content">
@@ -1110,7 +1052,6 @@ if ($conn) {
                     item.classList.remove('active');
                 });
                 this.classList.add('active');
-                e.preventDefault();
             });
         });
         

@@ -1,5 +1,9 @@
 <?php
-include 'db.php';
+require_once 'auth.php';
+require_role(['STAFF', 'ADMIN']);
+require_once 'db.php';
+
+$userName = $_SESSION['user_name'];
 
 $branches = [];
 if ($conn) {

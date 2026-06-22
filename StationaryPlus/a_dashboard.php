@@ -1,3 +1,161 @@
+<?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+require_once 'auth.php';
+require_role(['STAFF', 'ADMIN']);
+
+require_once 'db.php';
+
+$userName = $_SESSION['user_name'];
+
+// ========================================
+// DASHBOARD STATISTICS
+// ========================================
+
+// TOTAL USERS
+$totalUsers = 0;
+
+$userQuery = mysqli_query($conn, "
+    SELECT COUNT(*) AS total 
+    FROM users
+");
+
+if ($userQuery) {
+    $userData = mysqli_fetch_assoc($userQuery);
+    $totalUsers = $userData['total'];
+}
+
+// NEW USERS THIS MONTH
+$newUsers = 0;
+
+$newUsersQuery = mysqli_query($conn, "
+    SELECT COUNT(*) AS total
+    FROM users
+    WHERE MONTH(registration_date) = MONTH(CURRENT_DATE())
+    AND YEAR(registration_date) = YEAR(CURRENT_DATE())
+");
+
+if ($newUsersQuery) {
+    $newUsersData = mysqli_fetch_assoc($newUsersQuery);
+    $newUsers = $newUsersData['total'];
+}
+
+// ========================================
+// TOTAL PRODUCTS
+// ========================================
+
+$totalProducts = 0;
+
+$productQuery = mysqli_query($conn, "
+    SELECT COUNT(*) AS total
+    FROM products
+    WHERE product_status = 'ACTIVE'
+");
+
+if ($productQuery) {
+    $productData = mysqli_fetch_assoc($productQuery);
+    $totalProducts = $productData['total'];
+}
+
+// PRODUCTS UPDATED THIS MONTH
+$newProducts = 0;
+
+$newProductsQuery = mysqli_query($conn, "
+    SELECT COUNT(*) AS total
+    FROM products
+    WHERE MONTH(last_updated) = MONTH(CURRENT_DATE())
+    AND YEAR(last_updated) = YEAR(CURRENT_DATE())
+");
+
+if ($newProductsQuery) {
+    $newProductsData = mysqli_fetch_assoc($newProductsQuery);
+    $newProducts = $newProductsData['total'];
+}
+
+// ========================================
+// TOTAL BRANCHES
+// ========================================
+
+$totalBranches = 0;
+
+$branchQuery = mysqli_query($conn, "
+    SELECT COUNT(*) AS total
+    FROM branches
+    WHERE status = 'ACTIVE'
+");
+
+if ($branchQuery) {
+    $branchData = mysqli_fetch_assoc($branchQuery);
+    $totalBranches = $branchData['total'];
+}
+// ========================================
+// BRANCHES UPDATED THIS MONTH
+// ========================================
+
+$updatedBranches = 0;
+
+$updatedBranchesQuery = mysqli_query($conn, "
+    SELECT COUNT(*) AS total
+    FROM branches
+    WHERE MONTH(last_updated) = MONTH(CURRENT_DATE())
+    AND YEAR(last_updated) = YEAR(CURRENT_DATE())
+");
+
+if ($updatedBranchesQuery) {
+    $updatedBranchesData = mysqli_fetch_assoc($updatedBranchesQuery);
+    $updatedBranches = $updatedBranchesData['total'];
+}
+// ========================================
+// TOTAL SALES
+// ONLY VALID PAYMENTS
+// ========================================
+
+$totalSales = 0;
+
+$salesQuery = mysqli_query($conn, "
+    SELECT COALESCE(SUM(amount), 0) AS total
+    FROM payments
+    WHERE verification_status = 'VALID'
+");
+
+if ($salesQuery) {
+    $salesData = mysqli_fetch_assoc($salesQuery);
+    $totalSales = $salesData['total'];
+}
+
+// ========================================
+// SALES LAST MONTH
+// ========================================
+
+$lastMonthSales = 0;
+
+$lastMonthQuery = mysqli_query($conn, "
+    SELECT COALESCE(SUM(amount), 0) AS total
+    FROM payments
+    WHERE verification_status = 'VALID'
+    AND MONTH(record_date) = MONTH(CURRENT_DATE - INTERVAL 1 MONTH)
+    AND YEAR(record_date) = YEAR(CURRENT_DATE - INTERVAL 1 MONTH)
+");
+
+if ($lastMonthQuery) {
+    $lastMonthData = mysqli_fetch_assoc($lastMonthQuery);
+    $lastMonthSales = $lastMonthData['total'];
+}
+
+// ========================================
+// SALES TREND PERCENTAGE
+// ========================================
+
+$salesTrend = 0;
+
+if ($lastMonthSales > 0) {
+    $salesTrend = (($totalSales - $lastMonthSales) / $lastMonthSales) * 100;
+}
+
+$salesTrend = number_format($salesTrend, 1);
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -46,7 +204,7 @@
             box-shadow: 2px 0 10px rgba(0, 0, 0, 0.03);
         }
         
-        .admin-logo-area {
+        .logo-area {
             padding: 28px;
             border-bottom: 1px solid var(--border);
             background-color: rgba(168, 53, 53, 0.03);
@@ -54,7 +212,7 @@
             align-items: center;
         }
         
-        .admin-logo-icon {
+        .logo-icon {
             background-color: var(--primary);
             width: 44px;
             height: 44px;
@@ -67,7 +225,7 @@
             font-size: 22px;
         }
         
-        .admin-logo-text {
+        .logo-text {
             font-size: 22px;
             font-weight: 700;
             color: var(--primary);
@@ -135,19 +293,19 @@
             font-size: 16px;
         }
         
-        .admin-user-section {
+        .user-section {
             margin-top: auto;
             padding: 25px;
             border-top: 1px solid var(--border);
         }
         
-        .admin-user-info {
+        .user-info {
             display: flex;
             align-items: center;
             margin-bottom: 20px;
         }
         
-        .admin-user-avatar {
+        .user-avatar {
             width: 50px;
             height: 50px;
             border-radius: 50%;
@@ -161,24 +319,24 @@
             margin-right: 15px;
         }
         
-        .admin-user-details {
+        .user-details {
             flex-grow: 1;
         }
         
-        .admin-user-name {
+        .user-name {
             font-weight: 700;
             font-size: 17px;
             color: var(--text);
             margin-bottom: 3px;
         }
         
-        .admin-user-role {
+        .user-role {
             font-size: 14px;
             color: var(--primary);
             font-weight: 600;
         }
         
-        .admin-logout-btn {
+        .logout-link {
             width: 100%;
             padding: 12px;
             background-color: rgba(168, 53, 53, 0.1);
@@ -193,9 +351,10 @@
             align-items: center;
             justify-content: center;
             gap: 10px;
+            text-decoration: none;
         }
         
-        .admin-logout-btn:hover {
+        .logout-link:hover {
             background-color: rgba(168, 53, 53, 0.2);
         }
         
@@ -471,15 +630,15 @@
                 --sidebar-width: 70px;
             }
             
-            .admin-logo-text, .admin-subtitle, .nav-text, .admin-user-details, .nav-title, .admin-nav-description {
+            .logo-text, .admin-subtitle, .nav-text, .user-details, .nav-title, .admin-nav-description {
                 display: none;
             }
             
-            .admin-logo-area, .nav-section, .admin-user-section {
+            .logo-area, .nav-section, .user-section {
                 padding: 20px;
             }
             
-            .admin-logo-area {
+            .logo-area {
                 justify-content: center;
             }
             
@@ -500,16 +659,16 @@
                 font-size: 20px;
             }
             
-            .admin-logout-btn span {
+            .logout-link span {
                 display: none;
             }
             
-            .admin-logout-btn {
+            .logout-link {
                 justify-content: center;
                 padding: 12px;
             }
             
-            .admin-header-left h1 {
+            .header-left h1 {
                 font-size: 24px;
             }
         }
@@ -527,78 +686,7 @@
     </style>
 </head>
 <body>
-    <!-- Sidebar Navigation -->
-    <nav class="sidebar">
-        <div class="admin-logo-area">
-            <div class="admin-logo-icon">
-                <i class="fas fa-pen-nib"></i>
-            </div>
-            <div>
-                <div class="admin-logo-text">StationaryPlus</div>
-                <div class="admin-subtitle">Administrator Panel</div>
-            </div>
-        </div>
-        
-        <div class="nav-section">
-            <div class="nav-title">Administration</div>
-            <ul class="nav-menu">
-                <li class="nav-item">
-                    <a href="#" class="nav-link active">
-                        <div class="nav-icon">
-                            <i class="fas fa-tachometer-alt"></i>
-                        </div>
-                        <div class="nav-text">Dashboard</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-users"></i>
-                        </div>
-                        <div class="nav-text">Manage Users</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-boxes"></i>
-                        </div>
-                        <div class="nav-text">Manage Products</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-store"></i>
-                        </div>
-                        <div class="nav-text">Manage Branches</div>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link">
-                        <div class="nav-icon">
-                            <i class="fas fa-chart-line"></i>
-                        </div>
-                        <div class="nav-text">Sales Reports</div>
-                    </a>
-                </li>
-            </ul>
-        </div>
-        
-        <div class="admin-user-section">
-            <div class="admin-user-info">
-                <div class="admin-user-avatar">AD</div>
-                <div class="admin-user-details">
-                    <div class="admin-user-name">Admin User</div>
-                    <div class="admin-user-role">System Administrator</div>
-                </div>
-            </div>
-            <button class="admin-logout-btn">
-                <i class="fas fa-sign-out-alt"></i>
-                <span>Logout</span>
-            </button>
-        </div>
-    </nav>
+    <?php include 'a_sidebar.php'; ?>
     
     <!-- Main Content Area -->
     <main class="main-content">
@@ -628,10 +716,12 @@
                             <i class="fas fa-users"></i>
                         </div>
                     </div>
-                    <div class="overview-value">1,248</div>
+                    <div class="overview-value">
+    <?php echo number_format($totalUsers); ?>
+</div>
                     <div class="overview-trend">
                         <i class="fas fa-arrow-up trend-up"></i>
-                        <span>+32 this month</span>
+                        <span>+<?php echo $newUsers; ?> this month</span>
                     </div>
                 </div>
                 
@@ -642,10 +732,12 @@
                             <i class="fas fa-box-open"></i>
                         </div>
                     </div>
-                    <div class="overview-value">286</div>
+                    <div class="overview-value">
+    <?php echo number_format($totalProducts); ?>
+</div>
                     <div class="overview-trend">
                         <i class="fas fa-arrow-up trend-up"></i>
-                        <span>+12 this month</span>
+                        <span>+<?php echo $newProducts; ?> updated this month</span>
                     </div>
                 </div>
                 
@@ -656,10 +748,14 @@
                             <i class="fas fa-store"></i>
                         </div>
                     </div>
-                    <div class="overview-value">8</div>
+                    <div class="overview-value">
+    <?php echo number_format($totalBranches); ?>
+</div>
                     <div class="overview-trend">
-                        <i class="fas fa-minus"></i>
-                        <span>No change this month</span>
+                        <i class="fas fa-arrow-up trend-up"></i>
+                        <span>
+    +<?php echo $updatedBranches; ?> updated this month
+</span>
                     </div>
                 </div>
                 
@@ -670,10 +766,14 @@
                             <i class="fas fa-chart-line"></i>
                         </div>
                     </div>
-                    <div class="overview-value">RM 42,850</div>
+                    <div class="overview-value">
+    RM <?php echo number_format($totalSales, 2); ?>
+</div>
                     <div class="overview-trend">
                         <i class="fas fa-arrow-up trend-up"></i>
-                        <span>+8.5% from last month</span>
+                        <span>
+    <?php echo $salesTrend; ?>% from last month
+</span>
                     </div>
                 </div>
             </section>
@@ -685,7 +785,7 @@
                 </h2>
                 
                 <div class="navigation-grid">
-                    <div class="admin-nav-card">
+                    <a href="a_manage_users.php" class="admin-nav-card">
                         <div class="admin-nav-icon nav-manage-users">
                             <i class="fas fa-users-cog"></i>
                         </div>
@@ -693,9 +793,9 @@
                         <p class="admin-nav-description">
                             Add, edit, or remove user accounts. Manage permissions and access levels.
                         </p>
-                    </div>
+</a>
                     
-                    <div class="admin-nav-card">
+                    <a href="a_manage_products.php" class="admin-nav-card">
                         <div class="admin-nav-icon nav-manage-products">
                             <i class="fas fa-boxes"></i>
                         </div>
@@ -703,9 +803,9 @@
                         <p class="admin-nav-description">
                             Update product catalog, pricing, categories, and inventory settings.
                         </p>
-                    </div>
+                    </a>
                     
-                    <div class="admin-nav-card">
+                    <a href="a_manage_branches.php" class="admin-nav-card">
                         <div class="admin-nav-icon nav-manage-branches">
                             <i class="fas fa-store"></i>
                         </div>
@@ -713,9 +813,9 @@
                         <p class="admin-nav-description">
                             Configure branch locations, staff assignments, and regional settings.
                         </p>
-                    </div>
+                    </a>
                     
-                    <div class="admin-nav-card">
+                    <a href="a_sales_report.php" class="admin-nav-card">
                         <div class="admin-nav-icon nav-sales-report">
                             <i class="fas fa-chart-bar"></i>
                         </div>
@@ -723,7 +823,7 @@
                         <p class="admin-nav-description">
                             View detailed sales analytics, generate reports, and export data.
                         </p>
-                    </div>
+                    </a>
                 </div>
             </section>
         </div>
@@ -737,34 +837,7 @@
                     item.classList.remove('active');
                 });
                 this.classList.add('active');
-                e.preventDefault();
             });
-        });
-        
-        // Admin navigation card interactions
-        document.querySelectorAll('.admin-nav-card').forEach(card => {
-            card.addEventListener('click', function() {
-                const title = this.querySelector('.admin-nav-title').textContent;
-                alert(`This would navigate to: ${title} page (UI mockup only)`);
-            });
-        });
-        
-        // Overview card interactions
-        document.querySelectorAll('.overview-card').forEach(card => {
-            card.addEventListener('click', function() {
-                const title = this.querySelector('.overview-title').textContent;
-                alert(`This would show detailed statistics for: ${title} (UI mockup only)`);
-            });
-        });
-        
-        // Notifications icon
-        document.querySelector('.admin-notifications').addEventListener('click', function() {
-            alert('Notifications panel would open here (UI mockup only)');
-        });
-        
-        // Logout button
-        document.querySelector('.admin-logout-btn').addEventListener('click', function() {
-            alert('Administrator logout would be implemented here (UI mockup only)');
         });
         
         // Update current date
