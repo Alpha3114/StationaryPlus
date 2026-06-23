@@ -1,139 +1,99 @@
 <?php
 // ============================================================
 //  s_ordermanagement.php — Staff Order Management
+//
+//  Refactored: single query against the unified orders table.
+//  No more merging two result sets and sorting in PHP.
 // ============================================================
-
+ 
 if (session_status() === PHP_SESSION_NONE) session_start();
-
+ 
 require_once 'auth.php';
-require_role(['STAFF', 'ADMIN']);
+require_role(['STAFF','ADMIN']);
 require_once 'db.php';
-
+ 
 // ── Handle status update (POST) ───────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
-    $orderId   = trim($_POST['order_id']     ?? '');
-    $newStatus = trim($_POST['new_status']   ?? '');
-    $type      = trim($_POST['order_type']   ?? 'order'); // order | preorder
-
-    $validOrderStatuses    = ['NEW','PROCESSING','READY','COLLECTED','CANCELLED'];
-    $validPreorderStatuses = ['SUBMITTED','PROCESSING','READY','CANCELLED'];
-
-    $valid = $type === 'preorder'
-        ? in_array($newStatus, $validPreorderStatuses)
-        : in_array($newStatus, $validOrderStatuses);
-
-    if ($orderId && $valid) {
-        if ($type === 'preorder') {
-            $stmt = $conn->prepare("UPDATE preorders SET order_status = ? WHERE preorder_id = ?");
-        } else {
-            $stmt = $conn->prepare("UPDATE orders SET order_status = ? WHERE order_id = ?");
-        }
+    $orderId   = trim($_POST['order_id']   ?? '');
+    $newStatus = trim($_POST['new_status'] ?? '');
+ 
+    $validStatuses = ['NEW','PROCESSING','READY','COLLECTED','CANCELLED'];
+ 
+    if ($orderId && in_array($newStatus, $validStatuses)) {
+        $stmt = $conn->prepare(
+            "UPDATE orders SET order_status = ? WHERE order_id = ?"
+        );
         $stmt->bind_param('ss', $newStatus, $orderId);
         $stmt->execute();
         $stmt->close();
     }
-
-    // Redirect to avoid form re-submission
+ 
     $redirect = '?';
-    if (!empty($_GET['search']))  $redirect .= 'search='  . urlencode($_GET['search'])  . '&';
-    if (!empty($_GET['status']))  $redirect .= 'status='  . urlencode($_GET['status'])  . '&';
-    if (!empty($_GET['filter']))  $redirect .= 'filter='  . urlencode($_GET['filter'])  . '&';
+    if (!empty($_GET['search'])) $redirect .= 'search='  . urlencode($_GET['search'])  . '&';
+    if (!empty($_GET['status'])) $redirect .= 'status='  . urlencode($_GET['status'])  . '&';
+    if (!empty($_GET['filter'])) $redirect .= 'filter='  . urlencode($_GET['filter'])  . '&';
     header('Location: s_ordermanagement.php' . rtrim($redirect, '&?'));
     exit;
 }
-
+ 
 // ── Filters ───────────────────────────────────────────────────
-$search     = trim($_GET['search'] ?? '');
-$filterType = $_GET['filter'] ?? 'all';   // all | order | preorder
+$search       = trim($_GET['search'] ?? '');
+$filterType   = $_GET['filter'] ?? 'all';   // all | order | preorder
 $filterStatus = $_GET['status'] ?? 'all';
-
-// ── Fetch Orders ──────────────────────────────────────────────
-$orders = [];
-if ($filterType === 'all' || $filterType === 'order') {
-    $where  = ["1=1"];
-    $params = [];
-    $types  = '';
-
-    if ($search !== '') {
-        $where[]  = "(o.order_id LIKE ? OR u.name LIKE ?)";
-        $like     = "%$search%";
-        $params[] = $like;
-        $params[] = $like;
-        $types   .= 'ss';
-    }
-    if ($filterStatus !== 'all') {
-        $where[]  = "o.order_status = ?";
-        $params[] = $filterStatus;
-        $types   .= 's';
-    }
-
-    $whereSQL = implode(' AND ', $where);
-    $sql = "SELECT o.order_id AS id, o.order_date, o.order_status AS status,
-                   o.estimated_total AS amount, u.name AS customer_name,
-                   u.email AS customer_email,
-                   COUNT(oi.order_item_id) AS item_count,
-                   'order' AS type
-            FROM orders o
-            JOIN users u ON o.user_id = u.user_id
-            LEFT JOIN order_items oi ON o.order_id = oi.order_id
-            WHERE $whereSQL
-            GROUP BY o.order_id
-            ORDER BY o.order_date DESC
-            LIMIT 50";
-
-    $stmt = $conn->prepare($sql);
-    if ($types) $stmt->bind_param($types, ...$params);
-    $stmt->execute();
-    $orders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-    $stmt->close();
+ 
+// ── Build WHERE clauses ───────────────────────────────────────
+$where  = ['1=1'];
+$params = [];
+$types  = '';
+ 
+if ($search !== '') {
+    $where[]  = "(o.order_id LIKE ? OR u.name LIKE ?)";
+    $like     = "%$search%";
+    $params[] = $like;
+    $params[] = $like;
+    $types   .= 'ss';
 }
-
-// ── Fetch Preorders ───────────────────────────────────────────
-$preorders = [];
-if ($filterType === 'all' || $filterType === 'preorder') {
-    $where  = ["1=1"];
-    $params = [];
-    $types  = '';
-
-    if ($search !== '') {
-        $where[]  = "(po.preorder_id LIKE ? OR u.name LIKE ?)";
-        $like     = "%$search%";
-        $params[] = $like;
-        $params[] = $like;
-        $types   .= 'ss';
-    }
-    if ($filterStatus !== 'all') {
-        $where[]  = "po.order_status = ?";
-        $params[] = $filterStatus;
-        $types   .= 's';
-    }
-
-    $whereSQL = implode(' AND ', $where);
-    $sql = "SELECT po.preorder_id AS id, po.order_date, po.order_status AS status,
-                   NULL AS amount, u.name AS customer_name,
-                   u.email AS customer_email,
-                   COUNT(pi.preorder_item_id) AS item_count,
-                   'preorder' AS type,
-                   po.notes
-            FROM preorders po
-            JOIN users u ON po.user_id = u.user_id
-            LEFT JOIN preorder_items pi ON po.preorder_id = pi.preorder_id
-            WHERE $whereSQL
-            GROUP BY po.preorder_id
-            ORDER BY po.order_date DESC
-            LIMIT 50";
-
-    $stmt = $conn->prepare($sql);
-    if ($types) $stmt->bind_param($types, ...$params);
-    $stmt->execute();
-    $preorders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-    $stmt->close();
+ 
+if ($filterType === 'order') {
+    $where[] = "o.order_type = 'ORDER'";
+} elseif ($filterType === 'preorder') {
+    $where[] = "o.order_type = 'PREORDER'";
 }
-
-// Merge and sort
-$allRows = array_merge($orders, $preorders);
-usort($allRows, fn($a, $b) => strtotime($b['order_date']) - strtotime($a['order_date']));
-
+ 
+$validStatuses = ['NEW','PROCESSING','READY','COLLECTED','CANCELLED'];
+if ($filterStatus !== 'all' && in_array($filterStatus, $validStatuses)) {
+    $where[]  = "o.order_status = ?";
+    $params[] = $filterStatus;
+    $types   .= 's';
+}
+ 
+$whereSQL = implode(' AND ', $where);
+ 
+// ── Single query for all rows ─────────────────────────────────
+$sql = "SELECT
+            o.order_id      AS id,
+            o.order_type    AS type,
+            o.order_date,
+            o.order_status  AS status,
+            o.estimated_total AS amount,
+            o.notes,
+            u.name          AS customer_name,
+            u.email         AS customer_email,
+            COUNT(oi.order_item_id) AS item_count
+        FROM orders o
+        JOIN users u ON o.user_id = u.user_id
+        LEFT JOIN order_items oi ON o.order_id = oi.order_id
+        WHERE $whereSQL
+        GROUP BY o.order_id
+        ORDER BY o.order_date DESC
+        LIMIT 100";
+ 
+$stmt = $conn->prepare($sql);
+if ($types) $stmt->bind_param($types, ...$params);
+$stmt->execute();
+$allRows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$stmt->close();
+ 
 // ── Status badge helper ───────────────────────────────────────
 function statusBadge(string $status): string {
     $map = [
@@ -142,18 +102,9 @@ function statusBadge(string $status): string {
         'READY'      => ['#10b981','#ecfdf5','Ready'],
         'COLLECTED'  => ['#6b7280','#f3f4f6','Collected'],
         'CANCELLED'  => ['#ef4444','#fef2f2','Cancelled'],
-        'SUBMITTED'  => ['#A83535','#fdf2f2','Submitted'],
     ];
-    [$color,$bg,$label] = $map[$status] ?? ['#6b7280','#f3f4f6',$status];
-    return "<span style='background:$bg;color:$color;border:1px solid {$color}55;
-                padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;
-                white-space:nowrap;'>$label</span>";
-}
-
-function typeBadge(string $type): string {
-    if ($type === 'order')
-        return "<span style='background:#eff6ff;color:#3b82f6;border:1px solid #bfdbfe;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;'>Order</span>";
-    return "<span style='background:#fdf2f2;color:#A83535;border:1px solid #fca5a5;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;'>Pre-order</span>";
+    [$color, $bg, $label] = $map[$status] ?? ['#888','#f3f4f6', $status];
+    return "<span style='background:$bg;color:$color;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;'>$label</span>";
 }
 ?>
 <!DOCTYPE html>
@@ -323,7 +274,6 @@ function typeBadge(string $type): string {
                 <select name="status" class="status-select" onchange="this.form.submit()">
                     <option value="all"        <?= $filterStatus==='all'        ? 'selected':'' ?>>All Statuses</option>
                     <option value="NEW"        <?= $filterStatus==='NEW'        ? 'selected':'' ?>>New</option>
-                    <option value="SUBMITTED"  <?= $filterStatus==='SUBMITTED'  ? 'selected':'' ?>>Submitted</option>
                     <option value="PROCESSING" <?= $filterStatus==='PROCESSING' ? 'selected':'' ?>>Processing</option>
                     <option value="READY"      <?= $filterStatus==='READY'      ? 'selected':'' ?>>Ready</option>
                     <option value="COLLECTED"  <?= $filterStatus==='COLLECTED'  ? 'selected':'' ?>>Collected</option>
@@ -424,7 +374,7 @@ function loadDetail(id, type) {
 
 function renderDetail(d, id, type) {
     const statusOptions = type === 'preorder'
-        ? ['SUBMITTED','PROCESSING','READY','CANCELLED']
+        ? ['PROCESSING','READY','CANCELLED']
         : ['NEW','PROCESSING','READY','COLLECTED','CANCELLED'];
 
     const optionsHTML = statusOptions.map(s =>

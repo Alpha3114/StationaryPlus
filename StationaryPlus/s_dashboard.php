@@ -1,93 +1,92 @@
 <?php
 // ============================================================
 //  s_dashboard.php — Staff Dashboard
+//
+//  Refactored: preorder stat now queries the unified orders
+//  table with order_type='PREORDER'. All other queries unchanged.
 // ============================================================
-
+ 
 if (session_status() === PHP_SESSION_NONE) session_start();
-
+ 
 require_once 'auth.php';
-require_role(['STAFF', 'ADMIN']);
+require_role(['STAFF','ADMIN']);
 require_once 'db.php';
-
+ 
 $userName = $_SESSION['user_name'];
 $branchId = $_SESSION['branch_id'] ?? null;
-
-// ── Branch filter — staff only see their own branch ───────────
-$branchSQL   = $branchId ? "AND i.branch_id = ?" : '';
-$branchSQL2  = $branchId ? "AND branch_id = ?"   : '';
-
-// ── Stat 1: Orders to process (NEW or PROCESSING) ─────────────
+ 
+// ── Stat 1: Confirmed orders to process (NEW or PROCESSING) ───
 $stmt = $conn->prepare(
-    "SELECT COUNT(*) AS cnt FROM orders WHERE order_status IN ('NEW','PROCESSING')"
+    "SELECT COUNT(*) AS cnt FROM orders
+     WHERE order_type = 'ORDER'
+       AND order_status IN ('NEW','PROCESSING')"
 );
 $stmt->execute();
 $ordersToProcess = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
 $stmt->close();
-
-// Orders new today
+ 
 $stmt = $conn->prepare(
     "SELECT COUNT(*) AS cnt FROM orders
-     WHERE order_status = 'NEW' AND DATE(order_date) = CURDATE()"
+     WHERE order_type = 'ORDER'
+       AND order_status = 'NEW'
+       AND DATE(order_date) = CURDATE()"
 );
 $stmt->execute();
 $newToday = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
 $stmt->close();
-
-// ── Stat 2: Low stock alerts (stock_quantity <= minimum_level) ─
-if ($branchId) {
-    $stmt = $conn->prepare(
-        "SELECT COUNT(*) AS cnt FROM inventory
-         WHERE stock_quantity <= minimum_level AND branch_id = ?"
-    );
-    $stmt->bind_param('s', $branchId);
-} else {
-    $stmt = $conn->prepare(
-        "SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity <= minimum_level"
-    );
-}
+ 
+// ── Stat 2: Low stock alerts (unchanged) ──────────────────────
+$branchSQL = $branchId ? "AND branch_id = ?" : '';
+ 
+$stmt = $branchId
+    ? $conn->prepare("SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity <= minimum_level AND branch_id = ?")
+    : $conn->prepare("SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity <= minimum_level");
+if ($branchId) $stmt->bind_param('s', $branchId);
 $stmt->execute();
 $lowStockCount = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
 $stmt->close();
-
-// Critical (stock = 0)
-if ($branchId) {
-    $stmt = $conn->prepare(
-        "SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity = 0 AND branch_id = ?"
-    );
-    $stmt->bind_param('s', $branchId);
-} else {
-    $stmt = $conn->prepare(
-        "SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity = 0"
-    );
-}
+ 
+$stmt = $branchId
+    ? $conn->prepare("SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity = 0 AND branch_id = ?")
+    : $conn->prepare("SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity = 0");
+if ($branchId) $stmt->bind_param('s', $branchId);
 $stmt->execute();
 $criticalCount = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
 $stmt->close();
-
-// ── Stat 3: Pending payments to verify ────────────────────────
+ 
+// ── Stat 3: Pending payments to verify (unchanged) ────────────
 $stmt = $conn->prepare(
     "SELECT COUNT(*) AS cnt FROM payments WHERE verification_status = 'PENDING'"
 );
 $stmt->execute();
 $pendingPayments = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
 $stmt->close();
-
-// ── Stat 4: Preorders submitted (awaiting staff action) ────────
+ 
+// ── Stat 4: Pre-orders awaiting staff action ──────────────────
+//  Was: SELECT COUNT(*) FROM preorders WHERE order_status='SUBMITTED'
+//  Now: unified table, order_type='PREORDER', initial status is 'NEW'
 $stmt = $conn->prepare(
-    "SELECT COUNT(*) AS cnt FROM preorders WHERE order_status = 'SUBMITTED'"
+    "SELECT COUNT(*) AS cnt FROM orders
+     WHERE order_type = 'PREORDER'
+       AND order_status = 'NEW'"
 );
 $stmt->execute();
 $pendingPreorders = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
 $stmt->close();
-
-// ── Recent orders (last 8) ─────────────────────────────────────
+ 
+// ── Recent confirmed orders (last 8) ─────────────────────────
 $stmt = $conn->prepare(
-    "SELECT o.order_id, o.order_date, o.order_status, o.estimated_total,
-            u.name AS customer_name,
-            COUNT(oi.order_item_id) AS item_count
+    "SELECT
+         o.order_id,
+         o.order_date,
+         o.order_status,
+         o.estimated_total,
+         u.name AS customer_name,
+         COUNT(oi.order_item_id) AS item_count
      FROM orders o
-     JOIN users u       ON o.user_id = u.user_id
+     JOIN users u ON o.user_id = u.user_id
      LEFT JOIN order_items oi ON o.order_id = oi.order_id
+     WHERE o.order_type = 'ORDER'
      GROUP BY o.order_id
      ORDER BY o.order_date DESC
      LIMIT 8"
@@ -95,14 +94,14 @@ $stmt = $conn->prepare(
 $stmt->execute();
 $recentOrders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
-
-// ── Low stock items (top 5) ────────────────────────────────────
+ 
+// ── Low stock items (top 5) — unchanged ──────────────────────
 if ($branchId) {
     $stmt = $conn->prepare(
         "SELECT p.product_name, p.category, i.stock_quantity, i.minimum_level, b.branch_name
          FROM inventory i
-         JOIN products p  ON i.product_id  = p.product_id
-         JOIN branches b  ON i.branch_id   = b.branch_id
+         JOIN products p ON i.product_id = p.product_id
+         JOIN branches b ON i.branch_id  = b.branch_id
          WHERE i.stock_quantity <= i.minimum_level AND i.branch_id = ?
          ORDER BY i.stock_quantity ASC
          LIMIT 5"
@@ -112,8 +111,8 @@ if ($branchId) {
     $stmt = $conn->prepare(
         "SELECT p.product_name, p.category, i.stock_quantity, i.minimum_level, b.branch_name
          FROM inventory i
-         JOIN products p  ON i.product_id  = p.product_id
-         JOIN branches b  ON i.branch_id   = b.branch_id
+         JOIN products p ON i.product_id = p.product_id
+         JOIN branches b ON i.branch_id  = b.branch_id
          WHERE i.stock_quantity <= i.minimum_level
          ORDER BY i.stock_quantity ASC
          LIMIT 5"
@@ -122,8 +121,8 @@ if ($branchId) {
 $stmt->execute();
 $lowStockItems = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
-
-// ── Helpers ────────────────────────────────────────────────────
+ 
+// ── Status badge (unchanged) ──────────────────────────────────
 function orderStatusBadge(string $status): string {
     $map = [
         'NEW'        => ['#3b82f6','#eff6ff','New'],
@@ -132,10 +131,8 @@ function orderStatusBadge(string $status): string {
         'COLLECTED'  => ['#6b7280','#f3f4f6','Collected'],
         'CANCELLED'  => ['#ef4444','#fef2f2','Cancelled'],
     ];
-    [$color,$bg,$label] = $map[$status] ?? ['#6b7280','#f3f4f6',$status];
-    return "<span style='background:$bg;color:$color;border:1px solid {$color}55;
-                padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;
-                white-space:nowrap;'>$label</span>";
+    [$color, $bg, $label] = $map[$status] ?? ['#888','#f3f4f6', $status];
+    return "<span style='background:$bg;color:$color;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;'>$label</span>";
 }
 ?>
 <!DOCTYPE html>
