@@ -280,9 +280,12 @@ function statusBadge(string $s): string {
                     <div>
                         <label class="form-label">Paper Size</label>
                         <select id="paperSize" class="form-select">
-                            <option value="A4" selected>A4</option>
+                            <option value="A4" selected>A4 (most common)</option>
                             <option value="A3">A3</option>
                             <option value="A5">A5</option>
+                            <option value="A2">A2</option>
+                            <option value="A1">A1</option>
+                            <option value="A0">A0</option>
                         </select>
                     </div>
  
@@ -305,8 +308,6 @@ function statusBadge(string $s): string {
                             <option value="None" selected>None</option>
                             <option value="Staple">Staple (RM 0.50)</option>
                             <option value="Spiral">Spiral (RM 3.00)</option>
-                            <option value="Thermal Binding">Thermal Binding (RM 5.00)</option>
-                            <option value="Hardcover Binding">Hardcover Binding (RM 12.00)</option>
                         </select>
                     </div>
  
