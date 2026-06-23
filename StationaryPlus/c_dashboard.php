@@ -1,126 +1,89 @@
 <?php
 // ============================================================
 //  c_dashboard.php — Customer Dashboard
+//
+//  Refactored: all order/preorder queries now hit the unified
+//  orders table filtered by order_type. Two queries replaced
+//  with one wherever possible.
 // ============================================================
-
+ 
 if (session_status() === PHP_SESSION_NONE) session_start();
-
-require_once 'auth.php';          // Redirects to login if not logged in
-require_role('CUSTOMER');         // Only customers allowed here
+ 
+require_once 'auth.php';
+require_role('CUSTOMER');
 require_once 'db.php';
-$userId   = $_SESSION['user_id'];
-$userName = $_SESSION['user_name'];
-$activeBranchId  = $_SESSION['branch_id'] ?? null;
-
-// ── Branch selection ──────────────────────────────────────────
-// Load branches for selector
-$branchList = $conn->query(
-    "SELECT branch_id, branch_name FROM branches WHERE status = 'ACTIVE' ORDER BY branch_name"
-)->fetch_all(MYSQLI_ASSOC);
-
-// ✅ ADD THIS before the POST handler
-$isPreferred = false;
-if ($activeBranchId) {
-    $stmt = $conn->prepare("SELECT preferred_branch_id FROM users WHERE user_id = ? LIMIT 1");
-    $stmt->bind_param('s', $userId);
-    $stmt->execute();
-    $savedPref = $stmt->get_result()->fetch_assoc()['preferred_branch_id'] ?? null;
-    $stmt->close();
-    $isPreferred = ($savedPref === $activeBranchId);
-}
-
-// Handle branch switch via POST
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['switch_branch'])) {
-    $newBranch = trim($_POST['branch_id'] ?? '');
-    $remember  = isset($_POST['remember_branch']);
-
-    $chk = $conn->prepare("SELECT branch_id FROM branches WHERE branch_id = ? AND status = 'ACTIVE' LIMIT 1");
-    $chk->bind_param('s', $newBranch);
-    $chk->execute(); $chk->store_result();
-
-    if ($chk->num_rows > 0) {
-        $_SESSION['branch_id'] = $newBranch;
-    }
-    $chk->close();
-
-    if ($remember && !$isPreferred) {
-        $stmt = $conn->prepare("UPDATE users SET preferred_branch_id = ? WHERE user_id = ?");
-        $stmt->bind_param('ss', $_SESSION['branch_id'], $userId);
-        $stmt->execute();
-        $stmt->close();
-    } elseif ($remember && $isPreferred) {
-        $stmt = $conn->prepare("UPDATE users SET preferred_branch_id = NULL WHERE user_id = ?");
-        $stmt->bind_param('s', $userId);
-        $stmt->execute();
-        $stmt->close();
-    }
-
-    header('Location: c_dashboard.php'); exit;  // <-- here
-}
-
-// Show popup if no branch set
-$showBranchPopup = empty($_SESSION['branch_id']);
+ 
+$userId = $_SESSION['user_id'];
+ 
+// Branch name (unchanged)
 $currentBranch = null;
 if (!empty($_SESSION['branch_id'])) {
-    $stmt = $conn->prepare("SELECT branch_name FROM branches WHERE branch_id = ? LIMIT 1");
+    $stmt = $conn->prepare(
+        "SELECT branch_name FROM branches WHERE branch_id = ? LIMIT 1"
+    );
     $stmt->bind_param('s', $_SESSION['branch_id']);
     $stmt->execute();
     $currentBranch = $stmt->get_result()->fetch_assoc()['branch_name'] ?? null;
     $stmt->close();
 }
-
-// ── Real stats from DB ────────────────────────────────────────
-
-// 1. Active orders (not CANCELLED or COLLECTED)
+ 
+// ── 1. Active confirmed orders ────────────────────────────────
 $stmt = $conn->prepare(
     "SELECT COUNT(*) AS cnt FROM orders
-     WHERE user_id = ? AND order_status NOT IN ('CANCELLED','COLLECTED')"
+     WHERE user_id = ?
+       AND order_type = 'ORDER'
+       AND order_status NOT IN ('CANCELLED','COLLECTED')"
 );
 $stmt->bind_param('s', $userId);
 $stmt->execute();
 $activeOrders = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
 $stmt->close();
-
-// 2. Pending preorders (SUBMITTED or PROCESSING)
+ 
+// ── 2. Pending pre-orders (customer waiting on staff) ─────────
 $stmt = $conn->prepare(
-    "SELECT COUNT(*) AS cnt FROM preorders
-     WHERE user_id = ? AND order_status IN ('SUBMITTED','PROCESSING')"
+    "SELECT COUNT(*) AS cnt FROM orders
+     WHERE user_id = ?
+       AND order_type = 'PREORDER'
+       AND order_status IN ('NEW','PROCESSING')"
 );
 $stmt->bind_param('s', $userId);
 $stmt->execute();
 $pendingPreorders = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
 $stmt->close();
-
-// 3. Uploaded print files (via preorders linked to this user)
+ 
+// ── 3. Uploaded print files ───────────────────────────────────
+//  print_files now references orders.order_id directly
 $stmt = $conn->prepare(
-    "SELECT COUNT(*) AS cnt FROM print_files pf
-     JOIN preorders po ON pf.preorder_id = po.preorder_id
-     WHERE po.user_id = ?"
+    "SELECT COUNT(*) AS cnt
+     FROM print_files pf
+     JOIN orders o ON pf.order_id = o.order_id
+     WHERE o.user_id = ?"
 );
 $stmt->bind_param('s', $userId);
 $stmt->execute();
 $uploadedFiles = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
 $stmt->close();
-
-// 4. Pending payments total (PENDING verification)
+ 
+// ── 4. Pending payments total ─────────────────────────────────
+//  Single JOIN — payments.order_id is now the only FK
 $stmt = $conn->prepare(
     "SELECT COALESCE(SUM(p.amount), 0) AS total
      FROM payments p
-     LEFT JOIN orders o ON p.order_id = o.order_id
-     LEFT JOIN preorders po ON p.preorder_id = po.preorder_id
+     JOIN orders o ON p.order_id = o.order_id
      WHERE p.verification_status = 'PENDING'
-       AND (o.user_id = ? OR po.user_id = ?)"
+       AND o.user_id = ?"
 );
-$stmt->bind_param('ss', $userId, $userId);
+$stmt->bind_param('s', $userId);
 $stmt->execute();
 $pendingPayment = $stmt->get_result()->fetch_assoc()['total'] ?? 0;
 $stmt->close();
-
-// 5. Recent orders (last 5)
+ 
+// ── 5. Recent confirmed orders (last 5) ───────────────────────
 $stmt = $conn->prepare(
     "SELECT order_id, order_date, order_status, estimated_total
      FROM orders
      WHERE user_id = ?
+       AND order_type = 'ORDER'
      ORDER BY order_date DESC
      LIMIT 5"
 );
@@ -128,12 +91,13 @@ $stmt->bind_param('s', $userId);
 $stmt->execute();
 $recentOrders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
-
-// 6. Recent preorders (last 3)
+ 
+// ── 6. Recent pre-orders (last 3) ────────────────────────────
 $stmt = $conn->prepare(
-    "SELECT preorder_id, order_date, order_status, notes
-     FROM preorders
+    "SELECT order_id AS preorder_id, order_date, order_status, notes, estimated_total
+     FROM orders
      WHERE user_id = ?
+       AND order_type = 'PREORDER'
      ORDER BY order_date DESC
      LIMIT 3"
 );
@@ -141,7 +105,7 @@ $stmt->bind_param('s', $userId);
 $stmt->execute();
 $recentPreorders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
-
+ 
 // ── Status badge helpers ──────────────────────────────────────
 function orderStatusBadge(string $status): string {
     $map = [
@@ -150,12 +114,9 @@ function orderStatusBadge(string $status): string {
         'READY'      => ['#10b981', '#ecfdf5', 'Ready'],
         'COLLECTED'  => ['#6b7280', '#f3f4f6', 'Collected'],
         'CANCELLED'  => ['#ef4444', '#fef2f2', 'Cancelled'],
-        'SUBMITTED'  => ['#8b5cf6', '#f5f3ff', 'Submitted'],
     ];
-    [$color, $bg, $label] = $map[$status] ?? ['#6b7280', '#f3f4f6', $status];
-    return "<span style='background:$bg;color:$color;border:1px solid $color;
-                padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'>
-                $label</span>";
+    [$color, $bg, $label] = $map[$status] ?? ['#888','#f3f4f6', $status];
+    return "<span style='background:$bg;color:$color;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;'>$label</span>";
 }
 ?>
 <!DOCTYPE html>
@@ -796,12 +757,13 @@ document.addEventListener('click', function(e) {
                             <th>Date</th>
                             <th>Notes</th>
                             <th>Status</th>
+                            <th>Estimated Total (RM)</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($recentPreorders)): ?>
                             <tr class="empty-row">
-                                <td colspan="4">No pre-orders yet. <a href="c_preorder.php" style="color:var(--primary);">Place a pre-order</a>.</td>
+                                <td colspan="5">No pre-orders yet. <a href="c_preorder.php" style="color:var(--primary);">Place a pre-order</a>.</td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($recentPreorders as $po): ?>
@@ -810,6 +772,7 @@ document.addEventListener('click', function(e) {
                                     <td><?= date('d M Y', strtotime($po['order_date'])) ?></td>
                                     <td><?= htmlspecialchars($po['notes'] ?? '—') ?></td>
                                     <td><?= orderStatusBadge($po['order_status']) ?></td>
+                                    <td>RM <?= number_format($po['estimated_total'] ?? 0, 2) ?></td>
                                 </tr>
                             <?php endforeach; ?>
                         <?php endif; ?>
