@@ -2,32 +2,35 @@
 // ============================================================
 //  c_upload.php — Customer: Upload files for printing
 // ============================================================
- 
+
 if (session_status() === PHP_SESSION_NONE) session_start();
- 
+
 require_once 'auth.php';
 require_role('CUSTOMER');
 require_once 'db.php';
- 
+
 $userId = $_SESSION['user_id'];
- 
-// ── Load customer's pending preorders for the selector ────────
+
+// ── Load customer's pending pre-orders for the selector ───────
+// Pre-orders live in the unified `orders` table with order_type = 'PREORDER'
 $stmt = $conn->prepare(
-    "SELECT po.preorder_id, po.order_date
-     FROM preorders po
-     WHERE po.user_id = ?
-       AND po.order_status NOT IN ('CANCELLED')
-       AND po.preorder_id NOT IN (
-           SELECT DISTINCT preorder_id FROM print_files WHERE preorder_id IS NOT NULL
+    "SELECT o.order_id, o.order_date
+     FROM orders o
+     WHERE o.user_id = ?
+       AND o.order_type = 'PREORDER'
+       AND o.order_status NOT IN ('CANCELLED')
+       AND o.order_id NOT IN (
+           SELECT DISTINCT order_id FROM print_files
+           WHERE order_id IS NOT NULL
        )
-     ORDER BY po.order_date DESC
+     ORDER BY o.order_date DESC
      LIMIT 20"
 );
 $stmt->bind_param('s', $userId);
 $stmt->execute();
 $preorders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
- 
+
 // ── Load this customer's recent uploads ───────────────────────
 $stmt = $conn->prepare(
     "SELECT file_id, file_name, total_pages, color_pages, bw_pages,
@@ -41,7 +44,7 @@ $stmt->bind_param('s', $userId);
 $stmt->execute();
 $recentUploads = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
- 
+
 function statusBadge(string $s): string {
     $map = [
         'PENDING'  => ['#f59e0b','#fffbeb','Pending'],
@@ -71,7 +74,7 @@ function statusBadge(string $s): string {
         }
         *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif;}
         body{background-color:var(--background);color:var(--text-primary);min-height:100vh;display:flex;}
- 
+
         /* ── Sidebar ── */
         .sidebar{width:var(--sidebar-width);background-color:var(--white);border-right:1px solid var(--border);height:100vh;position:fixed;left:0;top:0;display:flex;flex-direction:column;box-shadow:2px 0 10px rgba(0,0,0,0.03);overflow-y:auto;}
         .logo-area{padding:25px;border-bottom:1px solid var(--border);display:flex;align-items:center;flex-shrink:0;}
@@ -93,20 +96,20 @@ function statusBadge(string $s): string {
         .user-role{font-size:12px;color:var(--text-secondary);margin-top:2px;}
         .logout-link{display:flex;align-items:center;gap:10px;padding:10px 14px;background-color:rgba(168,53,53,0.06);color:var(--primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;}
         .logout-link:hover{background-color:rgba(168,53,53,0.14);}
- 
+
         /* ── Main ── */
         .main-content{flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column;}
         .top-header{background-color:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;}
         .page-title{font-size:24px;font-weight:700;color:var(--text-primary);}
         .page-subtitle{font-size:14px;color:var(--text-secondary);margin-top:4px;}
         .content-wrap{padding:28px 30px;flex-grow:1;display:flex;flex-direction:column;gap:24px;}
- 
+
         /* ── Card ── */
         .card{background:var(--white);border-radius:12px;border:1px solid var(--border);box-shadow:var(--card-shadow);overflow:hidden;}
         .card-header{padding:18px 26px;border-bottom:1px solid var(--border);background:rgba(168,53,53,0.03);display:flex;align-items:center;justify-content:space-between;}
         .card-title{font-size:16px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:10px;}
         .card-body{padding:26px;}
- 
+
         /* ── Form grid ── */
         .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
         .form-grid.three{grid-template-columns:1fr 1fr 1fr;}
@@ -116,7 +119,7 @@ function statusBadge(string $s): string {
         .form-select,.form-input{width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--accent);color:var(--text-primary);transition:all 0.2s;}
         .form-select:focus,.form-input:focus{outline:none;border-color:var(--primary);background:var(--white);box-shadow:0 0 0 3px rgba(168,53,53,0.08);}
         textarea.form-input{resize:vertical;min-height:80px;font-family:inherit;}
- 
+
         /* ── Drop zone ── */
         .drop-zone{border:2px dashed var(--border);border-radius:10px;padding:36px 20px;text-align:center;background:rgba(168,53,53,0.02);cursor:pointer;transition:all 0.2s;position:relative;}
         .drop-zone:hover,.drop-zone.drag-over{border-color:var(--primary);background:rgba(168,53,53,0.05);}
@@ -130,37 +133,37 @@ function statusBadge(string $s): string {
         .file-chosen-name{font-size:13px;font-weight:600;color:#065f46;flex-grow:1;word-break:break-all;}
         .file-clear{background:none;border:none;color:#6b7280;cursor:pointer;font-size:16px;padding:2px 5px;border-radius:4px;flex-shrink:0;}
         .file-clear:hover{color:#dc2626;}
- 
+
         /* ── Analyse button ── */
         .analyse-btn{width:100%;padding:14px;background:var(--primary);color:white;border:none;border-radius:9px;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:background 0.2s;margin-top:4px;}
         .analyse-btn:hover:not(:disabled){background:#8b2a2a;}
         .analyse-btn:disabled{background:#d1d5db;cursor:not-allowed;}
- 
+
         /* ── Loading overlay ── */
         .loading-overlay{display:none;flex-direction:column;align-items:center;justify-content:center;padding:40px;gap:16px;}
         .loading-overlay.show{display:flex;}
         .spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.7s linear infinite;}
         @keyframes spin{to{transform:rotate(360deg);}}
         .loading-text{font-size:14px;color:var(--text-secondary);font-weight:500;}
- 
+
         /* ── Result panel ── */
         .result-panel{display:none;}
         .result-panel.show{display:block;}
- 
+
         /* Page colour map */
         .page-map{display:flex;flex-wrap:wrap;gap:5px;margin:12px 0;}
         .page-dot{width:32px;height:32px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;cursor:default;transition:transform 0.1s;}
         .page-dot:hover{transform:scale(1.15);}
         .page-dot.colour{background:#fdf2f2;color:#A83535;border:1px solid #fca5a5;}
         .page-dot.bw{background:#f3f4f6;color:#6b7280;border:1px solid #E0E0E0;}
- 
+
         /* Summary bar */
         .summary-bar{display:flex;gap:12px;flex-wrap:wrap;margin:14px 0;}
         .summary-pill{padding:6px 14px;border-radius:20px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;}
         .pill-colour{background:#fdf2f2;color:#A83535;border:1px solid #fca5a5;}
         .pill-bw{background:#f3f4f6;color:#6b7280;border:1px solid #E0E0E0;}
         .pill-pages{background:#eff6ff;color:#3b82f6;border:1px solid #bfdbfe;}
- 
+
         /* Price table */
         .price-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:4px;}
         .price-table td{padding:9px 4px;border-bottom:1px solid var(--border);}
@@ -170,21 +173,21 @@ function statusBadge(string $s): string {
         .price-total{display:flex;justify-content:space-between;align-items:baseline;padding:14px 0 0;margin-top:6px;border-top:2px solid var(--primary);}
         .price-total .t-label{font-size:16px;font-weight:700;color:var(--text-primary);}
         .price-total .t-val{font-size:24px;font-weight:700;color:var(--primary);}
- 
+
         /* Duration badge */
         .duration-badge{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;background:rgba(59,130,246,0.07);border:1px solid #bfdbfe;border-radius:8px;font-size:13px;color:#1d4ed8;font-weight:600;margin-top:14px;}
- 
+
         /* Confirm button */
         .confirm-btn{width:100%;padding:13px;background:#10b981;color:white;border:none;border-radius:9px;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:background 0.2s;margin-top:16px;}
         .confirm-btn:hover{background:#059669;}
         .confirm-btn:disabled{background:#d1d5db;cursor:not-allowed;}
- 
+
         /* Alert */
         .alert{padding:13px 18px;border-radius:8px;font-size:14px;display:flex;align-items:flex-start;gap:10px;margin-bottom:4px;}
         .alert-error{background:#fff0f0;color:#c62828;border:1px solid #ef9a9a;}
         .alert-success{background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;}
         .alert-warn{background:#fffbeb;color:#92400e;border:1px solid #fde68a;}
- 
+
         /* History table */
         .hist-table{width:100%;border-collapse:collapse;}
         .hist-table thead{background:rgba(168,53,53,0.04);border-bottom:2px solid var(--border);}
@@ -196,11 +199,11 @@ function statusBadge(string $s): string {
         .file-id{font-family:monospace;font-size:11px;font-weight:700;color:var(--primary);}
         .empty-hist{text-align:center;padding:36px;color:var(--text-secondary);}
         .empty-hist i{font-size:32px;opacity:0.2;margin-bottom:10px;display:block;}
- 
+
         /* Footer */
         .page-footer{text-align:center;padding:20px;color:var(--text-secondary);font-size:13px;border-top:1px solid var(--border);background:var(--white);}
         .footer-links a{color:var(--primary);text-decoration:none;margin:0 10px;}
- 
+
         @media(max-width:1024px){
             :root{--sidebar-width:70px;}
             .logo-text,.nav-text,.user-details,.nav-title,.logout-link span{display:none;}
@@ -217,17 +220,17 @@ function statusBadge(string $s): string {
     </style>
 </head>
 <body>
- 
+
 <?php include 'c_sidebar.php'; ?>
- 
+
 <main class="main-content">
     <header class="top-header">
         <h1 class="page-title">Upload Files for Printing</h1>
         <p class="page-subtitle">AI automatically detects colour pages and calculates your print price</p>
     </header>
- 
+
     <div class="content-wrap">
- 
+
         <!-- ── Upload & specs form ── -->
         <div class="card">
             <div class="card-header">
@@ -236,12 +239,12 @@ function statusBadge(string $s): string {
                 </div>
             </div>
             <div class="card-body">
- 
+
                 <!-- Error / success alerts -->
                 <div id="alertBox" style="display:none;margin-bottom:16px;"></div>
- 
+
                 <div class="form-grid">
- 
+
                     <!-- Preorder link -->
                     <div class="full">
                         <label class="form-label">
@@ -250,14 +253,14 @@ function statusBadge(string $s): string {
                         <select id="preorderSelect" class="form-select">
                             <option value="">— No linked pre-order —</option>
                             <?php foreach ($preorders as $po): ?>
-                                <option value="<?= htmlspecialchars($po['preorder_id']) ?>">
-                                    <?= htmlspecialchars($po['preorder_id']) ?>
+                                <option value="<?= htmlspecialchars($po['order_id']) ?>">
+                                    <?= htmlspecialchars($po['order_id']) ?>
                                     — <?= date('d M Y', strtotime($po['order_date'])) ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
                     </div>
- 
+
                     <!-- File drop zone -->
                     <div class="full">
                         <label class="form-label">Print File <small>(PDF, JPG, PNG — max 20 MB)</small></label>
@@ -275,7 +278,7 @@ function statusBadge(string $s): string {
                             </button>
                         </div>
                     </div>
- 
+
                     <!-- Paper size -->
                     <div>
                         <label class="form-label">Paper Size</label>
@@ -288,7 +291,7 @@ function statusBadge(string $s): string {
                             <option value="A0">A0</option>
                         </select>
                     </div>
- 
+
                     <!-- Paper type -->
                     <div>
                         <label class="form-label">Paper Type</label>
@@ -300,7 +303,7 @@ function statusBadge(string $s): string {
                             <option value="Recycled Paper">Recycled Paper</option>
                         </select>
                     </div>
- 
+
                     <!-- Binding -->
                     <div>
                         <label class="form-label">Binding</label>
@@ -310,7 +313,7 @@ function statusBadge(string $s): string {
                             <option value="Spiral">Spiral (RM 3.00)</option>
                         </select>
                     </div>
- 
+
                     <!-- Copies -->
                     <div>
                         <label class="form-label">Number of Copies</label>
@@ -323,16 +326,16 @@ function statusBadge(string $s): string {
                                 style="width:38px;height:42px;border:1.5px solid var(--border);border-left:none;border-radius:0 8px 8px 0;background:var(--white);font-size:18px;cursor:pointer;color:var(--text-primary);">+</button>
                         </div>
                     </div>
- 
+
                     <!-- Special instructions -->
                     <div class="full">
                         <label class="form-label">Special Instructions <small>(optional)</small></label>
                         <textarea id="instructions" class="form-input"
                             placeholder="e.g. Double-sided, staple top-left, landscape orientation…"></textarea>
                     </div>
- 
+
                 </div><!-- /.form-grid -->
- 
+
                 <!-- Loading state (shown during AI analysis) -->
                 <div class="loading-overlay" id="loadingOverlay">
                     <div class="spinner"></div>
@@ -341,15 +344,15 @@ function statusBadge(string $s): string {
                         <span style="font-size:12px;">AI is reading each page to detect colour content</span>
                     </div>
                 </div>
- 
+
                 <!-- Analyse button -->
                 <button class="analyse-btn" id="analyseBtn" disabled>
                     <i class="fas fa-magic"></i> Analyse &amp; Calculate Price
                 </button>
- 
+
             </div>
         </div>
- 
+
         <!-- ── AI result panel (hidden until analysis complete) ── -->
         <div class="card result-panel" id="resultPanel">
             <div class="card-header">
@@ -359,13 +362,13 @@ function statusBadge(string $s): string {
                 <span id="resultFilename" style="font-size:13px;color:var(--text-secondary);font-weight:600;"></span>
             </div>
             <div class="card-body">
- 
+
                 <!-- AI parse warning -->
                 <div class="alert alert-warn" id="parseWarn" style="display:none;">
                     <i class="fas fa-exclamation-triangle"></i>
                     <div>AI could not fully parse the document. Results default to Black &amp; White — staff will verify before printing.</div>
                 </div>
- 
+
                 <!-- Page colour map -->
                 <div style="margin-bottom:20px;">
                     <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:8px;">
@@ -381,12 +384,12 @@ function statusBadge(string $s): string {
                         </span>
                     </div>
                 </div>
- 
+
                 <!-- Summary pills -->
                 <div class="summary-bar" id="summaryBar"></div>
- 
+
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:4px;">
- 
+
                     <!-- Price breakdown -->
                     <div>
                         <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:10px;">
@@ -402,7 +405,7 @@ function statusBadge(string $s): string {
                             Final price confirmed by staff before payment.
                         </p>
                     </div>
- 
+
                     <!-- Duration + confirm -->
                     <div>
                         <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:10px;">
@@ -411,21 +414,21 @@ function statusBadge(string $s): string {
                         <div class="duration-badge" id="durationBadge">
                             <i class="fas fa-clock"></i> Calculating…
                         </div>
- 
+
                         <div style="margin-top:22px;padding:16px;background:var(--accent);border-radius:9px;border:1px solid var(--border);">
                             <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">
                                 Specs Summary
                             </div>
                             <div id="specsSummary" style="font-size:12px;color:var(--text-secondary);line-height:1.8;"></div>
                         </div>
- 
+
                         <button class="confirm-btn" id="confirmBtn">
                             <i class="fas fa-check-circle"></i> Confirm &amp; Submit Print Job
                         </button>
                     </div>
- 
+
                 </div>
- 
+
                 <!-- Success message after confirm -->
                 <div class="alert alert-success" id="confirmSuccess" style="display:none;margin-top:16px;">
                     <i class="fas fa-check-circle" style="flex-shrink:0;"></i>
@@ -434,10 +437,10 @@ function statusBadge(string $s): string {
                         The final price will be confirmed before payment.
                     </div>
                 </div>
- 
+
             </div>
         </div>
- 
+
         <!-- ── Upload history ── -->
         <div class="card">
             <div class="card-header">
@@ -498,9 +501,9 @@ function statusBadge(string $s): string {
                 <?php endif; ?>
             </div>
         </div>
- 
+
     </div><!-- /.content-wrap -->
- 
+
     <footer class="page-footer">
         &copy; <?= date('Y') ?> StationaryPlus &mdash; Stationery &amp; Printing Management System
         <div class="footer-links">
@@ -508,7 +511,7 @@ function statusBadge(string $s): string {
         </div>
     </footer>
 </main>
- 
+
 <script>
 // ── File selection ────────────────────────────────────────────
 const fileInput    = document.getElementById('fileInput');
@@ -516,9 +519,9 @@ const dropZone     = document.getElementById('dropZone');
 const fileChosen   = document.getElementById('fileChosen');
 const fileChosenName = document.getElementById('fileChosenName');
 const analyseBtn   = document.getElementById('analyseBtn');
- 
+
 let selectedFile = null;
- 
+
 function setFile(file) {
     if (!file) return;
     selectedFile = file;
@@ -530,7 +533,7 @@ function setFile(file) {
     hideAlert();
     document.getElementById('resultPanel').classList.remove('show');
 }
- 
+
 function clearFile() {
     selectedFile = null;
     fileInput.value = '';
@@ -540,10 +543,10 @@ function clearFile() {
     analyseBtn.disabled = true;
     document.getElementById('resultPanel').classList.remove('show');
 }
- 
+
 fileInput.addEventListener('change', e => setFile(e.target.files[0]));
 document.getElementById('fileClear').addEventListener('click', clearFile);
- 
+
 // Drag & drop
 dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
@@ -553,12 +556,12 @@ dropZone.addEventListener('drop', e => {
     const f = e.dataTransfer.files[0];
     if (f) { fileInput.files = e.dataTransfer.files; setFile(f); }
 });
- 
+
 // ── Copies ±  ─────────────────────────────────────────────────
 const copiesInput = document.getElementById('copies');
 document.getElementById('decBtn').onclick = () => { if (copiesInput.value > 1)  copiesInput.value--; };
 document.getElementById('incBtn').onclick = () => { if (copiesInput.value < 99) copiesInput.value++; };
- 
+
 // ── Alert helpers ─────────────────────────────────────────────
 function showAlert(msg, type = 'error') {
     const box = document.getElementById('alertBox');
@@ -571,23 +574,23 @@ function showAlert(msg, type = 'error') {
 function hideAlert() {
     document.getElementById('alertBox').style.display = 'none';
 }
- 
+
 // ── Analyse button ────────────────────────────────────────────
 analyseBtn.addEventListener('click', async () => {
     if (!selectedFile) { showAlert('Please select a file first.'); return; }
- 
+
     const copies  = parseInt(copiesInput.value) || 1;
     const size    = document.getElementById('paperSize').value;
     const type    = document.getElementById('paperType').value;
     const binding = document.getElementById('binding').value;
     const preorder = document.getElementById('preorderSelect').value;
- 
+
     // Show loading
     analyseBtn.style.display        = 'none';
     document.getElementById('loadingOverlay').classList.add('show');
     document.getElementById('resultPanel').classList.remove('show');
     hideAlert();
- 
+
     const form = new FormData();
     form.append('print_file',  selectedFile);
     form.append('preorder_id', preorder);
@@ -595,18 +598,18 @@ analyseBtn.addEventListener('click', async () => {
     form.append('paper_type',  type);
     form.append('binding',     binding);
     form.append('copies',      copies);
- 
+
     try {
         const res  = await fetch('upload_print.php', { method: 'POST', body: form });
         const data = await res.json();
- 
+
         if (!data.success) {
             showAlert(data.error || 'Upload failed. Please try again.');
             return;
         }
- 
+
         renderResult(data);
- 
+
     } catch (err) {
         showAlert('Network error: ' + err.message);
     } finally {
@@ -614,14 +617,14 @@ analyseBtn.addEventListener('click', async () => {
         analyseBtn.style.display = 'flex';
     }
 });
- 
+
 // ── Render analysis result ────────────────────────────────────
 function renderResult(d) {
     const b = d.breakdown;
- 
+
     document.getElementById('resultFilename').textContent = d.filename;
     document.getElementById('parseWarn').style.display = d.ai_parse_ok ? 'none' : 'flex';
- 
+
     // Page colour map
     const map = document.getElementById('pageMap');
     map.innerHTML = '';
@@ -636,7 +639,7 @@ function renderResult(d) {
     } else {
         map.innerHTML = '<span style="font-size:13px;color:var(--text-secondary);">No page detail available.</span>';
     }
- 
+
     // Summary pills
     document.getElementById('summaryBar').innerHTML = `
         <span class="summary-pill pill-pages"><i class="fas fa-file"></i> ${d.total_pages} page${d.total_pages !== 1 ? 's' : ''}</span>
@@ -645,7 +648,7 @@ function renderResult(d) {
         <span class="summary-pill" style="background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;">
             <i class="fas fa-copy"></i> ${b.copies} cop${b.copies !== 1 ? 'ies' : 'y'}
         </span>`;
- 
+
     // Price table
     let rows = '';
     if (d.color_pages > 0) {
@@ -665,7 +668,7 @@ function renderResult(d) {
     }
     document.getElementById('priceTable').innerHTML = rows;
     document.getElementById('priceTotal').textContent = 'RM ' + d.price.toFixed(2);
- 
+
     // Duration
     const hrs  = Math.floor(d.duration_min / 60);
     const mins = Math.round(d.duration_min % 60);
@@ -674,42 +677,100 @@ function renderResult(d) {
         : `${mins} minute${mins !== 1 ? 's' : ''}`;
     document.getElementById('durationBadge').innerHTML =
         `<i class="fas fa-clock"></i> Estimated print time: <strong>${durStr}</strong>`;
- 
+
     // Specs summary
     document.getElementById('specsSummary').innerHTML = `
         Paper: ${b.paper_size} · ${document.getElementById('paperType').value}<br>
         Binding: ${b.binding}<br>
         Copies: ${b.copies}`;
- 
+
     // Show panel, wire confirm button
     document.getElementById('resultPanel').classList.add('show');
     document.getElementById('confirmSuccess').style.display = 'none';
     document.getElementById('resultPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
- 
+
     // Store file_id for confirm
     document.getElementById('confirmBtn').dataset.fileId = d.file_id;
     document.getElementById('confirmBtn').disabled = false;
 }
- 
+
 // ── Confirm button ────────────────────────────────────────────
+let sessionUploads = [];   // track files uploaded this session
+
 document.getElementById('confirmBtn').addEventListener('click', async function () {
     this.disabled = true;
     this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting…';
- 
-    // Nothing extra to POST — job is already saved on analysis.
-    // Just show success and reset form so customer can upload another.
-    await new Promise(r => setTimeout(r, 600)); // brief UX pause
- 
-    document.getElementById('confirmSuccess').style.display = 'flex';
-    this.innerHTML = '<i class="fas fa-check-circle"></i> Submitted';
- 
-    // Soft-reset the form for a new upload
-    setTimeout(() => {
-        clearFile();
-        document.getElementById('resultPanel').classList.remove('show');
-        location.reload();  // reload to refresh history table
-    }, 2500);
+
+    await new Promise(r => setTimeout(r, 500));
+
+    // Record this upload in the session list
+    const currentFileId  = this.dataset.fileId;
+    const currentName    = document.getElementById('resultFilename').textContent;
+    const currentPrice   = document.getElementById('priceTotal').textContent;
+    sessionUploads.push({ fileId: currentFileId, name: currentName, price: currentPrice });
+
+    // Update session upload list display
+    renderSessionUploads();
+
+    // Reset for next file — keep order selection
+    clearFile();
+    document.getElementById('resultPanel').classList.remove('show');
+    document.getElementById('confirmSuccess').style.display = 'none';
+
+    this.innerHTML   = '<i class="fas fa-check-circle"></i> Confirm & Submit Print Job';
+    this.disabled    = false;
+
+    // Scroll back up to the upload area
+    document.getElementById('dropZone').scrollIntoView({ behavior: 'smooth', block: 'center' });
 });
+
+function renderSessionUploads() {
+    let box = document.getElementById('sessionUploadBox');
+    if (!box) {
+        box = document.createElement('div');
+        box.id = 'sessionUploadBox';
+        box.style.cssText = 'margin-top:0;padding:16px 20px;background:#f0fdf4;border:1px solid #a7f3d0;border-radius:10px;';
+        document.querySelector('.content-wrap').insertBefore(
+            box,
+            document.querySelector('.card:last-child')
+        );
+    }
+
+    const rows = sessionUploads.map((u, i) => `
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;
+                    border-bottom:1px solid #d1fae5;font-size:13px;">
+            <i class="fas fa-check-circle" style="color:#10b981;flex-shrink:0;"></i>
+            <span style="flex-grow:1;font-weight:600;color:#065f46;">${u.name}</span>
+            <span style="color:#065f46;font-family:monospace;">${u.price}</span>
+            <span style="font-family:monospace;font-size:11px;color:#6b7280;">${u.fileId}</span>
+        </div>`).join('');
+
+    const linkedOrder = document.getElementById('preorderSelect').value;
+    const orderLabel  = linkedOrder
+        ? `Linked to order <strong>${linkedOrder}</strong>`
+        : 'No linked order (standalone print job)';
+
+    box.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+            <i class="fas fa-layer-group" style="color:#10b981;font-size:18px;"></i>
+            <div>
+                <div style="font-size:14px;font-weight:700;color:#065f46;">
+                    ${sessionUploads.length} file${sessionUploads.length > 1 ? 's' : ''} submitted this session
+                </div>
+                <div style="font-size:12px;color:#6b7280;">${orderLabel}</div>
+            </div>
+            <a href="c_orderstatus.php" style="margin-left:auto;padding:7px 14px;
+               background:#10b981;color:white;border-radius:7px;text-decoration:none;
+               font-size:13px;font-weight:600;">
+                <i class="fas fa-eye"></i> View order status
+            </a>
+        </div>
+        ${rows}
+        <div style="font-size:12px;color:#6b7280;margin-top:10px;">
+            <i class="fas fa-info-circle"></i>
+            You can upload more files above. Staff will review all files before printing.
+        </div>`;
+}
 </script>
 </body>
 </html>
