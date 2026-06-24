@@ -2,44 +2,47 @@
 // ============================================================
 //  c_preorder.php — Pre-order (Session Cart)
 //
+//  Refactored: inserts into orders (order_type='PREORDER')
+//  and order_items instead of the old separate preorders tables.
+//
 //  Actions via GET:
-//    ?action=add&product_id=XXX   — add item to cart
+//    ?action=add&product_id=XXX    — add item to cart
 //    ?action=remove&product_id=XXX — remove item from cart
 //    ?action=clear                 — empty cart
 //
 //  Actions via POST:
-//    qty update  — update quantities
-//    submit      — insert preorder + preorder_items into DB
+//    submit_preorder — insert order + order_items into DB
 // ============================================================
-
+ 
 if (session_status() === PHP_SESSION_NONE) session_start();
-
+ 
 require_once 'auth.php';
 require_role('CUSTOMER');
 require_once 'db.php';
-
+ 
 $userId = $_SESSION['user_id'];
-
-// Initialise cart in session
+ 
 if (!isset($_SESSION['cart'])) {
     $_SESSION['cart'] = []; // [product_id => qty]
 }
-
+ 
 $message = '';
 $msgType = '';
-
-// ── Helper: generate preorder ID ─────────────────────────────
+ 
+// ── Helper: generate pre-order ID ────────────────────────────
 function generate_preorder_id(): string {
     return 'PRE-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
 }
-
+ 
 // ── GET actions ───────────────────────────────────────────────
 $action    = $_GET['action']     ?? '';
 $productId = trim($_GET['product_id'] ?? '');
-
+ 
 if ($action === 'add' && $productId !== '') {
-    // Verify product exists and is active
-    $stmt = $conn->prepare("SELECT product_id FROM products WHERE product_id = ? AND product_status = 'ACTIVE' LIMIT 1");
+    $stmt = $conn->prepare(
+        "SELECT product_id FROM products
+         WHERE product_id = ? AND product_status = 'ACTIVE' LIMIT 1"
+    );
     $stmt->bind_param('s', $productId);
     $stmt->execute();
     $stmt->store_result();
@@ -49,7 +52,6 @@ if ($action === 'add' && $productId !== '') {
         } else {
             $_SESSION['cart'][$productId] = 1;
         }
-        // If coming from products page, redirect back there
         if (($_GET['redirect'] ?? '') === 'products') {
             header('Location: c_viewproducts.php?added=1');
             exit;
@@ -59,44 +61,32 @@ if ($action === 'add' && $productId !== '') {
     }
     $stmt->close();
 }
-
+ 
 if ($action === 'remove' && $productId !== '') {
     unset($_SESSION['cart'][$productId]);
     $message = 'Item removed from cart.';
     $msgType = 'info';
 }
-
+ 
 if ($action === 'clear') {
     $_SESSION['cart'] = [];
     $message = 'Cart cleared.';
     $msgType = 'info';
 }
-
-// ── POST: update quantities ───────────────────────────────────
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_qty'])) {
-    foreach ($_POST['qty'] as $pid => $qty) {
-        $qty = max(1, min(99, (int)$qty));
-        if (isset($_SESSION['cart'][$pid])) {
-            $_SESSION['cart'][$pid] = $qty;
-        }
-    }
-    $message = 'Quantities updated.';
-    $msgType = 'success';
-}
-
-// ── POST: submit preorder ─────────────────────────────────────
+ 
+// ── POST: submit pre-order ────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_preorder'])) {
     $notes = trim($_POST['notes'] ?? '');
-
+ 
     if (empty($_SESSION['cart'])) {
         $message = 'Your cart is empty. Add items before submitting.';
         $msgType = 'error';
     } else {
         // Fetch current prices from DB (never trust client-side prices)
-        $pids        = array_keys($_SESSION['cart']);
+        $pids         = array_keys($_SESSION['cart']);
         $placeholders = implode(',', array_fill(0, count($pids), '?'));
         $types        = str_repeat('s', count($pids));
-
+ 
         $stmt = $conn->prepare(
             "SELECT product_id, price FROM products
              WHERE product_id IN ($placeholders) AND product_status = 'ACTIVE'"
@@ -105,71 +95,80 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_preorder'])) {
         $stmt->execute();
         $priceRows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
-
-        // Build price map
+ 
         $priceMap = [];
         foreach ($priceRows as $row) {
             $priceMap[$row['product_id']] = (float)$row['price'];
         }
-
-        // Insert preorder header
-        $preorderId = generate_preorder_id();
-        $notesVal   = $notes !== '' ? $notes : null;
-
+ 
+        // Compute total from valid cart items
+        $estimatedTotal = 0.0;
+        foreach ($_SESSION['cart'] as $pid => $qty) {
+            if (isset($priceMap[$pid])) {
+                $estimatedTotal += $priceMap[$pid] * $qty;
+            }
+        }
+ 
+        // ── Insert into unified orders table ──────────────────
+        $orderId  = generate_preorder_id();
+        $notesVal = $notes !== '' ? $notes : null;
+ 
         $stmt = $conn->prepare(
-            "INSERT INTO preorders (preorder_id, user_id, order_status, notes)
-             VALUES (?, ?, 'SUBMITTED', ?)"
+            "INSERT INTO orders
+                (order_id, user_id, order_type, order_status, estimated_total, notes)
+             VALUES (?, ?, 'PREORDER', 'NEW', ?, ?)"
         );
-        $stmt->bind_param('sss', $preorderId, $userId, $notesVal);
+        $stmt->bind_param('ssds', $orderId, $userId, $estimatedTotal, $notesVal);
         $stmt->execute();
         $stmt->close();
-
-        // Insert preorder items
+ 
+        // ── Insert items into order_items ─────────────────────
         $stmt = $conn->prepare(
-            "INSERT INTO preorder_items (preorder_item_id, preorder_id, product_id, quantity, unit_price)
+            "INSERT INTO order_items
+                (order_item_id, order_id, product_id, quantity, unit_price)
              VALUES (?, ?, ?, ?, ?)"
         );
-
         foreach ($_SESSION['cart'] as $pid => $qty) {
-            if (!isset($priceMap[$pid])) continue; // skip if product was deactivated
-            $itemId    = 'PRI-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
+            if (!isset($priceMap[$pid])) continue;
+            $itemId    = 'OI-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
             $unitPrice = $priceMap[$pid];
-            $stmt->bind_param('sssid', $itemId, $preorderId, $pid, $qty, $unitPrice);
+            $stmt->bind_param('sssid', $itemId, $orderId, $pid, $qty, $unitPrice);
             $stmt->execute();
         }
         $stmt->close();
-
-        // Clear cart after successful submission
+ 
         $_SESSION['cart'] = [];
-
-        $message = "Pre-order <strong>$preorderId</strong> submitted successfully! We'll notify you when it's ready.";
+ 
+        $message = "Pre-order <strong>$orderId</strong> submitted! We'll notify you when it's ready.";
         $msgType = 'success';
     }
 }
-
+ 
 // ── Fetch cart product details for display ────────────────────
-$cartItems   = [];
-$orderTotal  = 0.0;
-
+$cartItems  = [];
+$orderTotal = 0.0;
+ 
 if (!empty($_SESSION['cart'])) {
     $pids         = array_keys($_SESSION['cart']);
     $placeholders = implode(',', array_fill(0, count($pids), '?'));
     $types        = str_repeat('s', count($pids));
-
+ 
     $stmt = $conn->prepare(
         "SELECT product_id, product_name, price, category
-         FROM products WHERE product_id IN ($placeholders)"
+         FROM products
+         WHERE product_id IN ($placeholders) AND product_status = 'ACTIVE'"
     );
     $stmt->bind_param($types, ...$pids);
     $stmt->execute();
     $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
-
+ 
     foreach ($rows as $row) {
-        $qty              = $_SESSION['cart'][$row['product_id']];
-        $subtotal         = $qty * (float)$row['price'];
-        $orderTotal      += $subtotal;
-        $cartItems[]      = array_merge($row, ['qty' => $qty, 'subtotal' => $subtotal]);
+        $qty = $_SESSION['cart'][$row['product_id']] ?? 1;
+        $row['qty']      = $qty;
+        $row['subtotal'] = $row['price'] * $qty;
+        $cartItems[]     = $row;
+        $orderTotal     += $row['subtotal'];
     }
 }
 ?>
@@ -314,16 +313,6 @@ if (!empty($_SESSION['cart'])) {
             display: flex; align-items: center; justify-content: center;
         }
         .remove-btn:hover { color: #c62828; background: rgba(239,68,68,0.08); }
-
-        /* Update button */
-        .update-bar { padding: 14px 24px; border-top: 1px solid var(--border); background: rgba(168,53,53,0.02); }
-        .update-btn {
-            padding: 9px 20px; background: var(--white);
-            border: 1.5px solid var(--primary); border-radius: 7px;
-            color: var(--primary); font-size: 13px; font-weight: 600;
-            cursor: pointer; transition: all 0.2s ease;
-        }
-        .update-btn:hover { background: rgba(168,53,53,0.06); }
 
         /* Browse more */
         .browse-bar { padding: 16px 24px; text-align: center; border-top: 1px solid var(--border); }
@@ -485,7 +474,7 @@ if (!empty($_SESSION['cart'])) {
                             <?php if ($item['category']): ?>
                                 <div class="item-cat"><?= htmlspecialchars($item['category']) ?></div>
                             <?php endif; ?>
-                            <div class="item-subtotal">RM <?= number_format($item['subtotal'], 2) ?></div>
+                            <div class="item-subtotal" id="sub_<?= htmlspecialchars($item['product_id']) ?>">RM <?= number_format($item['subtotal'], 2) ?></div>
                         </div>
 
                         <!-- Unit price -->
@@ -501,6 +490,9 @@ if (!empty($_SESSION['cart'])) {
                                 value="<?= $item['qty'] ?>"
                                 min="1" max="99"
                                 id="qty_<?= htmlspecialchars($item['product_id']) ?>"
+                                data-price="<?= $item['price'] ?>"
+                                data-pid="<?= htmlspecialchars($item['product_id']) ?>"
+                                oninput="updateTotals()"
                             >
                             <button type="button" class="qty-btn inc" data-pid="<?= htmlspecialchars($item['product_id']) ?>">+</button>
                         </div>
@@ -513,11 +505,7 @@ if (!empty($_SESSION['cart'])) {
                     </div>
                     <?php endforeach; ?>
 
-                    <div class="update-bar">
-                        <button type="submit" name="update_qty" class="update-btn">
-                            <i class="fas fa-sync-alt"></i> Update quantities
-                        </button>
-                    </div>
+                    
                 </form>
 
                 <!-- Browse more -->
@@ -539,14 +527,14 @@ if (!empty($_SESSION['cart'])) {
                 <?php if (!empty($cartItems)): ?>
                     <?php foreach ($cartItems as $item): ?>
                     <div class="summary-row">
-                        <span class="summary-label"><?= htmlspecialchars($item['product_name']) ?> (×<?= $item['qty'] ?>)</span>
-                        <span class="summary-value">RM <?= number_format($item['subtotal'], 2) ?></span>
+                        <span class="summary-label" id="slabel_<?= htmlspecialchars($item['product_id']) ?>"><?= htmlspecialchars($item['product_name']) ?> (×<?= $item['qty'] ?>)</span>
+                        <span class="summary-value" id="sval_<?= htmlspecialchars($item['product_id']) ?>">RM <?= number_format($item['subtotal'], 2) ?></span>
                     </div>
                     <?php endforeach; ?>
                     <hr class="summary-divider">
                     <div class="total-row">
                         <span class="total-label">Total</span>
-                        <span class="total-value">RM <?= number_format($orderTotal, 2) ?></span>
+                        <span class="total-value" id="grand-total">RM <?= number_format($orderTotal, 2) ?></span>
                     </div>
                 <?php else: ?>
                     <p style="color:var(--text-secondary);font-size:14px;text-align:center;padding:10px 0 20px;">
@@ -595,7 +583,7 @@ if (!empty($_SESSION['cart'])) {
 </main>
 
 <script>
-    // +/- buttons update the qty input live and auto-submit the update form
+    // +/- buttons update qty and recalculate totals live
     document.querySelectorAll('.qty-btn').forEach(btn => {
         btn.addEventListener('click', function () {
             const pid   = this.dataset.pid;
@@ -606,8 +594,38 @@ if (!empty($_SESSION['cart'])) {
             if (this.classList.contains('dec') && val > 1)  val--;
 
             input.value = val;
+            updateTotals();
         });
     });
+
+    function updateTotals() {
+        let grandTotal = 0;
+
+        document.querySelectorAll('.qty-input[data-price]').forEach(input => {
+            const pid      = input.dataset.pid;
+            const price    = parseFloat(input.dataset.price);
+            const qty      = Math.max(1, parseInt(input.value) || 1);
+            const subtotal = price * qty;
+            grandTotal    += subtotal;
+
+            // Update subtotal under the item name
+            const subEl = document.getElementById('sub_' + pid);
+            if (subEl) subEl.textContent = 'RM ' + subtotal.toFixed(2);
+
+            // Update summary panel label (qty) and value
+            const labelEl = document.getElementById('slabel_' + pid);
+            if (labelEl) {
+                const name = labelEl.textContent.split(' (×')[0];
+                labelEl.textContent = name + ' (×' + qty + ')';
+            }
+            const valEl = document.getElementById('sval_' + pid);
+            if (valEl) valEl.textContent = 'RM ' + subtotal.toFixed(2);
+        });
+
+        // Update grand total
+        const totalEl = document.getElementById('grand-total');
+        if (totalEl) totalEl.textContent = 'RM ' + grandTotal.toFixed(2);
+    }
 </script>
 
 </body>

@@ -30,8 +30,8 @@ $stmt->close();
  
 // ── Load this customer's recent uploads ───────────────────────
 $stmt = $conn->prepare(
-    "SELECT file_id, original_name, total_pages, color_pages, bw_pages,
-            paper_size, binding, copies, estimated_price, status, upload_date
+    "SELECT file_id, file_name, total_pages, color_pages, bw_pages,
+            paper_size, binding_type, copies, estimated_price, file_status, upload_date
      FROM print_files
      WHERE user_id = ?
      ORDER BY upload_date DESC
@@ -280,9 +280,12 @@ function statusBadge(string $s): string {
                     <div>
                         <label class="form-label">Paper Size</label>
                         <select id="paperSize" class="form-select">
-                            <option value="A4" selected>A4</option>
+                            <option value="A4" selected>A4 (most common)</option>
                             <option value="A3">A3</option>
                             <option value="A5">A5</option>
+                            <option value="A2">A2</option>
+                            <option value="A1">A1</option>
+                            <option value="A0">A0</option>
                         </select>
                     </div>
  
@@ -305,8 +308,6 @@ function statusBadge(string $s): string {
                             <option value="None" selected>None</option>
                             <option value="Staple">Staple (RM 0.50)</option>
                             <option value="Spiral">Spiral (RM 3.00)</option>
-                            <option value="Thermal Binding">Thermal Binding (RM 5.00)</option>
-                            <option value="Hardcover Binding">Hardcover Binding (RM 12.00)</option>
                         </select>
                     </div>
  
@@ -467,7 +468,7 @@ function statusBadge(string $s): string {
                         <tr>
                             <td><span class="file-id"><?= htmlspecialchars($u['file_id']) ?></span></td>
                             <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                                <?= htmlspecialchars($u['original_name']) ?>
+                                <?= htmlspecialchars($u['file_name']) ?>
                             </td>
                             <td><?= $u['total_pages'] ?></td>
                             <td>
@@ -481,7 +482,7 @@ function statusBadge(string $s): string {
                             <td style="font-size:12px;color:var(--text-secondary);">
                                 <?= htmlspecialchars($u['paper_size']) ?>
                                 · <?= $u['copies'] ?> cop<?= $u['copies'] > 1 ? 'ies':'y' ?>
-                                <?= $u['binding'] !== 'None' ? '· '.htmlspecialchars($u['binding']) : '' ?>
+                                <?= $u['binding_type'] !== 'NONE' ? '· '.htmlspecialchars($u['binding_type']) : '' ?>
                             </td>
                             <td style="font-weight:600;color:var(--primary);">
                                 RM <?= number_format($u['estimated_price'], 2) ?>
@@ -489,7 +490,7 @@ function statusBadge(string $s): string {
                             <td style="font-size:12px;color:var(--text-secondary);">
                                 <?= date('d M Y', strtotime($u['upload_date'])) ?>
                             </td>
-                            <td><?= statusBadge($u['status']) ?></td>
+                            <td><?= statusBadge($u['file_status']) ?></td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>

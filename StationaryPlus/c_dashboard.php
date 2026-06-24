@@ -14,8 +14,56 @@ require_role('CUSTOMER');
 require_once 'db.php';
  
 $userId = $_SESSION['user_id'];
+$activeBranchId  = $_SESSION['branch_id'] ?? null;
  
-// Branch name (unchanged)
+// ── Branch selection ──────────────────────────────────────────
+// Load branches for selector
+$branchList = $conn->query(
+    "SELECT branch_id, branch_name FROM branches WHERE status = 'ACTIVE' ORDER BY branch_name"
+)->fetch_all(MYSQLI_ASSOC);
+
+// ✅ ADD THIS before the POST handler
+$isPreferred = false;
+if ($activeBranchId) {
+    $stmt = $conn->prepare("SELECT preferred_branch_id FROM users WHERE user_id = ? LIMIT 1");
+    $stmt->bind_param('s', $userId);
+    $stmt->execute();
+    $savedPref = $stmt->get_result()->fetch_assoc()['preferred_branch_id'] ?? null;
+    $stmt->close();
+    $isPreferred = ($savedPref === $activeBranchId);
+}
+
+// Handle branch switch via POST
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['switch_branch'])) {
+    $newBranch = trim($_POST['branch_id'] ?? '');
+    $remember  = isset($_POST['remember_branch']);
+
+    $chk = $conn->prepare("SELECT branch_id FROM branches WHERE branch_id = ? AND status = 'ACTIVE' LIMIT 1");
+    $chk->bind_param('s', $newBranch);
+    $chk->execute(); $chk->store_result();
+
+    if ($chk->num_rows > 0) {
+        $_SESSION['branch_id'] = $newBranch;
+    }
+    $chk->close();
+
+    if ($remember && !$isPreferred) {
+        $stmt = $conn->prepare("UPDATE users SET preferred_branch_id = ? WHERE user_id = ?");
+        $stmt->bind_param('ss', $_SESSION['branch_id'], $userId);
+        $stmt->execute();
+        $stmt->close();
+    } elseif ($remember && $isPreferred) {
+        $stmt = $conn->prepare("UPDATE users SET preferred_branch_id = NULL WHERE user_id = ?");
+        $stmt->bind_param('s', $userId);
+        $stmt->execute();
+        $stmt->close();
+    }
+
+    header('Location: c_dashboard.php'); exit;  // <-- here
+}
+
+// Show popup if no branch set
+$showBranchPopup = empty($_SESSION['branch_id']);
 $currentBranch = null;
 if (!empty($_SESSION['branch_id'])) {
     $stmt = $conn->prepare(

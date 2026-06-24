@@ -1,85 +1,94 @@
 <?php
 // ============================================================
 //  c_payment.php — Payment Record Submission
+//
+//  Refactored: payments.order_id is now the single FK.
+//  No more preorder_id column or dual-table joins.
+//  Both confirmed orders and pre-orders are fetched from
+//  the unified orders table filtered by order_type.
 // ============================================================
-
+ 
 if (session_status() === PHP_SESSION_NONE) session_start();
-
+ 
 require_once 'auth.php';
 require_role('CUSTOMER');
 require_once 'db.php';
-
+ 
 $userId  = $_SESSION['user_id'];
 $message = '';
 $msgType = '';
-
-// ── Helper ───────────────────────────────────────────────────
+ 
 function generate_payment_id(): string {
     return 'PAY-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
 }
-
-// ── Load unpaid orders belonging to this user ─────────────────
-// Orders with no VALID payment yet
+ 
+// ── Load all unpaid orders (both types) for this user ─────────
+//  "Unpaid" = no VALID payment recorded yet, and not cancelled/collected.
 $stmt = $conn->prepare(
-    "SELECT o.order_id AS id, o.estimated_total AS amount, 'order' AS rec_type
+    "SELECT
+         o.order_id      AS id,
+         o.estimated_total AS amount,
+         o.order_type    AS rec_type
      FROM orders o
      WHERE o.user_id = ?
        AND o.order_status NOT IN ('CANCELLED','COLLECTED')
        AND o.order_id NOT IN (
            SELECT p.order_id FROM payments p
-           WHERE p.order_id IS NOT NULL AND p.verification_status = 'VALID'
+           WHERE p.verification_status = 'VALID'
        )
-     ORDER BY o.order_date DESC"
+     ORDER BY o.order_type, o.order_date DESC"
 );
 $stmt->bind_param('s', $userId);
 $stmt->execute();
-$unpaidOrders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$unpaidAll = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
-
-// Unpaid preorders
-$stmt = $conn->prepare(
-    "SELECT po.preorder_id AS id, NULL AS amount, 'preorder' AS rec_type
-     FROM preorders po
-     WHERE po.user_id = ?
-       AND po.order_status NOT IN ('CANCELLED')
-       AND po.preorder_id NOT IN (
-           SELECT p.preorder_id FROM payments p
-           WHERE p.preorder_id IS NOT NULL AND p.verification_status = 'VALID'
-       )
-     ORDER BY po.order_date DESC"
-);
-$stmt->bind_param('s', $userId);
-$stmt->execute();
-$unpaidPreorders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-$stmt->close();
-
-$unpaidAll = array_merge($unpaidOrders, $unpaidPreorders);
-
+ 
+// Split into optgroups for the form <select>
+$unpaidOrders    = array_filter($unpaidAll, fn($r) => $r['rec_type'] === 'ORDER');
+$unpaidPreorders = array_filter($unpaidAll, fn($r) => $r['rec_type'] === 'PREORDER');
+ 
 // ── Handle POST ───────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-
-    $selectedId    = trim($_POST['selected_id']  ?? '');
-    $recType       = trim($_POST['rec_type']      ?? '');  // order | preorder
-    $method        = trim($_POST['method']         ?? '');
-    $amount        = trim($_POST['amount']         ?? '');
-    $reference     = trim($_POST['reference']      ?? '') ?: null;
-    $payDate       = trim($_POST['pay_date']       ?? '');
-
+    $selectedId = trim($_POST['selected_id'] ?? '');
+    $method     = trim($_POST['method']       ?? '');
+    $amount     = trim($_POST['amount']       ?? '');
+    $reference  = trim($_POST['reference']    ?? '') ?: null;
+    $payDate    = trim($_POST['pay_date']     ?? '');
+ 
     $errors = [];
-
-    if (!$selectedId)                                $errors[] = 'Please select an order or pre-order.';
-    if (!in_array($method, ['CASH','TRANSFER','OTHER'])) $errors[] = 'Please select a valid payment method.';
-    if (!is_numeric($amount) || $amount <= 0)        $errors[] = 'Invalid amount.';
-    if (!$payDate)                                   $errors[] = 'Please enter a payment date.';
-
-    // Handle proof upload (required for TRANSFER/OTHER)
+ 
+    if (!$selectedId)
+        $errors[] = 'Please select an order or pre-order.';
+    if (!in_array($method, ['CASH','TRANSFER','OTHER']))
+        $errors[] = 'Please select a valid payment method.';
+    if (!is_numeric($amount) || $amount <= 0)
+        $errors[] = 'Invalid amount.';
+    if (!$payDate)
+        $errors[] = 'Please enter a payment date.';
+ 
+    // Verify the selected order actually belongs to this user
+    if ($selectedId) {
+        $stmt = $conn->prepare(
+            "SELECT order_id FROM orders
+             WHERE order_id = ? AND user_id = ? LIMIT 1"
+        );
+        $stmt->bind_param('ss', $selectedId, $userId);
+        $stmt->execute();
+        $stmt->store_result();
+        if ($stmt->num_rows === 0) {
+            $errors[] = 'Invalid order selected.';
+        }
+        $stmt->close();
+    }
+ 
+    // Handle proof upload (for TRANSFER / OTHER)
     $proofPath = null;
     if (in_array($method, ['TRANSFER','OTHER'])) {
         if (isset($_FILES['proof']) && $_FILES['proof']['error'] === UPLOAD_ERR_OK) {
-            $allowed   = ['image/jpeg','image/png','application/pdf'];
-            $mime      = mime_content_type($_FILES['proof']['tmp_name']);
-            $size      = $_FILES['proof']['size'];
-
+            $allowed = ['image/jpeg','image/png','application/pdf'];
+            $mime    = mime_content_type($_FILES['proof']['tmp_name']);
+            $size    = $_FILES['proof']['size'];
+ 
             if (!in_array($mime, $allowed)) {
                 $errors[] = 'Proof file must be JPG, PNG, or PDF.';
             } elseif ($size > 5 * 1024 * 1024) {
@@ -87,70 +96,78 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $uploadDir = 'uploads/payment_proofs/';
                 if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
-                $ext       = pathinfo($_FILES['proof']['name'], PATHINFO_EXTENSION);
-                $filename  = 'proof_' . uniqid() . '.' . $ext;
+                $ext      = pathinfo($_FILES['proof']['name'], PATHINFO_EXTENSION);
+                $filename = 'proof_' . uniqid() . '.' . $ext;
                 move_uploaded_file($_FILES['proof']['tmp_name'], $uploadDir . $filename);
                 $proofPath = $uploadDir . $filename;
             }
         }
-        // Proof not strictly required here — staff will verify manually
     }
-
+ 
     if (empty($errors)) {
         $paymentId = generate_payment_id();
-        $orderId   = $recType === 'order'    ? $selectedId : null;
-        $preorderId= $recType === 'preorder' ? $selectedId : null;
-
+ 
+        // Single order_id FK — no more dual nullable columns
         $stmt = $conn->prepare(
             "INSERT INTO payments
-                (payment_id, order_id, preorder_id, payment_method, amount,
+                (payment_id, order_id, payment_method, amount,
                  record_date, verification_status, reference_number)
-             VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?)"
+             VALUES (?, ?, ?, ?, ?, 'PENDING', ?)"
         );
-        $stmt->bind_param('ssssdss', $paymentId, $orderId, $preorderId, $method, $amount, $payDate, $reference);
+        $stmt->bind_param('sssdss', $paymentId, $selectedId, $method, $amount, $payDate, $reference);
         $stmt->execute();
         $stmt->close();
-
-        $message = "Payment record <strong>$paymentId</strong> submitted successfully! It will be verified by staff shortly.";
+ 
+        $message = "Payment record <strong>$paymentId</strong> submitted successfully! Staff will verify shortly.";
         $msgType = 'success';
-
-        // Refresh unpaid lists after submission
-        header("Refresh: 0");
+ 
+        header('Refresh: 0');
     } else {
         $message = implode(' ', $errors);
         $msgType = 'error';
     }
 }
-
-// ── Payment history (this user's payments) ────────────────────
+ 
+// ── Payment history ───────────────────────────────────────────
+//  Single join — no more LEFT JOIN on both orders and preorders
 $stmt = $conn->prepare(
-    "SELECT p.payment_id, p.payment_method, p.amount, p.record_date,
-            p.verification_status, p.reference_number,
-            p.order_id, p.preorder_id
+    "SELECT
+         p.payment_id,
+         p.payment_method,
+         p.amount,
+         p.record_date,
+         p.verification_status,
+         p.reference_number,
+         p.order_id,
+         o.order_type
      FROM payments p
-     LEFT JOIN orders o     ON p.order_id    = o.order_id
-     LEFT JOIN preorders po ON p.preorder_id = po.preorder_id
-     WHERE o.user_id = ? OR po.user_id = ?
+     JOIN orders o ON p.order_id = o.order_id
+     WHERE o.user_id = ?
      ORDER BY p.record_date DESC
      LIMIT 10"
 );
-$stmt->bind_param('ss', $userId, $userId);
+$stmt->bind_param('s', $userId);
 $stmt->execute();
 $paymentHistory = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
-
+ 
 function verificationBadge(string $status): string {
     $map = [
         'VALID'   => ['#10b981','#ecfdf5','Verified'],
         'INVALID' => ['#ef4444','#fef2f2','Rejected'],
         'PENDING' => ['#f59e0b','#fffbeb','Pending'],
     ];
-    [$color,$bg,$label] = $map[$status] ?? ['#6b7280','#f3f4f6',$status];
-    return "<span style='background:$bg;color:$color;border:1px solid {$color}55;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;'>$label</span>";
+    [$color, $bg, $label] = $map[$status] ?? ['#888','#f3f4f6', $status];
+    return "<span style='background:$bg;color:$color;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;'>$label</span>";
 }
-
-function methodLabel(string $m): string {
-    return match($m) { 'CASH' => 'Cash', 'TRANSFER' => 'Bank Transfer', 'OTHER' => 'E-Wallet / Other', default => $m };
+ 
+function methodLabel(string $method): string {
+    return match($method) {
+        'CASH'     => 'Cash',
+        'TRANSFER' => 'Bank Transfer',
+        'OTHER'    => 'Other',
+        default    => $method,
+    };
 }
 ?>
 <!DOCTYPE html>
@@ -325,7 +342,6 @@ function methodLabel(string $m): string {
                                 <option disabled>No pending orders found</option>
                                 <?php endif; ?>
                             </select>
-                            <input type="hidden" name="rec_type" id="recTypeInput" value="">
                         </div>
 
                         <!-- Method -->
@@ -417,7 +433,7 @@ function methodLabel(string $m): string {
                             <td><span class="pay-ref"><?= htmlspecialchars($pay['payment_id']) ?></span></td>
                             <td><?= date('d M Y', strtotime($pay['record_date'])) ?></td>
                             <td style="font-family:monospace;font-size:12px;">
-                                <?= htmlspecialchars($pay['order_id'] ?? $pay['preorder_id'] ?? '—') ?>
+                                <?= htmlspecialchars($pay['order_id']) ?>
                             </td>
                             <td><?= methodLabel($pay['payment_method']) ?></td>
                             <td style="font-weight:600;">RM <?= number_format($pay['amount'],2) ?></td>

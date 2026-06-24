@@ -1,47 +1,72 @@
 <?php
+// ============================================================
+//  c_orderstatus.php — Customer Order & Pre-order Status
+//
+//  Refactored: single query against the unified orders table.
+//  Filters by order_type instead of hitting two separate tables.
+// ============================================================
+ 
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'auth.php';
 require_role('CUSTOMER');
 require_once 'db.php';
-
+ 
 $userId = $_SESSION['user_id'];
-
-$filterType   = $_GET['type']   ?? 'all';
+ 
+$filterType   = $_GET['type']   ?? 'all';   // all | order | preorder
 $filterStatus = $_GET['status'] ?? 'all';
 $filterPeriod = $_GET['period'] ?? '30';
-
+ 
 $periodSQL = match($filterPeriod) {
     '7'  => "AND order_date >= DATE_SUB(NOW(), INTERVAL 7 DAY)",
     '30' => "AND order_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)",
     '90' => "AND order_date >= DATE_SUB(NOW(), INTERVAL 90 DAY)",
     default => ''
 };
-
-$orders = [];
-if ($filterType === 'all' || $filterType === 'order') {
-    $statusSQL = ($filterStatus !== 'all' && in_array($filterStatus, ['NEW','PROCESSING','READY','COLLECTED','CANCELLED'])) ? "AND order_status = ?" : '';
-    $sql = "SELECT order_id AS id, order_date, order_status AS status, estimated_total AS amount, 'Order' AS type FROM orders WHERE user_id = ? $periodSQL $statusSQL ORDER BY order_date DESC";
-    $stmt = $conn->prepare($sql);
-    if ($statusSQL) { $stmt->bind_param('ss', $userId, $filterStatus); } else { $stmt->bind_param('s', $userId); }
-    $stmt->execute();
-    $orders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-    $stmt->close();
+ 
+// ── Build type filter ─────────────────────────────────────────
+$typeSQL = match($filterType) {
+    'order'    => "AND order_type = 'ORDER'",
+    'preorder' => "AND order_type = 'PREORDER'",
+    default    => ''
+};
+ 
+// ── Build status filter ───────────────────────────────────────
+$validStatuses = ['NEW','PROCESSING','READY','COLLECTED','CANCELLED'];
+$statusSQL     = '';
+$statusParam   = null;
+ 
+if ($filterStatus !== 'all' && in_array($filterStatus, $validStatuses)) {
+    $statusSQL   = "AND order_status = ?";
+    $statusParam = $filterStatus;
 }
-
-$preorders = [];
-if ($filterType === 'all' || $filterType === 'preorder') {
-    $statusSQL = ($filterStatus !== 'all' && in_array($filterStatus, ['SUBMITTED','PROCESSING','READY','CANCELLED'])) ? "AND order_status = ?" : '';
-    $sql = "SELECT preorder_id AS id, order_date, order_status AS status, NULL AS amount, 'Pre-order' AS type FROM preorders WHERE user_id = ? $periodSQL $statusSQL ORDER BY order_date DESC";
-    $stmt = $conn->prepare($sql);
-    if ($statusSQL) { $stmt->bind_param('ss', $userId, $filterStatus); } else { $stmt->bind_param('s', $userId); }
-    $stmt->execute();
-    $preorders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-    $stmt->close();
+ 
+// ── Single query — one table, all types ───────────────────────
+$sql = "SELECT
+            order_id       AS id,
+            order_date,
+            order_status   AS status,
+            estimated_total AS amount,
+            order_type     AS type,
+            notes
+        FROM orders
+        WHERE user_id = ?
+          $periodSQL
+          $typeSQL
+          $statusSQL
+        ORDER BY order_date DESC";
+ 
+$stmt = $conn->prepare($sql);
+if ($statusParam) {
+    $stmt->bind_param('ss', $userId, $statusParam);
+} else {
+    $stmt->bind_param('s', $userId);
 }
-
-$allRows = array_merge($orders, $preorders);
-usort($allRows, fn($a, $b) => strtotime($b['order_date']) - strtotime($a['order_date']));
-
+$stmt->execute();
+$allRows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$stmt->close();
+ 
+// ── Status badge helper ───────────────────────────────────────
 function statusBadge(string $status): string {
     $map = [
         'NEW'        => ['#3b82f6','#eff6ff','New'],
@@ -49,15 +74,15 @@ function statusBadge(string $status): string {
         'READY'      => ['#10b981','#ecfdf5','Ready'],
         'COLLECTED'  => ['#6b7280','#f3f4f6','Collected'],
         'CANCELLED'  => ['#ef4444','#fef2f2','Cancelled'],
-        'SUBMITTED'  => ['#A83535','#fdf2f2','Submitted'],
     ];
-    [$color,$bg,$label] = $map[$status] ?? ['#6b7280','#f3f4f6',$status];
-    return "<span style='background:$bg;color:$color;border:1px solid {$color}55;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;white-space:nowrap;'>$label</span>";
+    [$color, $bg, $label] = $map[$status] ?? ['#888','#f3f4f6', $status];
+    return "<span style='background:$bg;color:$color;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;'>$label</span>";
 }
-
 function typeBadge(string $type): string {
-    if ($type === 'Order') return "<span style='background:#eff6ff;color:#3b82f6;border:1px solid #bfdbfe;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'><i class='fas fa-shopping-bag'></i> Order</span>";
-    return "<span style='background:#fdf2f2;color:#A83535;border:1px solid #fca5a5;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'><i class='fas fa-clipboard-check'></i> Pre-order</span>";
+    if ($type === 'PREORDER') {
+        return "<span style='background:#f3f0ff;color:#6d28d9;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;'>Pre-order</span>";
+    }
+    return "<span style='background:#eff6ff;color:#1d4ed8;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;'>Order</span>";
 }
 ?>
 <!DOCTYPE html>
@@ -223,13 +248,7 @@ function typeBadge(string $type): string {
                             <td><?= $row['amount'] !== null ? 'RM '.number_format($row['amount'],2) : '—' ?></td>
                             <td><?= statusBadge($row['status']) ?></td>
                             <td>
-                                <button class="detail-btn" onclick="openModal(
-                                    '<?= htmlspecialchars($row['id'],ENT_QUOTES) ?>',
-                                    '<?= $row['type'] ?>',
-                                    '<?= date('d M Y',strtotime($row['order_date'])) ?>',
-                                    '<?= $row['amount']!==null ? 'RM '.number_format($row['amount'],2) : 'N/A' ?>',
-                                    '<?= $row['status'] ?>'
-                                )"><i class="fas fa-eye"></i> Details</button>
+                                <button class="detail-btn" onclick="openModal('<?= htmlspecialchars($row['id'], ENT_QUOTES) ?>')"><i class="fas fa-eye"></i> Details</button>
                             </td>
                         </tr>
                         <?php endforeach; ?>
@@ -257,19 +276,119 @@ function typeBadge(string $type): string {
 </div>
 
 <script>
-function openModal(id, type, date, amount, status) {
-    document.getElementById('modalTitle').textContent = type + ' Details';
+function openModal(id) {
+    document.getElementById('modalTitle').textContent = 'Order Details';
     document.getElementById('modalBody').innerHTML =
-        row('ID', '<span style="font-family:monospace;font-weight:700;color:#A83535">'+id+'</span>') +
-        row('Type', type) + row('Date', date) + row('Amount', amount) + row('Status', status) +
-        '<p style="margin-top:16px;font-size:13px;color:#707070"><i class="fas fa-info-circle"></i> For full item breakdown, visit your Payment Records page.</p>';
+        '<div style="text-align:center;padding:30px;color:#707070"><i class="fas fa-spinner fa-spin" style="font-size:22px;margin-bottom:10px;display:block;"></i>Loading…</div>';
     document.getElementById('modalOverlay').classList.add('open');
+
+    fetch('c_orderdetail.php?id=' + encodeURIComponent(id))
+        .then(r => r.json())
+        .then(d => renderReceipt(d))
+        .catch(() => {
+            document.getElementById('modalBody').innerHTML =
+                '<p style="text-align:center;color:#c62828;padding:30px;">Failed to load details.</p>';
+        });
 }
-function row(label, value) {
-    return '<div class="detail-row"><span class="detail-label">'+label+'</span><span class="detail-value">'+value+'</span></div>';
+
+function renderReceipt(d) {
+    if (d.error) {
+        document.getElementById('modalBody').innerHTML =
+            '<p style="text-align:center;color:#c62828;padding:30px;">' + d.error + '</p>';
+        return;
+    }
+
+    const isPreorder = d.type === 'PREORDER';
+    const typeLabel  = isPreorder ? 'Pre-order' : 'Order';
+    const statusColors = {
+        NEW: ['#3b82f6','#eff6ff'], PROCESSING: ['#f59e0b','#fffbeb'],
+        READY: ['#10b981','#ecfdf5'], COLLECTED: ['#6b7280','#f3f4f6'],
+        CANCELLED: ['#ef4444','#fef2f2']
+    };
+    const [sc, sb] = statusColors[d.status] || ['#888','#f3f4f6'];
+    const statusLabel = d.status.charAt(0) + d.status.slice(1).toLowerCase();
+
+    const itemRows = (d.items || []).map(i => {
+        const sub = (i.qty * i.unit_price).toFixed(2);
+        return `<tr>
+            <td style="padding:10px 0;border-bottom:1px dashed #e0e0e0;font-size:13px;">${esc(i.name)}</td>
+            <td style="padding:10px 0;border-bottom:1px dashed #e0e0e0;text-align:center;font-size:13px;color:#707070;">${i.qty}</td>
+            <td style="padding:10px 0;border-bottom:1px dashed #e0e0e0;text-align:right;font-size:13px;color:#707070;">RM ${parseFloat(i.unit_price).toFixed(2)}</td>
+            <td style="padding:10px 0;border-bottom:1px dashed #e0e0e0;text-align:right;font-size:13px;font-weight:600;">RM ${sub}</td>
+        </tr>`;
+    }).join('');
+
+    const total = d.amount !== null
+        ? parseFloat(d.amount).toFixed(2)
+        : (d.items || []).reduce((s, i) => s + i.qty * i.unit_price, 0).toFixed(2);
+
+    document.getElementById('modalTitle').textContent = typeLabel + ' Receipt';
+    document.getElementById('modalBody').innerHTML = `
+        <!-- Store header -->
+        <div style="text-align:center;padding:20px 22px 16px;border-bottom:2px dashed #e0e0e0;margin-bottom:20px;">
+            <div style="width:44px;height:44px;background:#A83535;border-radius:10px;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;">
+                <i class="fas fa-pen-nib" style="color:white;font-size:20px;"></i>
+            </div>
+            <div style="font-size:18px;font-weight:700;color:#A83535;">StationaryPlus</div>
+            <div style="font-size:12px;color:#707070;margin-top:4px;">${typeLabel} Receipt</div>
+        </div>
+
+        <!-- Order meta -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px;font-size:13px;">
+            <div>
+                <div style="color:#707070;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px;">${typeLabel} ID</div>
+                <div style="font-family:monospace;font-weight:700;color:#A83535;">${esc(d.id)}</div>
+            </div>
+            <div>
+                <div style="color:#707070;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px;">Date</div>
+                <div style="font-weight:600;">${esc(d.date)}</div>
+            </div>
+            <div>
+                <div style="color:#707070;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px;">Status</div>
+                <span style="background:${sb};color:${sc};padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">${statusLabel}</span>
+            </div>
+            ${d.notes ? `<div style="grid-column:1/-1;">
+                <div style="color:#707070;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px;">Notes</div>
+                <div style="font-size:13px;background:#F1EDE8;padding:8px 10px;border-radius:6px;">${esc(d.notes)}</div>
+            </div>` : ''}
+        </div>
+
+        <!-- Items -->
+        <div style="border-top:2px dashed #e0e0e0;padding-top:16px;margin-bottom:4px;">
+            <div style="font-size:11px;font-weight:700;color:#707070;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">Items Ordered</div>
+            <table style="width:100%;border-collapse:collapse;">
+                <thead>
+                    <tr style="font-size:11px;color:#707070;text-transform:uppercase;letter-spacing:0.4px;">
+                        <th style="text-align:left;padding-bottom:8px;">Item</th>
+                        <th style="text-align:center;padding-bottom:8px;">Qty</th>
+                        <th style="text-align:right;padding-bottom:8px;">Price</th>
+                        <th style="text-align:right;padding-bottom:8px;">Subtotal</th>
+                    </tr>
+                </thead>
+                <tbody>${itemRows || '<tr><td colspan="4" style="text-align:center;color:#707070;padding:14px;font-size:13px;">No items found</td></tr>'}</tbody>
+            </table>
+        </div>
+
+        <!-- Total -->
+        <div style="border-top:2px solid #2E2E2E;margin-top:12px;padding-top:14px;display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:15px;font-weight:700;">Total</span>
+            <span style="font-size:20px;font-weight:700;color:#A83535;">RM ${total}</span>
+        </div>
+
+        <!-- Footer -->
+        <div style="text-align:center;margin-top:20px;padding-top:16px;border-top:2px dashed #e0e0e0;font-size:12px;color:#707070;">
+            Thank you for your order! 🎉
+        </div>
+    `;
 }
+
+function esc(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
-document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 </script>
 </body>
 </html>
