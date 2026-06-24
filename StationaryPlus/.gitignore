@@ -1,0 +1,10 @@
+# API keys and config — never commit these
+config.php
+
+# Uploaded print files
+uploads/print_files/
+
+# XAMPP / Windows junk
+Thumbs.db
+.DS_Store
+*.log
