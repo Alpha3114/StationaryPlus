@@ -1,13 +1,14 @@
 <?php
 // ============================================================
-//  ai_helper.php — Shared AI utilities for StationaryPlus
-//  Include this file on any page that calls the Anthropic API
+//  ai_helper.php — Shared AI utilities (Google Gemini API)
+//  Include this on any page that needs AI features.
+//  Requires config.php to be included first.
 // ============================================================
  
-// ── Pricing config (RM per page, adjust to match your shop) ──
+// ── Pricing config (RM per page — adjust to your shop rates) ──
 const PRICE_PER_PAGE = [
-    'color' => ['A3' => 1.00, 'A4' => 0.50, 'A5' => 0.35],
-    'bw'    => ['A3' => 0.20, 'A4' => 0.10, 'A5' => 0.07],
+    'color' => ['A0' => 4.00, 'A1' => 2.50, 'A2' => 1.50, 'A3' => 1.00, 'A4' => 0.50, 'A5' => 0.35],
+    'bw'    => ['A0' => 1.00, 'A1' => 0.60, 'A2' => 0.40, 'A3' => 0.20, 'A4' => 0.10, 'A5' => 0.07],
 ];
  
 const BINDING_PRICE = [
@@ -16,69 +17,121 @@ const BINDING_PRICE = [
     'SPIRAL' => 3.00,
 ];
  
-// Minutes per page to print (rough estimate)
+// Minutes to print per page (used for duration estimate)
 const DURATION_PER_PAGE = [
     'color' => 2.0,
     'bw'    => 0.5,
 ];
  
  
-// ── Core Claude API caller (text prompts only) ────────────────
+// ── Text-only AI call ─────────────────────────────────────────
+// Use this for report insights, recommendations, restock suggestions
+function callAI(string $prompt, int $maxTokens = 500): string {
+    return callGemini([
+        'contents' => [[
+            'parts' => [['text' => $prompt]]
+        ]],
+        'generationConfig' => ['maxOutputTokens' => $maxTokens],
+    ]);
+}
+ 
+// Keep old name working so other files don't break
 function callClaude(string $prompt, int $maxTokens = 500): string {
-    return callClaudeWithMessages(
-        [['role' => 'user', 'content' => $prompt]],
-        $maxTokens
-    );
+    return callAI($prompt, $maxTokens);
 }
  
  
-// ── Claude API caller (full messages array — supports vision) ─
+// ── Vision call — analyses a file (PDF or image) ──────────────
+// Accepts the Anthropic-style messages array used in upload_print.php
+// and converts it to Gemini format internally.
 function callClaudeWithMessages(array $messages, int $maxTokens = 1000): string {
-    $apiKey = getenv('ANTHROPIC_API_KEY');
+    // Convert Anthropic message format → Gemini parts format
+    $parts = [];
  
-    if (!$apiKey) {
-        error_log('ANTHROPIC_API_KEY not set in environment.');
-        return '';
+    foreach ($messages as $msg) {
+        $content = $msg['content'] ?? [];
+ 
+        // content can be a plain string (text-only) or an array of blocks
+        if (is_string($content)) {
+            $parts[] = ['text' => $content];
+            continue;
+        }
+ 
+        foreach ($content as $block) {
+            switch ($block['type'] ?? '') {
+                case 'text':
+                    $parts[] = ['text' => $block['text']];
+                    break;
+ 
+                case 'document':   // PDF
+                case 'image':      // JPG / PNG
+                    $src = $block['source'] ?? [];
+                    if (($src['type'] ?? '') === 'base64') {
+                        $parts[] = [
+                            'inline_data' => [
+                                'mime_type' => $src['media_type'],
+                                'data'      => $src['data'],
+                            ],
+                        ];
+                    }
+                    break;
+            }
+        }
     }
  
-    $payload = json_encode([
-        'model'      => 'claude-sonnet-4-6',
-        'max_tokens' => $maxTokens,
-        'messages'   => $messages,
+    return callGemini([
+        'contents' => [['parts' => $parts]],
+        'generationConfig' => ['maxOutputTokens' => $maxTokens],
     ]);
+}
  
-    $ch = curl_init('https://api.anthropic.com/v1/messages');
+ 
+// ── Core Gemini API caller ────────────────────────────────────
+function callGemini(array $payload): string {
+    if (!defined('GEMINI_API_KEY') || GEMINI_API_KEY === '') {
+        error_log('GEMINI_API_KEY is not configured. Edit config.php.');
+        return json_encode(['error' => 'API key not configured — edit config.php']);
+    }
+ 
+    $model    = defined('GEMINI_MODEL') ? GEMINI_MODEL : 'gemini-1.5-flash';
+    $endpoint = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key=" . GEMINI_API_KEY;
+ 
+    $ch = curl_init($endpoint);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_POST           => true,
-        CURLOPT_POSTFIELDS     => $payload,
-        CURLOPT_HTTPHEADER     => [
-            'Content-Type: application/json',
-            'x-api-key: '           . $apiKey,
-            'anthropic-version: 2023-06-01',
-        ],
-        CURLOPT_TIMEOUT        => 90,   // vision calls can be slow for large PDFs
+        CURLOPT_POSTFIELDS     => json_encode($payload),
+        CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+        CURLOPT_TIMEOUT        => 90,
+        CURLOPT_SSL_VERIFYPEER => true,
     ]);
  
     $raw   = curl_exec($ch);
     $errno = curl_errno($ch);
+    $error = curl_error($ch);
     curl_close($ch);
  
     if ($errno) {
-        error_log("Claude cURL error $errno");
-        return '';
+        error_log("Gemini cURL error $errno: $error");
+        return json_encode(['error' => "Network error: $error"]);
     }
  
     $data = json_decode($raw, true);
-    return $data['content'][0]['text'] ?? '';
+ 
+    // Surface API errors (bad key, quota, blocked content, etc.)
+    if (isset($data['error'])) {
+        $msg = $data['error']['message'] ?? 'Gemini API error';
+        error_log("Gemini API error: $msg");
+        return json_encode(['error' => $msg]);
+    }
+ 
+    // Extract the text response
+    return $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
 }
  
  
 // ── Price helpers ─────────────────────────────────────────────
  
-/**
- * Returns full price breakdown as an array.
- */
 function getPriceBreakdown(
     int    $colorPages,
     int    $bwPages,
@@ -86,7 +139,6 @@ function getPriceBreakdown(
     string $binding,
     int    $copies
 ): array {
-    // Fallback to A4 if unknown size
     $size = array_key_exists($size, PRICE_PER_PAGE['color']) ? $size : 'A4';
  
     $colorRate   = PRICE_PER_PAGE['color'][$size];
@@ -112,11 +164,10 @@ function getPriceBreakdown(
     ];
 }
  
-/**
- * Returns estimated print time in minutes.
- */
+ 
 function estimateDuration(int $colorPages, int $bwPages, int $copies): float {
     $mins = ($colorPages * DURATION_PER_PAGE['color'])
           + ($bwPages    * DURATION_PER_PAGE['bw']);
     return round($mins * $copies, 1);
 }
+ 
