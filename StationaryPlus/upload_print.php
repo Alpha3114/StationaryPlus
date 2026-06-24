@@ -127,7 +127,7 @@ OUTPUT FORMAT — output ONLY this JSON, nothing else, no explanation, no markdo
     ],
 ]];
 
-$aiRaw = callClaudeWithMessages($messages, 1200);
+$aiRaw = callClaudeWithMessages($messages, 4096);
 
 // ── 5. Parse the AI response — three fallback strategies ──────
 $colorPages  = 0;
