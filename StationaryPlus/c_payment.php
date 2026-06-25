@@ -109,12 +109,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
  
         // Single order_id FK — no more dual nullable columns
         $stmt = $conn->prepare(
-            "INSERT INTO payments
-                (payment_id, order_id, payment_method, amount,
-                 record_date, verification_status, reference_number)
-             VALUES (?, ?, ?, ?, ?, 'PENDING', ?)"
+        "INSERT INTO payments
+            (payment_id, order_id, payment_method, amount,
+             record_date, verification_status, reference_number, proof_path)
+            VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?)"
         );
-        $stmt->bind_param('sssdss', $paymentId, $selectedId, $method, $amount, $payDate, $reference);
+        $stmt->bind_param('sssdsss', $paymentId, $selectedId, $method, $amount, $payDate, $reference, $proofPath);
         $stmt->execute();
         $stmt->close();
  
