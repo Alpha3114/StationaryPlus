@@ -269,7 +269,7 @@ function statusBadge(string $s): string {
 </head>
 <body>
 
-<?php include 's_sidebar.php'; ?>
+<?php include 'smart_sidebar.php'; ?>
 
 <main class="main-content">
     <header class="top-header">

@@ -205,7 +205,7 @@ $salesTrend = number_format($salesTrend, 1);
         }
         
         .logo-area {
-            padding: 28px;
+            padding: 22px;
             border-bottom: 1px solid var(--border);
             background-color: rgba(168, 53, 53, 0.03);
             display: flex;
@@ -214,8 +214,8 @@ $salesTrend = number_format($salesTrend, 1);
         
         .logo-icon {
             background-color: var(--primary);
-            width: 44px;
-            height: 44px;
+            width: 36px;
+            height: 36px;
             border-radius: 10px;
             display: flex;
             align-items: center;
@@ -226,7 +226,7 @@ $salesTrend = number_format($salesTrend, 1);
         }
         
         .logo-text {
-            font-size: 22px;
+            font-size: 18px;
             font-weight: 700;
             color: var(--primary);
         }
@@ -248,7 +248,7 @@ $salesTrend = number_format($salesTrend, 1);
             color: var(--light-text);
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            padding: 0 28px 15px 28px;
+            padding: 0 22px 10px 22px;
         }
         
         .nav-menu {
@@ -262,7 +262,7 @@ $salesTrend = number_format($salesTrend, 1);
         .nav-link {
             display: flex;
             align-items: center;
-            padding: 16px 28px;
+            padding: 14px 22px;
             color: var(--text);
             text-decoration: none;
             transition: all 0.2s ease;
@@ -337,21 +337,21 @@ $salesTrend = number_format($salesTrend, 1);
         }
         
         .logout-link {
-            width: 100%;
-            padding: 12px;
-            background-color: rgba(168, 53, 53, 0.1);
-            color: var(--primary);
-            border: 1.5px solid var(--primary);
-            border-radius: 8px;
-            font-weight: 600;
-            font-size: 15px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            text-decoration: none;
+             width: 100%;
+    padding: 9px;
+    background: rgba(168,53,53,0.1);
+    color: var(--primary);
+    border: 1.5px solid var(--primary);
+    border-radius: 5px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    text-decoration: none;
+    transition: all 0.2s;
         }
         
         .logout-link:hover {
@@ -697,7 +697,7 @@ $salesTrend = number_format($salesTrend, 1);
                 <p>System overview and management controls</p>
             </div>
             <div class="admin-header-right">
-                <div class="admin-date">November 20, 2023</div>
+                <div class="admin-date"><?= date('F j, Y') ?></div>
                 <div class="admin-notifications">
                     <i class="fas fa-bell notification-icon"></i>
                     <div class="notification-badge">5</div>
@@ -785,7 +785,7 @@ $salesTrend = number_format($salesTrend, 1);
                 </h2>
                 
                 <div class="navigation-grid">
-                    <a href="a_manage_users.php" class="admin-nav-card">
+                    <a href="a_usermanagement.php" class="admin-nav-card">
                         <div class="admin-nav-icon nav-manage-users">
                             <i class="fas fa-users-cog"></i>
                         </div>
@@ -795,7 +795,7 @@ $salesTrend = number_format($salesTrend, 1);
                         </p>
 </a>
                     
-                    <a href="a_manage_products.php" class="admin-nav-card">
+                    <a href="a_productmanagement.php" class="admin-nav-card">
                         <div class="admin-nav-icon nav-manage-products">
                             <i class="fas fa-boxes"></i>
                         </div>
@@ -805,7 +805,7 @@ $salesTrend = number_format($salesTrend, 1);
                         </p>
                     </a>
                     
-                    <a href="a_manage_branches.php" class="admin-nav-card">
+                    <a href="a_branch.php" class="admin-nav-card">
                         <div class="admin-nav-icon nav-manage-branches">
                             <i class="fas fa-store"></i>
                         </div>
@@ -815,7 +815,7 @@ $salesTrend = number_format($salesTrend, 1);
                         </p>
                     </a>
                     
-                    <a href="a_sales_report.php" class="admin-nav-card">
+                    <a href="a_report.php" class="admin-nav-card">
                         <div class="admin-nav-icon nav-sales-report">
                             <i class="fas fa-chart-bar"></i>
                         </div>

@@ -107,12 +107,11 @@ $pendingCount = (int)$pend['cnt']; $pendingAmt = (float)$pend['total'];
 $res = $conn->query("SELECT COUNT(*) AS cnt FROM orders o WHERE o.order_status='CANCELLED' $rangeSQL");
 $cancelledOrders = (int)$res->fetch_assoc()['cnt'];
 
-$res = $conn->query("SELECT COUNT(*) AS cnt FROM preorders");
+$res = $conn->query("SELECT COUNT(*) AS cnt FROM orders WHERE order_type='PREORDER'");
 $totalPreorders = (int)$res->fetch_assoc()['cnt'];
 
 // ==============================================================
-//  REVENUE TREND — fixed: generate all 12 month slots in PHP,
-//  then merge with DB data so months with zero still show
+//  REVENUE TREND
 // ==============================================================
 $trendMonths = 12;
 $monthSlots  = [];
@@ -143,7 +142,6 @@ foreach ($monthSlots as $slot) {
 }
 $maxTrend = max(array_column($trendFinal, 'revenue')) ?: 1;
 
-// Daily trend (7 days) — same zero-fill approach
 $dailySlots = [];
 for ($i = 6; $i >= 0; $i--) {
     $ts = strtotime("-$i day");
@@ -195,7 +193,6 @@ $orderStatuses = $res->fetch_all(MYSQLI_ASSOC);
 $totalStatusOrders = array_sum(array_column($orderStatuses,'cnt')) ?: 1;
 $statusColours = ['NEW'=>'#3b82f6','PROCESSING'=>'#f59e0b','READY'=>'#10b981','COLLECTED'=>'#6b7280','CANCELLED'=>'#ef4444'];
 
-// Inventory
 $res=$conn->query("SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity=0"); $outOfStock=(int)$res->fetch_assoc()['cnt'];
 $res=$conn->query("SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity>0 AND stock_quantity<=minimum_level"); $lowStock=(int)$res->fetch_assoc()['cnt'];
 $res=$conn->query("SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity>minimum_level"); $healthyStock=(int)$res->fetch_assoc()['cnt'];
@@ -203,12 +200,10 @@ $res=$conn->query("SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity>mi
 $res=$conn->query("SELECT p.product_name, p.category, b.branch_name, i.stock_quantity, i.minimum_level, (i.minimum_level-i.stock_quantity) AS shortage FROM inventory i JOIN products p ON i.product_id=p.product_id JOIN branches b ON i.branch_id=b.branch_id WHERE i.stock_quantity<=i.minimum_level AND p.product_status='ACTIVE' ORDER BY i.stock_quantity ASC LIMIT 10");
 $lowStockItems = $res->fetch_all(MYSQLI_ASSOC);
 
-// Customers
 $res=$conn->query("SELECT COUNT(*) AS cnt FROM users WHERE user_role='CUSTOMER' AND account_status='ACTIVE'"); $totalCustomers=(int)$res->fetch_assoc()['cnt'];
 $res=$conn->query("SELECT u.name, u.email, COUNT(DISTINCT o.order_id) AS order_count, COALESCE(SUM(p.amount),0) AS total_spent FROM payments p JOIN orders o ON p.order_id=o.order_id JOIN users u ON o.user_id=u.user_id WHERE p.verification_status='VALID' $rangeSQL GROUP BY u.user_id ORDER BY total_spent DESC LIMIT 8");
 $topCustomers = $res->fetch_all(MYSQLI_ASSOC);
 
-// Payments
 $res=$conn->query("SELECT payment_method, COUNT(*) AS cnt, COALESCE(SUM(amount),0) AS total FROM payments p JOIN orders o ON p.order_id=o.order_id WHERE p.verification_status='VALID' $rangeSQL GROUP BY payment_method ORDER BY total DESC");
 $paymentMethods=$res->fetch_all(MYSQLI_ASSOC);
 $payMethodTotal=array_sum(array_column($paymentMethods,'total')) ?: 1;
@@ -220,7 +215,7 @@ $pvTotal=array_sum(array_column($payVerification,'cnt')) ?: 1;
 $res=$conn->query("SELECT p.payment_id, p.record_date, p.amount, p.payment_method, p.verification_status, o.order_id, u.name AS customer_name FROM payments p JOIN orders o ON p.order_id=o.order_id JOIN users u ON o.user_id=u.user_id ORDER BY p.record_date DESC LIMIT 10");
 $recentPayments=$res->fetch_all(MYSQLI_ASSOC);
 
-$res=$conn->query("SELECT order_status, COUNT(*) AS cnt FROM preorders GROUP BY order_status");
+$res=$conn->query("SELECT order_status, COUNT(*) AS cnt FROM orders WHERE order_type='PREORDER' GROUP BY order_status");
 $preorderStatuses=$res->fetch_all(MYSQLI_ASSOC);
 $totalPreorderRows=array_sum(array_column($preorderStatuses,'cnt')) ?: 1;
 
@@ -238,8 +233,6 @@ $activeProducts=(int)$res2->fetch_assoc()['cnt'];
         :root{--primary:#A83535;--secondary:#F4A261;--bg:#FAFAFA;--text:#2E2E2E;--muted:#707070;--border:#E0E0E0;--white:#FFFFFF;--sidebar:260px;--shadow:0 4px 12px rgba(0,0,0,0.05);}
         *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif;}
         body{background:var(--bg);color:var(--text);min-height:100vh;display:flex;}
-
-        /* Sidebar */
         .sidebar{width:var(--sidebar);background:var(--white);border-right:1px solid var(--border);height:100vh;position:fixed;left:0;top:0;display:flex;flex-direction:column;box-shadow:2px 0 10px rgba(0,0,0,0.03);}
         .logo-area{padding:22px;border-bottom:1px solid var(--border);display:flex;align-items:center;}
         .logo-icon{background:var(--primary);width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:12px;color:#fff;font-size:18px;}
@@ -258,18 +251,29 @@ $activeProducts=(int)$res2->fetch_assoc()['cnt'];
         .user-info{display:flex;align-items:center;margin-bottom:15px;}
         .user-avatar{width:38px;height:38px;border-radius:50%;background:rgba(168,53,53,.1);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:600;font-size:15px;margin-right:12px;}
         .user-name{font-weight:600;font-size:14px;}
-        .logout-btn{width:100%;padding:9px;background:rgba(168,53,53,.1);color:var(--primary);border:1.5px solid var(--primary);border-radius:5px;font-weight:600;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;transition:all .2s;}
-        .logout-btn:hover{background:rgba(168,53,53,.2);}
-
-        /* Main */
+        /* Add this — maps logout-link to the same style as logout-btn */
+.logout-link {
+    width: 100%;
+    padding: 9px;
+    background: rgba(168,53,53,0.1);
+    color: var(--primary);
+    border: 1.5px solid var(--primary);
+    border-radius: 5px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    text-decoration: none;
+    transition: all 0.2s;
+}
+.logout-link:hover { background: rgba(168,53,53,0.2); }
         .main-content{flex-grow:1;margin-left:var(--sidebar);min-height:100vh;display:flex;flex-direction:column;}
-
-        /* Header */
         .top-header{background:var(--white);padding:12px 22px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:20;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
         .header-title{font-size:19px;font-weight:700;}
         .header-sub{font-size:12px;color:var(--muted);margin-top:2px;}
-
-        /* Period controls */
         .controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
         .period-btn{padding:6px 11px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;font-weight:600;color:var(--muted);background:var(--white);cursor:pointer;text-decoration:none;transition:all .2s;white-space:nowrap;}
         .period-btn:hover{border-color:var(--primary);color:var(--primary);}
@@ -277,17 +281,11 @@ $activeProducts=(int)$res2->fetch_assoc()['cnt'];
         .date-input{padding:6px 9px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;color:var(--text);}
         .date-input:focus{outline:none;border-color:var(--primary);}
         .apply-btn{padding:6px 12px;background:var(--primary);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;}
-
-        /* Tabs */
         .tab-bar{background:var(--white);border-bottom:1px solid var(--border);padding:0 22px;display:flex;gap:0;overflow-x:auto;}
         .tab-link{padding:12px 16px;font-size:13px;font-weight:600;color:var(--muted);text-decoration:none;border-bottom:3px solid transparent;white-space:nowrap;transition:all .2s;display:flex;align-items:center;gap:6px;}
         .tab-link:hover{color:var(--primary);}
         .tab-link.active{color:var(--primary);border-bottom-color:var(--primary);}
-
-        /* Page body */
         .page-body{padding:20px 22px;flex-grow:1;display:flex;flex-direction:column;gap:18px;overflow-y:auto;}
-
-        /* Stat cards */
         .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
         .stat-card{background:var(--white);border-radius:10px;padding:18px;box-shadow:var(--shadow);border:1px solid var(--border);display:flex;flex-direction:column;transition:transform .2s;}
         .stat-card:hover{transform:translateY(-2px);}
@@ -302,19 +300,13 @@ $activeProducts=(int)$res2->fetch_assoc()['cnt'];
         .stat-value{font-size:24px;font-weight:700;color:var(--primary);margin-bottom:4px;}
         .stat-trend{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px;margin-top:auto;}
         .t-up{color:#10b981;} .t-dn{color:#ef4444;}
-
-        /* Layout grids */
         .two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
         .three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;}
-
-        /* Card */
         .card{background:var(--white);border-radius:10px;box-shadow:var(--shadow);border:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
         .card-head{padding:14px 18px;border-bottom:1px solid var(--border);background:rgba(168,53,53,.025);display:flex;justify-content:space-between;align-items:center;}
         .card-title{font-size:13px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:7px;}
         .card-sub{font-size:11px;color:var(--muted);}
         .card-body{padding:16px 18px;flex-grow:1;}
-
-        /* Bar chart (trend) */
         .bar-chart{display:flex;align-items:flex-end;justify-content:space-between;height:130px;gap:3px;padding:0 2px;}
         .bar-col{display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;min-width:0;}
         .bar-wrap{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100px;width:100%;}
@@ -323,8 +315,6 @@ $activeProducts=(int)$res2->fetch_assoc()['cnt'];
         .bar[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:105%;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.75);color:#fff;padding:4px 8px;border-radius:5px;font-size:10px;white-space:nowrap;margin-bottom:2px;pointer-events:none;z-index:99;}
         .bar-val{font-size:9px;font-weight:600;color:var(--muted);text-align:center;margin-bottom:2px;white-space:nowrap;overflow:hidden;width:100%;}
         .bar-lbl{font-size:9px;color:var(--muted);text-align:center;margin-top:3px;}
-
-        /* Pie */
         .pie-wrap{display:flex;align-items:center;gap:18px;flex-wrap:wrap;}
         .pie{width:140px;height:140px;border-radius:50%;position:relative;flex-shrink:0;}
         .pie-hole{position:absolute;width:62px;height:62px;background:var(--white);border-radius:50%;top:50%;left:50%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;flex-direction:column;}
@@ -336,16 +326,12 @@ $activeProducts=(int)$res2->fetch_assoc()['cnt'];
         .legend-name{font-size:11px;color:var(--text);flex:1;}
         .legend-pct{font-size:11px;font-weight:700;color:var(--primary);}
         .legend-amt{font-size:10px;color:var(--muted);}
-
-        /* Horizontal bars */
         .h-bar-list{display:flex;flex-direction:column;gap:10px;}
         .h-bar-row{display:flex;align-items:center;gap:8px;}
         .h-bar-name{font-size:11px;color:var(--text);width:120px;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
         .h-bar-track{flex:1;height:18px;background:rgba(168,53,53,.08);border-radius:6px;overflow:hidden;}
         .h-bar-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--primary),rgba(168,53,53,.6));display:flex;align-items:center;padding-left:6px;font-size:9px;font-weight:700;color:#fff;transition:width 1s ease;}
         .h-bar-val{font-size:11px;font-weight:700;color:var(--primary);min-width:68px;text-align:right;}
-
-        /* Status bars */
         .status-grid{display:flex;flex-direction:column;gap:9px;}
         .status-row{display:flex;align-items:center;gap:8px;}
         .status-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
@@ -354,8 +340,6 @@ $activeProducts=(int)$res2->fetch_assoc()['cnt'];
         .status-bar-fill{height:100%;border-radius:3px;}
         .status-count{font-size:11px;font-weight:700;min-width:24px;text-align:right;}
         .status-pct{font-size:10px;color:var(--muted);min-width:32px;text-align:right;}
-
-        /* Table */
         .data-table{width:100%;border-collapse:collapse;}
         .data-table thead{background:rgba(168,53,53,.03);border-bottom:2px solid var(--border);}
         .data-table th{padding:9px 13px;text-align:left;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;}
@@ -364,16 +348,12 @@ $activeProducts=(int)$res2->fetch_assoc()['cnt'];
         .data-table tbody tr:hover{background:rgba(168,53,53,.02);}
         .data-table td{padding:10px 13px;font-size:12px;color:var(--text);vertical-align:middle;}
         .mono{font-family:monospace;font-weight:700;color:var(--primary);font-size:11px;}
-
-        /* Badges */
         .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;}
         .b-green {background:rgba(16,185,129,.1);color:#059669;border:1px solid #a7f3d0;}
         .b-yellow{background:rgba(245,158,11,.1);color:#d97706;border:1px solid #fde68a;}
         .b-red   {background:rgba(239,68,68,.1);color:#dc2626;border:1px solid #fecaca;}
         .b-blue  {background:rgba(59,130,246,.1);color:#2563eb;border:1px solid #bfdbfe;}
         .b-gray  {background:rgba(107,114,128,.1);color:#4b5563;border:1px solid #d1d5db;}
-
-        /* Inventory health */
         .inv-health{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
         .inv-hcard{padding:16px;border-radius:9px;text-align:center;}
         .inv-hcard .hval{font-size:28px;font-weight:700;margin-bottom:4px;}
@@ -381,26 +361,40 @@ $activeProducts=(int)$res2->fetch_assoc()['cnt'];
         .inv-out{background:rgba(239,68,68,.08);border:1px solid #fecaca;} .inv-out .hval,.inv-out .hlbl{color:#dc2626;}
         .inv-low{background:rgba(245,158,11,.08);border:1px solid #fde68a;} .inv-low .hval,.inv-low .hlbl{color:#d97706;}
         .inv-ok {background:rgba(16,185,129,.08);border:1px solid #a7f3d0;} .inv-ok  .hval,.inv-ok  .hlbl{color:#059669;}
-
-        /* Mini stock bar */
         .stock-mini{display:flex;align-items:center;gap:5px;}
         .stock-mini-bar{width:50px;height:5px;background:var(--border);border-radius:3px;overflow:hidden;}
         .stock-mini-fill{height:100%;border-radius:3px;}
-
-        /* Method bars */
         .method-grid{display:flex;flex-direction:column;gap:9px;}
         .method-row{display:flex;align-items:center;gap:8px;}
         .method-name{font-size:11px;font-weight:600;width:90px;}
         .method-bar-track{flex:1;height:16px;background:rgba(168,53,53,.07);border-radius:5px;overflow:hidden;}
         .method-bar-fill{height:100%;background:var(--primary);border-radius:5px;display:flex;align-items:center;padding-left:6px;font-size:9px;font-weight:700;color:#fff;}
         .method-total{font-size:11px;font-weight:700;color:var(--primary);min-width:68px;text-align:right;}
-
-        /* No data */
         .no-data{text-align:center;padding:30px 16px;color:var(--muted);}
         .no-data i{font-size:26px;opacity:.2;display:block;margin-bottom:8px;}
         .no-data p{font-size:12px;}
 
-        /* Responsive */
+        /* ── AI Insights ── */
+        .ai-card{background:linear-gradient(135deg,rgba(168,53,53,0.04),rgba(244,162,97,0.04));border:1.5px solid rgba(168,53,53,0.15);border-radius:12px;padding:22px 24px;}
+        .ai-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
+        .ai-card-title{font-size:15px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:9px;}
+        .ai-gen-btn{padding:8px 18px;background:var(--primary);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px;transition:background 0.2s;white-space:nowrap;}
+        .ai-gen-btn:hover:not(:disabled){background:#8b2a2a;}
+        .ai-gen-btn:disabled{background:#d1d5db;cursor:not-allowed;}
+        .ai-body{display:none;margin-top:16px;}
+        .ai-body.show{display:block;}
+        .ai-loading{text-align:center;padding:24px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:10px;}
+        .ai-spinner{width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:aispin .7s linear infinite;}
+        @keyframes aispin{to{transform:rotate(360deg);}}
+        .ai-summary{font-size:14px;line-height:1.7;padding:14px 18px;background:rgba(168,53,53,0.05);border-radius:9px;border-left:4px solid var(--primary);margin-bottom:16px;font-weight:500;color:var(--text);}
+        .ai-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+        .ai-sec{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;}
+        .ai-sec.g{color:#2e7d32;} .ai-sec.r{color:#c62828;} .ai-sec.b{color:#1d4ed8;}
+        .ai-item{display:flex;align-items:flex-start;gap:7px;font-size:13px;line-height:1.6;margin-bottom:5px;color:var(--text);}
+        .ai-rec{padding:12px 16px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:9px;font-size:13px;color:#1d4ed8;line-height:1.6;}
+        .ai-ts{font-size:11px;color:var(--muted);margin-top:10px;text-align:right;}
+        .ai-err{padding:12px 16px;background:#fff0f0;border:1px solid #ef9a9a;border-radius:9px;font-size:13px;color:#c62828;}
+
         @media(max-width:1400px){.stat-grid{grid-template-columns:repeat(2,1fr);}}
         @media(max-width:1100px){.two-col,.three-col{grid-template-columns:1fr;}}
         @media(max-width:1024px){
@@ -411,8 +405,9 @@ $activeProducts=(int)$res2->fetch_assoc()['cnt'];
             .nav-link{justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent;}
             .nav-link:hover,.nav-link.active{border-left:none;border-right-color:var(--primary);}
             .nav-icon{margin-right:0;}
-            .logout-btn span{display:none;}
-            .logout-btn{justify-content:center;padding:9px;}
+            .logout-link span{display:none;}
+            .logout-link{justify-content:center;padding:9px;}
+            .ai-cols{grid-template-columns:1fr;}
         }
         @media(max-width:768px){.stat-grid{grid-template-columns:1fr 1fr;}}
     </style>
@@ -484,6 +479,42 @@ $activeProducts=(int)$res2->fetch_assoc()['cnt'];
     <div class="stat-card"><div class="stat-header"><div class="stat-label">Cancelled Orders</div><div class="stat-icon ic-red"><i class="fas fa-times-circle"></i></div></div><div class="stat-value" style="font-size:20px;"><?= $cancelledOrders ?></div><div class="stat-trend"><i class="fas fa-info-circle"></i> This period</div></div>
     <div class="stat-card"><div class="stat-header"><div class="stat-label">Pre-orders</div><div class="stat-icon ic-purple"><i class="fas fa-clipboard-check"></i></div></div><div class="stat-value" style="font-size:20px;"><?= $totalPreorders ?></div><div class="stat-trend"><i class="fas fa-info-circle"></i> All time</div></div>
     <div class="stat-card"><div class="stat-header"><div class="stat-label">Low Stock Alerts</div><div class="stat-icon" style="background:rgba(239,68,68,.1);color:#dc2626;"><i class="fas fa-exclamation-triangle"></i></div></div><div class="stat-value" style="font-size:20px;"><?= $lowStock+$outOfStock ?></div><div class="stat-trend"><i class="fas fa-times-circle" style="color:#dc2626;"></i> <?= $outOfStock ?> out of stock</div></div>
+</div>
+
+<!-- ── AI Business Insights ── -->
+<div class="ai-card">
+    <div class="ai-card-head">
+        <div class="ai-card-title">
+            <i class="fas fa-robot"></i> AI Business Insights
+            <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:4px;">Powered by Gemini</span>
+        </div>
+        <button class="ai-gen-btn" id="aiBtn" onclick="generateInsights()">
+            <i class="fas fa-magic"></i> Generate Insights
+        </button>
+    </div>
+    <div class="ai-body" id="aiBody">
+        <div class="ai-loading" id="aiLoading" style="display:none;">
+            <div class="ai-spinner"></div>
+            <div>Analysing <?= htmlspecialchars($periodLabel) ?> data…</div>
+        </div>
+        <div id="aiResults" style="display:none;">
+            <div class="ai-summary" id="aiSummary"></div>
+            <div class="ai-cols">
+                <div>
+                    <div class="ai-sec g"><i class="fas fa-check-circle"></i> Highlights</div>
+                    <div id="aiHL"></div>
+                </div>
+                <div>
+                    <div class="ai-sec r"><i class="fas fa-exclamation-triangle"></i> Concerns</div>
+                    <div id="aiCon"></div>
+                    <div class="ai-sec b" style="margin-top:14px;"><i class="fas fa-lightbulb"></i> Recommendation</div>
+                    <div class="ai-rec" id="aiRec"></div>
+                </div>
+            </div>
+            <div class="ai-ts" id="aiTs"></div>
+        </div>
+        <div class="ai-err" id="aiErr" style="display:none;"></div>
+    </div>
 </div>
 
 <!-- Trend + Category -->
@@ -795,5 +826,68 @@ foreach($orderStatuses as $s){match($s['order_status']){'NEW'=>$newOrd=$s['cnt']
 
 </div><!-- /.page-body -->
 </main>
+
+<script>
+async function generateInsights() {
+    const btn  = document.getElementById('aiBtn');
+    const body = document.getElementById('aiBody');
+    const load = document.getElementById('aiLoading');
+    const res  = document.getElementById('aiResults');
+    const err  = document.getElementById('aiErr');
+
+    btn.disabled  = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Analysing…';
+
+    body.classList.add('show');
+    load.style.display = 'flex';
+    res.style.display  = 'none';
+    err.style.display  = 'none';
+
+    try {
+        const fd = new FormData();
+        fd.append('period',    '<?= addslashes($period) ?>');
+        fd.append('date_from', '<?= addslashes($dateFrom) ?>');
+        fd.append('date_to',   '<?= addslashes($dateTo) ?>');
+
+        const r    = await fetch('ai_report_insights.php', { method: 'POST', body: fd });
+        const data = await r.json();
+
+        load.style.display = 'none';
+
+        if (!data.success) {
+            err.textContent   = data.error || 'Failed to generate insights.';
+            err.style.display = 'block';
+            return;
+        }
+
+        const ins = data.insights;
+        document.getElementById('aiSummary').textContent = ins.summary;
+        document.getElementById('aiHL').innerHTML = (ins.highlights || []).map(h =>
+            `<div class="ai-item"><i class="fas fa-check" style="color:#2e7d32;margin-top:3px;flex-shrink:0;font-size:11px;"></i>${esc(h)}</div>`
+        ).join('');
+        document.getElementById('aiCon').innerHTML = (ins.concerns || []).map(c =>
+            `<div class="ai-item"><i class="fas fa-exclamation-circle" style="color:#c62828;margin-top:3px;flex-shrink:0;font-size:11px;"></i>${esc(c)}</div>`
+        ).join('');
+        document.getElementById('aiRec').innerHTML =
+            `<i class="fas fa-arrow-right" style="margin-right:6px;"></i>${esc(ins.recommendation || '')}`;
+        document.getElementById('aiTs').textContent =
+            'Generated ' + new Date().toLocaleTimeString() + ' · ' + data.period;
+
+        res.style.display = 'block';
+
+    } catch (e) {
+        load.style.display = 'none';
+        err.textContent   = 'Network error: ' + e.message;
+        err.style.display = 'block';
+    } finally {
+        btn.disabled  = false;
+        btn.innerHTML = '<i class="fas fa-sync-alt"></i> Regenerate';
+    }
+}
+
+function esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
 </body>
 </html>

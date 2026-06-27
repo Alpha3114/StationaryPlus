@@ -197,26 +197,25 @@ if ($conn) {
             color: var(--light-text);
         }
         
-        .logout-btn {
-            width: 100%;
-            padding: 9px;
-            background-color: rgba(168, 53, 53, 0.1);
-            color: var(--primary);
-            border: 1.5px solid var(--primary);
-            border-radius: 5px;
-            font-weight: 600;
-            font-size: 13px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-        }
-        
-        .logout-btn:hover {
-            background-color: rgba(168, 53, 53, 0.2);
-        }
+        /* Add this — maps logout-link to the same style as logout-btn */
+.logout-link {
+    width: 100%;
+    padding: 9px;
+    background: rgba(168,53,53,0.1);
+    color: var(--primary);
+    border: 1.5px solid var(--primary);
+    border-radius: 5px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    text-decoration: none;
+    transition: all 0.2s;
+}
+.logout-link:hover { background: rgba(168,53,53,0.2); }
         
         /* Main Content Area */
         .main-content {
@@ -820,11 +819,11 @@ if ($conn) {
                 font-size: 17px;
             }
             
-            .logout-btn span {
+            .logout-link span {
                 display: none;
             }
             
-            .logout-btn {
+            .logout-link {
                 justify-content: center;
                 padding: 9px;
             }
@@ -1189,7 +1188,7 @@ if ($conn) {
         });
         
         // Logout button
-        document.querySelector('.logout-btn').addEventListener('click', function() {
+        document.querySelector('.logout-link').addEventListener('click', function() {
             alert('Logout functionality would be implemented here (UI mockup only)');
         });
         
