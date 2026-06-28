@@ -8,3 +8,6 @@ uploads/print_files/
 Thumbs.db
 .DS_Store
 *.log
+
+# Forecasting database config
+forecasting/db_config.py
