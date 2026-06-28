@@ -195,59 +195,62 @@ $durationMins = estimateDuration($colorPages, $bwPages, $copies);
 $printType    = $colorPages > 0 ? 'COLOR' : 'BLACK_WHITE';
 
 // ── 7. Persist to DB ─────────────────────────────────────────
-// order_id is nullable — use NULL when not provided
-if ($orderId !== null) {
-    $stmt = $conn->prepare(
-        "INSERT INTO print_files
-            (file_id, order_id, user_id, file_name, file_path, file_type,
-             print_type, paper_size, paper_type, binding_type, copies,
-             total_pages, color_pages, bw_pages,
-             estimated_price, ai_analysis, file_status)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'RECEIVED')"
+// ── 7a. If no pre-order was linked, create one now ────────────
+if ($orderId === null) {
+    $autoOrderId = 'PRE-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
+ 
+    $printNote = 'Print job: ' . $file['name'];
+ 
+    $oStmt = $conn->prepare(
+        "INSERT INTO orders
+            (order_id, user_id, order_type, order_status, estimated_total, notes)
+         VALUES (?, ?, 'PREORDER', 'NEW', ?, ?)"
     );
-    $analysisJson = json_encode(['pages' => $pageDetails, 'parse_ok' => $parseOk, 'raw' => substr($aiRaw, 0, 1000)]);
-    $stmt->bind_param(
-        'ssssssssssiiiids',
-        $fileId, $orderId, $userId, $file['name'], $savePath, $fileType,
-        $printType, $paperSize, $paperType, $bindingType, $copies,
-        $totalPages, $colorPages, $bwPages,
-        $price, $analysisJson
-    );
-} else {
-    // No order linked — omit order_id so DB uses its NULL default
-    $stmt = $conn->prepare(
-        "INSERT INTO print_files
-            (file_id, user_id, file_name, file_path, file_type,
-             print_type, paper_size, paper_type, binding_type, copies,
-             total_pages, color_pages, bw_pages,
-             estimated_price, ai_analysis, file_status)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'RECEIVED')"
-    );
-    $analysisJson = json_encode(['pages' => $pageDetails, 'parse_ok' => $parseOk, 'raw' => substr($aiRaw, 0, 1000)]);
-    $stmt->bind_param(
-        'sssssssssiiiids',
-        $fileId, $userId, $file['name'], $savePath, $fileType,
-        $printType, $paperSize, $paperType, $bindingType, $copies,
-        $totalPages, $colorPages, $bwPages,
-        $price, $analysisJson
-    );
+    $oStmt->bind_param('ssds', $autoOrderId, $userId, $price, $printNote);
+    $oStmt->execute();
+    $oStmt->close();
+ 
+    $orderId = $autoOrderId; // use this for the print_files insert below
 }
-
+ 
+// ── 7b. Insert the print file (order_id is always set now) ────
+$analysisJson = json_encode([
+    'pages'    => $pageDetails,
+    'parse_ok' => $parseOk,
+    'raw'      => substr($aiRaw, 0, 1000),
+]);
+ 
+$stmt = $conn->prepare(
+    "INSERT INTO print_files
+        (file_id, order_id, user_id, file_name, file_path, file_type,
+         print_type, paper_size, paper_type, binding_type, copies,
+         total_pages, color_pages, bw_pages,
+         estimated_price, duration_min, ai_analysis, file_status)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'RECEIVED')"
+);
+$stmt->bind_param(
+    'ssssssssssiiiidids',   // note the extra 'i' for duration_min
+    $fileId, $orderId, $userId, $file['name'], $savePath, $fileType,
+    $printType, $paperSize, $paperType, $bindingType, $copies,
+    $totalPages, $colorPages, $bwPages,
+    $price, $durationMins, $analysisJson
+);
 $stmt->execute();
 $stmt->close();
-
+ 
 // ── 8. Return result to client ────────────────────────────────
 echo json_encode([
     'success'      => true,
     'file_id'      => $fileId,
     'filename'     => htmlspecialchars($file['name']),
-    'order_id'     => $orderId,
+    'order_id'     => $orderId,       // now always populated
     'total_pages'  => $totalPages,
     'color_pages'  => $colorPages,
     'bw_pages'     => $bwPages,
     'price'        => $price,
     'breakdown'    => $breakdown,
-    'duration_min' => $durationMins,
+    'duration_min' => $durationMins,  // still returned to JS for live display
     'page_details' => $pageDetails,
     'ai_parse_ok'  => $parseOk,
 ]);
+ 

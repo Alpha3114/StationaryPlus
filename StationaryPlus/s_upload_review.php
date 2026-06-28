@@ -649,9 +649,26 @@ document.addEventListener('keydown', e => {
 
 // ── Status update ─────────────────────────────────────────────
 async function updateStatus(fileId, status, rowIndex) {
-    const label = status === 'REVIEWED' ? 'approve' : 'reject';
-    if (!confirm(`${label.charAt(0).toUpperCase() + label.slice(1)} print file ${fileId}?`)) return;
-
+    let rejectionReason = '';
+ 
+    if (status === 'REJECTED') {
+        // Prompt staff for a rejection reason before sending
+        rejectionReason = prompt(
+            `Rejection reason for ${fileId}:\n(This message will be shown to the customer)`,
+            ''
+        );
+        // null = cancelled dialog; empty string = they clicked OK but left it blank
+        if (rejectionReason === null) return;           // staff cancelled
+        rejectionReason = rejectionReason.trim();
+        if (rejectionReason === '') {
+            alert('Please enter a rejection reason so the customer knows what to fix.');
+            return;
+        }
+    } else {
+        // Approve path — keep original confirm
+        if (!confirm(`Approve print file ${fileId}?`)) return;
+    }
+ 
     const form = new FormData();
     form.append('file_id', fileId);
     form.append('status',  status);
@@ -659,7 +676,10 @@ async function updateStatus(fileId, status, rowIndex) {
         const p = document.getElementById('price-' + rowIndex);
         if (p) form.append('final_price', p.value);
     }
-
+    if (status === 'REJECTED') {
+        form.append('rejection_reason', rejectionReason);
+    }
+ 
     try {
         const res  = await fetch('update_print_status.php', { method: 'POST', body: form });
         const data = await res.json();
@@ -673,7 +693,6 @@ async function updateStatus(fileId, status, rowIndex) {
         showToast('Network error. Please try again.', 'error');
     }
 }
-
 // ── Toast ─────────────────────────────────────────────────────
 function showToast(msg, type = 'success') {
     const t   = document.getElementById('toast');

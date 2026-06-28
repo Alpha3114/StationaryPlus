@@ -34,7 +34,8 @@ $stmt->close();
 // ── Load this customer's recent uploads ───────────────────────
 $stmt = $conn->prepare(
     "SELECT file_id, file_name, total_pages, color_pages, bw_pages,
-            paper_size, binding_type, copies, estimated_price, file_status, upload_date
+            paper_size, binding_type, copies, estimated_price,
+            file_status, rejection_reason, upload_date
      FROM print_files
      WHERE user_id = ?
      ORDER BY upload_date DESC
@@ -493,7 +494,16 @@ function statusBadge(string $s): string {
                             <td style="font-size:12px;color:var(--text-secondary);">
                                 <?= date('d M Y', strtotime($u['upload_date'])) ?>
                             </td>
-                            <td><?= statusBadge($u['file_status']) ?></td>
+                            <td><?= statusBadge($u['file_status']) ?>
+    <?php if (($u['file_status'] ?? '') === 'REJECTED' && !empty($u['rejection_reason'])): ?>
+    <div style="margin-top:6px;padding:7px 10px;
+                background:#fef2f2;border:1px solid #fca5a5;
+                border-radius:7px;font-size:11px;color:#991b1b;
+                display:flex;align-items:flex-start;gap:6px;max-width:220px;">
+        <i class="fas fa-exclamation-circle" style="margin-top:2px;flex-shrink:0;"></i>
+        <span><?= htmlspecialchars($u['rejection_reason']) ?></span>
+    </div>
+    <?php endif; ?></td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>

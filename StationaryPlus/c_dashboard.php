@@ -284,6 +284,20 @@ function orderStatusBadge(string $status): string {
         .rec-btn{display:block;width:100%;padding:9px;text-align:center;background:rgba(168,53,53,0.06);color:var(--primary);border-radius:7px;text-decoration:none;font-size:13px;font-weight:600;transition:background 0.2s;border:none;cursor:pointer;}
         .rec-btn:hover{background:rgba(168,53,53,0.14);}
 
+        /* Collaborative filtering */
+        .collab-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px;}
+        .collab-card{background:var(--white);border-radius:10px;padding:18px;border:1px solid var(--border);box-shadow:var(--card-shadow);transition:transform 0.2s,box-shadow 0.2s,border-color 0.2s;display:flex;flex-direction:column;}
+        .collab-card:hover{transform:translateY(-3px);box-shadow:0 8px 20px rgba(0,0,0,0.08);border-color:var(--secondary);}
+        .collab-category{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#d97706;background:rgba(244,162,97,0.12);padding:2px 8px;border-radius:20px;display:inline-block;margin-bottom:10px;}
+        .collab-name{font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:5px;}
+        .collab-price{font-size:16px;font-weight:700;color:var(--primary);margin-bottom:10px;}
+        .collab-freq{font-size:11px;color:var(--text-secondary);display:flex;align-items:center;gap:5px;margin-top:auto;padding-top:10px;border-top:1px solid var(--border);margin-bottom:12px;}
+        .collab-btn{display:block;width:100%;padding:9px;text-align:center;background:rgba(244,162,97,0.08);color:#d97706;border-radius:7px;text-decoration:none;font-size:13px;font-weight:600;transition:background 0.2s;}
+        .collab-btn:hover{background:rgba(244,162,97,0.2);}
+        .collab-skeleton{background:var(--white);border-radius:10px;padding:18px;border:1px solid var(--border);animation:cpulse 1.5s ease-in-out infinite;}
+        @keyframes cpulse{0%,100%{opacity:1}50%{opacity:0.45}}
+        .skel-line{height:11px;background:#f0f0f0;border-radius:4px;margin-bottom:8px;}
+
         /* Footer */
         .dashboard-footer{text-align:center;padding:22px;color:var(--text-secondary);font-size:13px;border-top:1px solid var(--border);background:var(--white);}
         .footer-links a{color:var(--primary);text-decoration:none;margin:0 10px;}
@@ -438,6 +452,26 @@ function orderStatusBadge(string $status): string {
                     <div class="action-title">My Profile</div>
                     <div class="action-desc">Update your details &amp; password</div>
                 </a>
+            </div>
+        </div>
+
+        <!-- Customers Also Bought -->
+        <div class="content-section">
+            <h3 class="section-title">
+                <i class="fas fa-users" style="color:#d97706;"></i>
+                Customers Also Bought
+                <span id="collabTypeLabel" style="font-size:12px;font-weight:400;color:var(--text-secondary);margin-left:6px;"></span>
+            </h3>
+            <div class="collab-grid" id="collabGrid">
+                <!-- Skeletons while loading -->
+                <?php for($i=0;$i<4;$i++): ?>
+                <div class="collab-skeleton">
+                    <div class="skel-line" style="width:40%;margin-bottom:12px;"></div>
+                    <div class="skel-line" style="width:75%;"></div>
+                    <div class="skel-line" style="width:30%;margin-bottom:18px;"></div>
+                    <div class="skel-line" style="width:60%;"></div>
+                </div>
+                <?php endfor; ?>
             </div>
         </div>
 
@@ -601,7 +635,52 @@ document.addEventListener('click', e => {
     }
 });
 
-// ── AI Product Advisor ────────────────────────────────────────
+// ── Collaborative Filtering ───────────────────────────────────
+async function loadCollabRecommendations() {
+    try {
+        const res  = await fetch('collab_recommend.php');
+        const data = await res.json();
+        const grid = document.getElementById('collabGrid');
+        const lbl  = document.getElementById('collabTypeLabel');
+
+        if (!data.success || !data.recommendations?.length) {
+            grid.innerHTML = '<p style="color:var(--text-secondary);font-size:14px;grid-column:1/-1;padding:10px 0;">No recommendations available yet.</p>';
+            return;
+        }
+
+        // Label changes based on whether it's collaborative or popular
+        if (data.type === 'collaborative') {
+            lbl.textContent = '— Based on similar customers\' purchases';
+        } else {
+            lbl.textContent = '— Most popular in our store';
+        }
+
+        grid.innerHTML = data.recommendations.map(p => `
+            <div class="collab-card">
+                <span class="collab-category">${escHtml(p.category)}</span>
+                <div class="collab-name">${escHtml(p.product_name)}</div>
+                <div class="collab-price">RM ${parseFloat(p.price).toFixed(2)}</div>
+                <div class="collab-freq">
+                    <i class="fas fa-${data.type === 'collaborative' ? 'users' : 'fire'}"
+                       style="color:#d97706;font-size:11px;flex-shrink:0;"></i>
+                    ${escHtml(p.freq_label)}
+                </div>
+                <a href="c_viewproducts.php?search=${encodeURIComponent(p.product_name)}"
+                   class="collab-btn">
+                    <i class="fas fa-eye"></i> View Product
+                </a>
+            </div>`
+        ).join('');
+
+    } catch (e) {
+        const grid = document.getElementById('collabGrid');
+        if (grid) grid.innerHTML = '<p style="color:var(--text-secondary);font-size:14px;grid-column:1/-1;">Could not load recommendations.</p>';
+    }
+}
+
+window.addEventListener('load', loadCollabRecommendations);
+
+
 async function getRecommendations() {
     const input  = document.getElementById('advisorInput');
     const btn    = document.getElementById('advisorBtn');

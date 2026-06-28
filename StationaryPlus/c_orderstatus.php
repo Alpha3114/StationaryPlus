@@ -43,18 +43,24 @@ if ($filterStatus !== 'all' && in_array($filterStatus, $validStatuses)) {
  
 // ── Single query — one table, all types ───────────────────────
 $sql = "SELECT
-            order_id       AS id,
-            order_date,
-            order_status   AS status,
-            estimated_total AS amount,
-            order_type     AS type,
-            notes
-        FROM orders
-        WHERE user_id = ?
+            o.order_id        AS id,
+            o.order_date,
+            o.order_status    AS status,
+            o.estimated_total AS amount,
+            o.order_type      AS type,
+            o.notes,
+            pf.file_id            AS pf_file_id,
+            pf.file_name          AS pf_file_name,
+            pf.file_status        AS pf_file_status,
+            pf.rejection_reason   AS pf_rejection_reason,
+            pf.duration_min       AS pf_duration_min
+        FROM orders o
+        LEFT JOIN print_files pf ON pf.order_id = o.order_id
+        WHERE o.user_id = ?
           $periodSQL
           $typeSQL
           $statusSQL
-        ORDER BY order_date DESC";
+        ORDER BY o.order_date DESC";
  
 $stmt = $conn->prepare($sql);
 if ($statusParam) {
@@ -236,23 +242,88 @@ function typeBadge(string $type): string {
                             <th>Date</th>
                             <th>Amount</th>
                             <th>Status</th>
+                            <th>File Status</th>
                             <th>Action</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($allRows as $row): ?>
-                        <tr>
-                            <td><span class="order-id"><?= htmlspecialchars($row['id']) ?></span></td>
-                            <td><?= typeBadge($row['type']) ?></td>
-                            <td class="order-date"><?= date('d M Y', strtotime($row['order_date'])) ?></td>
-                            <td><?= $row['amount'] !== null ? 'RM '.number_format($row['amount'],2) : '—' ?></td>
-                            <td><?= statusBadge($row['status']) ?></td>
-                            <td>
-                                <button class="detail-btn" onclick="openModal('<?= htmlspecialchars($row['id'], ENT_QUOTES) ?>')"><i class="fas fa-eye"></i> Details</button>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
+    <?php foreach ($allRows as $row): ?>
+    <tr>
+        <td><span class="order-id"><?= htmlspecialchars($row['id']) ?></span></td>
+        <td><?= typeBadge($row['type']) ?></td>
+        <td class="order-date"><?= date('d M Y', strtotime($row['order_date'])) ?></td>
+        <td><?= $row['amount'] !== null ? 'RM '.number_format($row['amount'],2) : '—' ?></td>
+        <td><?= statusBadge($row['status']) ?></td>
+
+        <?php if (!empty($row['pf_file_id'])): ?>
+        <td style="padding:10px 16px;">
+
+            <?php /* ── Estimated print time (shows above the status badge) ── */ ?>
+            <?php if (!empty($row['pf_duration_min'])): ?>
+            <div style="margin-bottom:6px;display:inline-flex;align-items:center;gap:6px;
+                        padding:5px 11px;background:#eff6ff;border:1px solid #bfdbfe;
+                        border-radius:20px;font-size:12px;font-weight:600;color:#1d4ed8;">
+                <i class="fas fa-clock"></i>
+                <?php
+                $mins = (int)$row['pf_duration_min'];
+                if ($mins >= 60) {
+                    $h = intdiv($mins, 60);
+                    $m = $mins % 60;
+                    echo "Est. print time: {$h}h" . ($m > 0 ? " {$m}min" : "");
+                } else {
+                    echo "Est. print time: {$mins} min";
+                }
+                ?>
+            </div>
+            <br>
+            <?php endif; ?>
+
+            <?php /* ── File status badge ── */ ?>
+            <?php
+            $pfStatus = $row['pf_file_status'] ?? '';
+            $pfColors = [
+                'RECEIVED' => ['#3b82f6','#eff6ff','Under Review'],
+                'REVIEWED' => ['#10b981','#ecfdf5','File Approved'],
+                'REJECTED' => ['#ef4444','#fef2f2','File Rejected'],
+            ];
+            [$pfColor, $pfBg, $pfLabel] = $pfColors[$pfStatus] ?? ['#6b7280','#f3f4f6', $pfStatus];
+            ?>
+            <span style="background:<?= $pfBg ?>;color:<?= $pfColor ?>;
+                         border:1px solid <?= $pfColor ?>55;padding:3px 10px;
+                         border-radius:20px;font-size:12px;font-weight:600;">
+                <?= htmlspecialchars($pfLabel) ?>
+            </span>
+
+            <?php /* ── Rejection reason (only when rejected) ── */ ?>
+            <?php if ($pfStatus === 'REJECTED' && !empty($row['pf_rejection_reason'])): ?>
+            <div style="margin-top:6px;padding:8px 12px;
+                        background:#fef2f2;border:1px solid #fca5a5;
+                        border-radius:7px;font-size:12px;color:#991b1b;
+                        display:flex;align-items:flex-start;gap:7px;">
+                <i class="fas fa-exclamation-circle" style="margin-top:2px;flex-shrink:0;"></i>
+                <div>
+                    <strong>File rejected:</strong>
+                    <?= htmlspecialchars($row['pf_rejection_reason']) ?>
+                    <div style="margin-top:4px;font-size:11px;color:#b91c1c;">
+                        Please re-upload a corrected file.
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
+        </td>
+        <?php else: ?>
+        <td style="padding:10px 16px;color:#9ca3af;font-size:13px;">—</td>
+        <?php endif; ?>
+
+        <td>
+            <button class="detail-btn" onclick="openModal('<?= htmlspecialchars($row['id'], ENT_QUOTES) ?>')">
+                <i class="fas fa-eye"></i> Details
+            </button>
+        </td>
+    </tr>
+    <?php endforeach; ?>
+</tbody>
                 </table>
                 <?php endif; ?>
             </div>

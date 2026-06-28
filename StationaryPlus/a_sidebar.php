@@ -19,6 +19,7 @@ $navMapping = [
     's_payments.php'        => 'ops_payments',
     's_upload_review.php'   => 'ops_printfiles',
     's_inv.php'             => 'ops_inventory',
+    's_pos.php' => 'ops_pos'
 ];
 
 $activePage  = $navMapping[$currentPage] ?? '';
@@ -141,6 +142,12 @@ if (isset($conn)) {
         </div>
         <hr class="ops-divider">
         <ul class="nav-menu">
+            <li class="nav-item">
+    <a href="s_pos.php" class="nav-link ops <?= $activePage === 'ops_pos' ? 'active' : '' ?>">
+        <div class="nav-icon"><i class="fas fa-cash-register"></i></div>
+        <div class="nav-text">Point of Sale</div>
+    </a>
+</li>
             <li class="nav-item">
                 <a href="s_ordermanagement.php" class="nav-link ops <?= $activePage==='ops_orders'?'active':'' ?>">
                     <div class="nav-icon"><i class="fas fa-tasks"></i></div>

@@ -1,7 +1,8 @@
 <?php
 // ============================================================
 //  update_print_status.php — AJAX: staff updates print file status
-//  POST: file_id, status (REVIEWED | REJECTED), final_price (optional)
+//  POST: file_id, status (REVIEWED | REJECTED),
+//        final_price (optional), rejection_reason (required if REJECTED)
 //  Returns JSON
 // ============================================================
 
@@ -13,12 +14,19 @@ require_once 'db.php';
 
 header('Content-Type: application/json');
 
-$fileId     = trim($_POST['file_id']     ?? '');
-$status     = trim($_POST['status']      ?? '');
-$finalPrice = $_POST['final_price']      ?? null;
+$fileId          = trim($_POST['file_id']          ?? '');
+$status          = trim($_POST['status']           ?? '');
+$finalPrice      = $_POST['final_price']           ?? null;
+$rejectionReason = trim($_POST['rejection_reason'] ?? '');
 
 if (!$fileId || !in_array($status, ['REVIEWED', 'REJECTED'])) {
     echo json_encode(['success' => false, 'error' => 'Invalid request.']);
+    exit;
+}
+
+// Rejection reason is mandatory when rejecting
+if ($status === 'REJECTED' && $rejectionReason === '') {
+    echo json_encode(['success' => false, 'error' => 'Please enter a rejection reason.']);
     exit;
 }
 
@@ -36,16 +44,25 @@ if (!$file) {
     exit;
 }
 
-// Update status (and final price if provided)
-if ($finalPrice !== null && is_numeric($finalPrice) && $finalPrice >= 0) {
+// Build update query depending on status and optional final_price
+if ($status === 'REJECTED') {
+    $stmt = $conn->prepare(
+        "UPDATE print_files SET file_status = ?, rejection_reason = ? WHERE file_id = ?"
+    );
+    $stmt->bind_param('sss', $status, $rejectionReason, $fileId);
+
+} elseif ($finalPrice !== null && is_numeric($finalPrice) && $finalPrice >= 0) {
     $price = (float)$finalPrice;
     $stmt  = $conn->prepare(
-        "UPDATE print_files SET file_status = ?, estimated_price = ? WHERE file_id = ?"
+        "UPDATE print_files
+         SET file_status = ?, estimated_price = ?, rejection_reason = NULL
+         WHERE file_id = ?"
     );
     $stmt->bind_param('sds', $status, $price, $fileId);
+
 } else {
     $stmt = $conn->prepare(
-        "UPDATE print_files SET file_status = ? WHERE file_id = ?"
+        "UPDATE print_files SET file_status = ?, rejection_reason = NULL WHERE file_id = ?"
     );
     $stmt->bind_param('ss', $status, $fileId);
 }
