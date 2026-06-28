@@ -221,6 +221,26 @@ $totalPreorderRows=array_sum(array_column($preorderStatuses,'cnt')) ?: 1;
 
 $res2=$conn->query("SELECT COUNT(*) AS cnt FROM products WHERE product_status='ACTIVE'");
 $activeProducts=(int)$res2->fetch_assoc()['cnt'];
+
+// ── Load existing sales forecasts from DB ─────────────────────
+$existingForecasts = [];
+$forecastMeta      = null;
+$res = $conn->query(
+    "SELECT forecast_month, predicted_revenue, model_type, r_squared,
+            data_points, generated_at
+     FROM sales_forecasts
+     ORDER BY forecast_month ASC
+     LIMIT 3"
+);
+if ($res && $res->num_rows > 0) {
+    $existingForecasts = $res->fetch_all(MYSQLI_ASSOC);
+    $forecastMeta = [
+        'model_type'   => $existingForecasts[0]['model_type'],
+        'r_squared'    => $existingForecasts[0]['r_squared'],
+        'data_points'  => $existingForecasts[0]['data_points'],
+        'generated_at' => $existingForecasts[0]['generated_at'],
+    ];
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -251,25 +271,8 @@ $activeProducts=(int)$res2->fetch_assoc()['cnt'];
         .user-info{display:flex;align-items:center;margin-bottom:15px;}
         .user-avatar{width:38px;height:38px;border-radius:50%;background:rgba(168,53,53,.1);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:600;font-size:15px;margin-right:12px;}
         .user-name{font-weight:600;font-size:14px;}
-        /* Add this — maps logout-link to the same style as logout-btn */
-.logout-link {
-    width: 100%;
-    padding: 9px;
-    background: rgba(168,53,53,0.1);
-    color: var(--primary);
-    border: 1.5px solid var(--primary);
-    border-radius: 5px;
-    font-weight: 600;
-    font-size: 13px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    text-decoration: none;
-    transition: all 0.2s;
-}
-.logout-link:hover { background: rgba(168,53,53,0.2); }
+        .logout-btn{width:100%;padding:9px;background:rgba(168,53,53,.1);color:var(--primary);border:1.5px solid var(--primary);border-radius:5px;font-weight:600;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;transition:all .2s;}
+        .logout-btn:hover{background:rgba(168,53,53,.2);}
         .main-content{flex-grow:1;margin-left:var(--sidebar);min-height:100vh;display:flex;flex-direction:column;}
         .top-header{background:var(--white);padding:12px 22px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:20;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
         .header-title{font-size:19px;font-weight:700;}
@@ -374,6 +377,43 @@ $activeProducts=(int)$res2->fetch_assoc()['cnt'];
         .no-data i{font-size:26px;opacity:.2;display:block;margin-bottom:8px;}
         .no-data p{font-size:12px;}
 
+        /* ── Sales Forecast ── */
+        .fc-card{background:linear-gradient(135deg,rgba(16,185,129,0.04),rgba(59,130,246,0.04));border:1.5px solid rgba(16,185,129,0.2);border-radius:12px;padding:22px 24px;margin-bottom:18px;}
+        .fc-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;gap:12px;flex-wrap:wrap;}
+        .fc-title{font-size:15px;font-weight:700;color:#065f46;display:flex;align-items:center;gap:9px;}
+        .fc-meta{font-size:11px;color:var(--muted);margin-top:4px;}
+        .fc-run-btn{padding:8px 18px;background:#059669;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px;transition:background 0.2s;white-space:nowrap;flex-shrink:0;}
+        .fc-run-btn:hover:not(:disabled){background:#047857;}
+        .fc-run-btn:disabled{background:#d1d5db;cursor:not-allowed;}
+        .fc-body{display:flex;flex-direction:column;gap:16px;}
+        .fc-months{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+        .fc-month-card{background:var(--white);border-radius:10px;padding:16px 18px;border:1px solid var(--border);text-align:center;}
+        .fc-month-label{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px;}
+        .fc-month-val{font-size:22px;font-weight:700;color:#059669;margin-bottom:6px;}
+        .fc-month-bar-wrap{height:4px;background:rgba(5,150,105,0.15);border-radius:2px;overflow:hidden;}
+        .fc-month-bar{height:100%;background:linear-gradient(90deg,#059669,#10b981);border-radius:2px;}
+        .fc-winner-badge{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:20px;font-size:11px;font-weight:700;color:#065f46;}
+        .fc-compare-wrap{background:var(--white);border-radius:10px;border:1px solid var(--border);overflow:hidden;}
+        .fc-compare-head{padding:12px 16px;background:rgba(5,150,105,0.04);border-bottom:1px solid var(--border);font-size:13px;font-weight:700;color:#065f46;display:flex;align-items:center;gap:8px;}
+        .fc-table{width:100%;border-collapse:collapse;font-size:13px;}
+        .fc-table th{padding:10px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;border-bottom:1px solid var(--border);background:rgba(5,150,105,0.02);}
+        .fc-table td{padding:11px 16px;border-bottom:1px solid var(--border);color:var(--text);}
+        .fc-table tr:last-child td{border-bottom:none;}
+        .fc-table tr.winner-row td{background:rgba(5,150,105,0.04);font-weight:600;}
+        .metric-good{color:#059669;font-weight:700;}
+        .metric-bad{color:var(--muted);}
+        .fc-avp-wrap{background:var(--white);border-radius:10px;border:1px solid var(--border);overflow:hidden;}
+        .fc-avp-head{padding:12px 16px;background:rgba(59,130,246,0.03);border-bottom:1px solid var(--border);font-size:13px;font-weight:700;color:#1d4ed8;display:flex;align-items:center;gap:8px;}
+        .fc-model-row{display:flex;gap:14px;flex-wrap:wrap;padding:12px 16px;background:rgba(5,150,105,0.05);border-radius:8px;border:1px solid rgba(5,150,105,0.15);}
+        .fc-model-stat{font-size:12px;color:var(--text);display:flex;align-items:center;gap:5px;}
+        .fc-model-stat strong{color:#065f46;}
+        .fc-empty{padding:20px;text-align:center;color:var(--muted);font-size:13px;}
+        .fc-loading{text-align:center;padding:28px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:10px;}
+        .fc-spinner{width:26px;height:26px;border:3px solid var(--border);border-top-color:#059669;border-radius:50%;animation:fcspin .7s linear infinite;}
+        @keyframes fcspin{to{transform:rotate(360deg);}}
+        .fc-err{padding:12px 16px;background:#fff0f0;border:1px solid #ef9a9a;border-radius:9px;font-size:13px;color:#c62828;margin-top:12px;}
+        .fc-section-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin:16px 0 8px;display:flex;align-items:center;gap:7px;}
+
         /* ── AI Insights ── */
         .ai-card{background:linear-gradient(135deg,rgba(168,53,53,0.04),rgba(244,162,97,0.04));border:1.5px solid rgba(168,53,53,0.15);border-radius:12px;padding:22px 24px;}
         .ai-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
@@ -405,8 +445,8 @@ $activeProducts=(int)$res2->fetch_assoc()['cnt'];
             .nav-link{justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent;}
             .nav-link:hover,.nav-link.active{border-left:none;border-right-color:var(--primary);}
             .nav-icon{margin-right:0;}
-            .logout-link span{display:none;}
-            .logout-link{justify-content:center;padding:9px;}
+            .logout-btn span{display:none;}
+            .logout-btn{justify-content:center;padding:9px;}
             .ai-cols{grid-template-columns:1fr;}
         }
         @media(max-width:768px){.stat-grid{grid-template-columns:1fr 1fr;}}
@@ -479,6 +519,79 @@ $activeProducts=(int)$res2->fetch_assoc()['cnt'];
     <div class="stat-card"><div class="stat-header"><div class="stat-label">Cancelled Orders</div><div class="stat-icon ic-red"><i class="fas fa-times-circle"></i></div></div><div class="stat-value" style="font-size:20px;"><?= $cancelledOrders ?></div><div class="stat-trend"><i class="fas fa-info-circle"></i> This period</div></div>
     <div class="stat-card"><div class="stat-header"><div class="stat-label">Pre-orders</div><div class="stat-icon ic-purple"><i class="fas fa-clipboard-check"></i></div></div><div class="stat-value" style="font-size:20px;"><?= $totalPreorders ?></div><div class="stat-trend"><i class="fas fa-info-circle"></i> All time</div></div>
     <div class="stat-card"><div class="stat-header"><div class="stat-label">Low Stock Alerts</div><div class="stat-icon" style="background:rgba(239,68,68,.1);color:#dc2626;"><i class="fas fa-exclamation-triangle"></i></div></div><div class="stat-value" style="font-size:20px;"><?= $lowStock+$outOfStock ?></div><div class="stat-trend"><i class="fas fa-times-circle" style="color:#dc2626;"></i> <?= $outOfStock ?> out of stock</div></div>
+</div>
+
+<!-- ── Sales Forecast ── -->
+<div class="fc-card">
+    <div class="fc-head">
+        <div>
+            <div class="fc-title">
+                <i class="fas fa-chart-line"></i> 3-Month Revenue Forecast
+                <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:4px;">Linear Regression · scikit-learn</span>
+            </div>
+            <?php if ($forecastMeta): ?>
+            <div class="fc-meta">
+                Last run: <?= date('d M Y, H:i', strtotime($forecastMeta['generated_at'])) ?>
+                &nbsp;·&nbsp; Model: <?= htmlspecialchars($forecastMeta['model_type']) ?>
+                &nbsp;·&nbsp; Trained on <?= $forecastMeta['data_points'] ?> months of data
+            </div>
+            <?php endif; ?>
+        </div>
+        <button class="fc-run-btn" id="fcBtn" onclick="runForecast()">
+            <i class="fas fa-play"></i>
+            <?= $existingForecasts ? 'Refresh Forecast' : 'Run Forecast' ?>
+        </button>
+    </div>
+
+    <div id="fcLoading" class="fc-loading" style="display:none;">
+        <div class="fc-spinner"></div>
+        <div>Training model on historical sales data…</div>
+    </div>
+
+    <div id="fcContent">
+        <?php if (empty($existingForecasts)): ?>
+        <div class="fc-empty">
+            <i class="fas fa-chart-line" style="font-size:28px;opacity:0.15;display:block;margin-bottom:8px;"></i>
+            No forecast generated yet. Click <strong>Run Forecast</strong> to train the model and predict the next 3 months.
+        </div>
+        <?php else: ?>
+        <?php
+            $fcMax = max(array_column($existingForecasts, 'predicted_revenue')) ?: 1;
+        ?>
+        <div class="fc-months">
+            <?php foreach ($existingForecasts as $fc): ?>
+            <div class="fc-month-card">
+                <div class="fc-month-label"><?= date('M Y', strtotime($fc['forecast_month'])) ?></div>
+                <div class="fc-month-val">RM <?= number_format($fc['predicted_revenue'], 0) ?></div>
+                <div class="fc-month-bar-wrap">
+                    <div class="fc-month-bar" style="width:<?= round(($fc['predicted_revenue'] / $fcMax) * 100) ?>%"></div>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <div class="fc-model-row">
+            <div class="fc-model-stat">
+                <i class="fas fa-bullseye" style="color:#059669;"></i>
+                Model Accuracy (R²): <strong><?= number_format($forecastMeta['r_squared'] * 100, 1) ?>%</strong>
+            </div>
+            <div class="fc-model-stat" style="flex:1;">
+                <div class="r2-bar-wrap">
+                    <div class="r2-bar" style="width:<?= round($forecastMeta['r_squared'] * 100) ?>%"></div>
+                </div>
+            </div>
+            <div class="fc-model-stat">
+                <i class="fas fa-database" style="color:#059669;"></i>
+                Training data: <strong><?= $forecastMeta['data_points'] ?> months</strong>
+            </div>
+            <div class="fc-model-stat">
+                <i class="fas fa-info-circle" style="color:var(--muted);"></i>
+                <span style="color:var(--muted);font-size:11px;">Higher R² = better fit. Forecast accuracy improves with more data.</span>
+            </div>
+        </div>
+        <?php endif; ?>
+    </div>
+
+    <div class="fc-err" id="fcErr" style="display:none;"></div>
 </div>
 
 <!-- ── AI Business Insights ── -->
@@ -828,6 +941,231 @@ foreach($orderStatuses as $s){match($s['order_status']){'NEW'=>$newOrd=$s['cnt']
 </main>
 
 <script>
+// ── Sales Forecast ───────────────────────────────────────────
+async function runForecast() {
+    const btn  = document.getElementById('fcBtn');
+    const load = document.getElementById('fcLoading');
+    const cont = document.getElementById('fcContent');
+    const err  = document.getElementById('fcErr');
+
+    btn.disabled  = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Running…';
+    load.style.display = 'flex';
+    cont.style.display = 'none';
+    err.style.display  = 'none';
+
+    try {
+        const r    = await fetch('forecasting/run_forecast.php', { method: 'POST' });
+        const data = await r.json();
+
+        load.style.display = 'none';
+
+        if (!data.success) {
+            err.innerHTML     = '<i class="fas fa-exclamation-circle"></i> ' + esc(data.error);
+            err.style.display = 'block';
+            cont.style.display = 'block';
+            return;
+        }
+
+        renderForecast(data);
+
+    } catch (e) {
+        load.style.display = 'none';
+        err.innerHTML      = '<i class="fas fa-exclamation-circle"></i> Network error: ' + esc(e.message);
+        err.style.display  = 'block';
+        cont.style.display = 'block';
+    } finally {
+        btn.disabled  = false;
+        btn.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh Forecast';
+    }
+}
+
+function renderForecast(data) {
+    const cont  = document.getElementById('fcContent');
+    const preds = data.predictions || [];
+    const model = data.model       || {};
+    const cmp   = data.comparison  || {};
+    const eval_ = data.evaluation  || {};
+
+    if (!preds.length) {
+        cont.innerHTML = '<div class="fc-empty">No predictions returned.</div>';
+        cont.style.display = 'block'; return;
+    }
+
+    const maxRev = Math.max(...preds.map(p => p.predicted_revenue)) || 1;
+    const winner = cmp.winner || 'linear';
+    const linM   = cmp.linear     || {};
+    const polyM  = cmp.polynomial || {};
+
+    // Plain-English summary
+    const trendWord = model.trend === 'upward'   ? 'trending upward 📈'
+                    : model.trend === 'downward' ? 'trending downward 📉'
+                    : 'holding steady ➡️';
+    const nextMonth = preds[0];
+    const plain = `Revenue is <strong>${trendWord}</strong>. Based on your last
+        ${model.data_points||'?'} months of sales, we expect around
+        <strong>RM ${fmtRM(nextMonth?.predicted_revenue||0)}</strong> next month.`;
+
+    const r2 = model.r_squared || 0;
+    const accuracyLabel = r2 >= 0.85 ? '🟢 High confidence'
+                        : r2 >= 0.65 ? '🟡 Moderate confidence'
+                        : '🔴 Low confidence — more data needed';
+    const accuracyTip = r2 >= 0.85
+        ? 'The model fits your sales history well.'
+        : r2 >= 0.65 ? 'Reasonable fit. More data will improve accuracy.'
+        : 'Not enough data for a reliable forecast yet.';
+
+    // Month cards
+    const monthCards = preds.map((p,i) => {
+        const pct = Math.round((p.predicted_revenue/maxRev)*100);
+        const opacity = 1-(i*0.12);
+        return `<div class="fc-month-card" style="opacity:${opacity}">
+            <div class="fc-month-label">${esc(p.month_label)}</div>
+            <div class="fc-month-val">RM ${fmtRM(p.predicted_revenue)}</div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">
+                ${i===0?'Next month':i===1?'In 2 months':'In 3 months'}</div>
+            <div class="fc-month-bar-wrap">
+                <div class="fc-month-bar" style="width:${pct}%"></div>
+            </div></div>`;
+    }).join('');
+
+    // Model comparison rows (for technical section)
+    const modelRows = [
+        {key:'linear',     m:linM,  label:'Linear Regression'},
+        {key:'polynomial', m:polyM, label:'Polynomial (curve fit)'},
+    ].map(({key,m,label}) => {
+        const isW = key===winner;
+        return `<tr class="${isW?'winner-row':''}">
+            <td>${label} ${isW?'<span class="fc-winner-badge">✓ Used for forecast</span>':''}</td>
+            <td class="${isW?'metric-good':''}">RM ${fmtRM(m.mae||0)}<br>
+                <span style="font-size:10px;color:var(--muted);">avg error/month</span></td>
+            <td class="${isW?'metric-good':''}">RM ${fmtRM(m.rmse||0)}<br>
+                <span style="font-size:10px;color:var(--muted);">penalises big errors</span></td>
+            <td class="${isW?'metric-good':''}">${Math.round((m.r_squared||0)*100)}%<br>
+                <span style="font-size:10px;color:var(--muted);">how well it fits</span></td>
+        </tr>`;
+    }).join('');
+
+    // Actual vs predicted rows
+    const testResults = eval_.test_results || [];
+    const maxTest = Math.max(...testResults.flatMap(r=>[r.actual,r.linear_pred,r.poly_pred]))||1;
+    const avpRows = testResults.map(r => {
+        const linErr  = Math.abs(r.actual-r.linear_pred);
+        const polyErr = Math.abs(r.actual-r.poly_pred);
+        return `<div style="padding:12px 16px;border-bottom:1px solid var(--border);">
+            <div style="font-size:12px;font-weight:700;margin-bottom:8px;">${esc(r.month_label)}</div>
+            ${avpBar('Actual', r.actual, maxTest,'#374151')}
+            ${avpBar('Linear', r.linear_pred, maxTest,'#3b82f6',`off by RM ${fmtRM(linErr)}`)}
+            ${avpBar('Poly°2', r.poly_pred,   maxTest,'#8b5cf6',`off by RM ${fmtRM(polyErr)}`)}
+        </div>`;
+    }).join('');
+
+    cont.innerHTML = `
+        <!-- Plain English -->
+        <div style="padding:14px 18px;background:rgba(5,150,105,0.06);border-radius:9px;
+                    border-left:4px solid #059669;margin-bottom:16px;font-size:14px;
+                    color:var(--text);line-height:1.7;">
+            ${plain}
+            <div style="margin-top:8px;font-size:13px;">
+                ${accuracyLabel}
+                <span style="color:var(--muted);margin-left:6px;">${accuracyTip}</span>
+            </div>
+        </div>
+
+        <!-- 3-month cards -->
+        <div class="fc-months" style="margin-bottom:12px;">${monthCards}</div>
+        <div style="font-size:11px;color:var(--muted);text-align:center;margin-bottom:16px;">
+            <i class="fas fa-info-circle"></i>
+            Based on your sales history. Actual results may vary.
+            Generated ${esc(data.generated_at||'')}
+        </div>
+
+        <!-- Collapsible technical details -->
+        <div style="border:1px solid var(--border);border-radius:9px;overflow:hidden;">
+            <button onclick="toggleFcDetails(this)"
+                style="width:100%;padding:12px 16px;background:rgba(5,150,105,0.03);
+                       border:none;cursor:pointer;display:flex;align-items:center;
+                       justify-content:space-between;font-size:13px;font-weight:600;
+                       color:#065f46;text-align:left;">
+                <span><i class="fas fa-flask" style="margin-right:7px;"></i>
+                    Technical Details</span>
+                <i class="fas fa-chevron-down" id="fcDetailsChev"
+                   style="transition:transform 0.2s;font-size:12px;"></i>
+            </button>
+            <div id="fcDetails" style="display:none;padding:16px;">
+                <!-- How we tested -->
+                <div style="padding:10px 14px;background:rgba(59,130,246,0.05);
+                            border:1px solid #bfdbfe;border-radius:8px;font-size:12px;
+                            color:#1d4ed8;margin-bottom:14px;">
+                    <strong>How accuracy was tested:</strong>
+                    Trained on <strong>${eval_.train_months||'?'} months</strong>
+                    ${eval_.train_period?'('+esc(eval_.train_period)+')':''},
+                    then tested on <strong>${eval_.test_months||'?'} months</strong>
+                    ${eval_.test_period?'('+esc(eval_.test_period)+')':''}
+                    that the model had never seen — giving a realistic accuracy estimate.
+                </div>
+                <!-- Model table -->
+                <div style="font-size:11px;font-weight:700;color:var(--muted);
+                            text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">
+                    Model Comparison (on test data)
+                </div>
+                <div class="fc-compare-wrap" style="margin-bottom:14px;">
+                    <table class="fc-table">
+                        <thead><tr>
+                            <th>Model</th><th>Avg Monthly Error</th>
+                            <th>Worst-case Error</th><th>Fit Quality</th>
+                        </tr></thead>
+                        <tbody>${modelRows}</tbody>
+                    </table>
+                </div>
+                <!-- AVP -->
+                ${testResults.length>0?`
+                <div style="font-size:11px;font-weight:700;color:var(--muted);
+                            text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">
+                    How close were the predictions?</div>
+                <div class="fc-avp-wrap" style="margin-bottom:8px;">
+                    <div style="display:flex;gap:12px;padding:8px 16px;
+                                border-bottom:1px solid var(--border);font-size:11px;">
+                        <span><span style="display:inline-block;width:9px;height:9px;
+                            border-radius:2px;background:#374151;margin-right:3px;"></span>Actual</span>
+                        <span><span style="display:inline-block;width:9px;height:9px;
+                            border-radius:2px;background:#3b82f6;margin-right:3px;"></span>Linear</span>
+                        <span><span style="display:inline-block;width:9px;height:9px;
+                            border-radius:2px;background:#8b5cf6;margin-right:3px;"></span>Polynomial</span>
+                    </div>
+                    ${avpRows}
+                </div>`:''}
+            </div>
+        </div>`;
+    cont.style.display = 'block';
+}
+
+function toggleFcDetails(btn) {
+    const panel = document.getElementById('fcDetails');
+    const chev  = document.getElementById('fcDetailsChev');
+    const open  = panel.style.display==='none';
+    panel.style.display  = open?'block':'none';
+    chev.style.transform = open?'rotate(180deg)':'rotate(0deg)';
+    btn.style.background = open?'rgba(5,150,105,0.08)':'rgba(5,150,105,0.03)';
+}
+
+function avpBar(label, value, maxVal, color, subtitle) {
+    const pct = Math.round((value/maxVal)*100);
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">
+        <span style="font-size:11px;color:var(--muted);width:52px;flex-shrink:0;">${label}</span>
+        <div style="flex:1;height:14px;background:var(--border);border-radius:4px;overflow:hidden;">
+            <div style="height:100%;width:${pct}%;background:${color};border-radius:4px;"></div>
+        </div>
+        <span style="font-size:11px;font-weight:700;min-width:72px;text-align:right;color:${color};">
+            RM ${fmtRM(value)}</span>
+        ${subtitle?`<span style="font-size:10px;color:var(--muted);min-width:100px;">${subtitle}</span>`:''}
+    </div>`;
+}
+
+function fmtRM(n) {
+    return Number(n).toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+
 async function generateInsights() {
     const btn  = document.getElementById('aiBtn');
     const body = document.getElementById('aiBody');

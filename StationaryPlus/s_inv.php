@@ -316,6 +316,40 @@ function categoryIcon(string $cat): array {
             .stats-row { grid-template-columns:1fr 1fr; }
             .search-input { width:160px; }
         }
+
+        /* ── AI Restock panel ── */
+        .ai-restock-card{background:linear-gradient(135deg,rgba(37,99,235,0.04),rgba(16,185,129,0.04));border:1.5px solid rgba(37,99,235,0.15);border-radius:12px;padding:20px 22px;}
+        .ai-restock-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
+        .ai-restock-title{font-size:15px;font-weight:700;color:#1d4ed8;display:flex;align-items:center;gap:9px;}
+        .ai-restock-sub{font-size:12px;color:var(--text-secondary);margin-top:3px;}
+        .ai-restock-btn{padding:8px 18px;background:#1d4ed8;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px;transition:background 0.2s;white-space:nowrap;}
+        .ai-restock-btn:hover:not(:disabled){background:#1e40af;}
+        .ai-restock-btn:disabled{background:#d1d5db;cursor:not-allowed;}
+        .ai-restock-body{display:none;margin-top:16px;}
+        .ai-restock-body.show{display:block;}
+        .ai-loading-r{text-align:center;padding:24px;color:var(--text-secondary);display:flex;flex-direction:column;align-items:center;gap:10px;}
+        .ai-spinner-r{width:26px;height:26px;border:3px solid var(--border);border-top-color:#1d4ed8;border-radius:50%;animation:rspin .7s linear infinite;}
+        @keyframes rspin{to{transform:rotate(360deg);}}
+        .rec-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;}
+        .rec-card{background:var(--white);border-radius:10px;padding:16px;border:1.5px solid var(--border);transition:box-shadow 0.2s;}
+        .rec-card.critical{border-color:#fca5a5;background:rgba(239,68,68,0.02);}
+        .rec-card.high{border-color:#fde68a;background:rgba(245,158,11,0.02);}
+        .rec-card.medium{border-color:#bfdbfe;background:rgba(59,130,246,0.02);}
+        .rec-priority{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;display:inline-block;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;}
+        .priority-critical{background:#fef2f2;color:#c62828;border:1px solid #ef9a9a;}
+        .priority-high{background:#fffbeb;color:#92400e;border:1px solid #fde68a;}
+        .priority-medium{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;}
+        .rec-product{font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:3px;}
+        .rec-branch{font-size:12px;color:var(--text-secondary);margin-bottom:10px;}
+        .rec-stats{display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap;}
+        .rec-stat{font-size:12px;padding:4px 10px;background:var(--accent);border-radius:6px;border:1px solid var(--border);}
+        .rec-stat strong{color:var(--text-primary);}
+        .rec-order{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:rgba(37,99,235,0.06);border-radius:8px;margin-bottom:10px;}
+        .rec-order-label{font-size:12px;font-weight:600;color:#1d4ed8;}
+        .rec-order-qty{font-size:20px;font-weight:700;color:#1d4ed8;}
+        .rec-reason{font-size:12px;color:var(--text-secondary);line-height:1.5;font-style:italic;}
+        .ai-all-clear{padding:16px 18px;background:rgba(16,185,129,0.06);border:1px solid #a7f3d0;border-radius:9px;font-size:13px;color:#065f46;display:flex;align-items:center;gap:10px;}
+        .ai-err-r{padding:12px 16px;background:#fff0f0;border:1px solid #ef9a9a;border-radius:9px;font-size:13px;color:#c62828;}
     </style>
 </head>
 <body>
@@ -376,6 +410,34 @@ function categoryIcon(string $cat): array {
     <?php endif; ?>
 
     <div class="inv-content">
+
+        <!-- ── AI Restock Recommendations ── -->
+        <?php if ($lowStockCount > 0): ?>
+        <div class="ai-restock-card">
+            <div class="ai-restock-head">
+                <div>
+                    <div class="ai-restock-title">
+                        <i class="fas fa-robot"></i> AI Restock Recommendations
+                        <span style="font-size:11px;font-weight:400;color:#6b7280;margin-left:4px;">Powered by Gemini</span>
+                    </div>
+                    <div class="ai-restock-sub">
+                        <?= $lowStockCount ?> item<?= $lowStockCount > 1 ? 's' : '' ?> below minimum level — click to get AI-suggested reorder quantities
+                    </div>
+                </div>
+                <button class="ai-restock-btn" id="restockBtn" onclick="getRestockRecs()">
+                    <i class="fas fa-magic"></i> Get Recommendations
+                </button>
+            </div>
+            <div class="ai-restock-body" id="restockBody">
+                <div class="ai-loading-r" id="restockLoading" style="display:none;">
+                    <div class="ai-spinner-r"></div>
+                    <div>Analysing stock levels and sales velocity…</div>
+                </div>
+                <div id="restockResults"></div>
+                <div class="ai-err-r" id="restockErr" style="display:none;"></div>
+            </div>
+        </div>
+        <?php endif; ?>
 
         <!-- Stats -->
         <div class="stats-row">
@@ -569,8 +631,81 @@ function categoryIcon(string $cat): array {
 function highlightQty(input, min) {
     const val = parseInt(input.value) || 0;
     input.classList.toggle('below', val <= min);
-    // Numbers only
     input.value = input.value.replace(/[^0-9]/g, '');
+}
+
+// ── AI Restock Recommendations ────────────────────────────────
+async function getRestockRecs() {
+    const btn  = document.getElementById('restockBtn');
+    const body = document.getElementById('restockBody');
+    const load = document.getElementById('restockLoading');
+    const res  = document.getElementById('restockResults');
+    const err  = document.getElementById('restockErr');
+
+    btn.disabled  = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Analysing…';
+    body.classList.add('show');
+    load.style.display = 'flex';
+    res.innerHTML      = '';
+    err.style.display  = 'none';
+
+    try {
+        const fd = new FormData();
+        fd.append('branch_id', '<?= addslashes($branchId ?? '') ?>');
+
+        const r    = await fetch('ai_restock.php', { method: 'POST', body: fd });
+        const data = await r.json();
+        load.style.display = 'none';
+
+        if (!data.success) {
+            err.textContent   = data.error || 'Failed to get recommendations.';
+            err.style.display = 'block';
+            return;
+        }
+
+        if (!data.recommendations || data.recommendations.length === 0) {
+            res.innerHTML = `<div class="ai-all-clear">
+                <i class="fas fa-check-circle" style="font-size:18px;flex-shrink:0;"></i>
+                <div><strong>All clear!</strong> ${data.message || 'Stock levels are healthy.'}</div>
+            </div>`;
+            return;
+        }
+
+        res.innerHTML = `<div class="rec-grid">${
+            data.recommendations.map(r => `
+                <div class="rec-card ${esc(r.priority)}">
+                    <span class="rec-priority priority-${esc(r.priority)}">${priorityIcon(r.priority)} ${esc(r.priority)}</span>
+                    <div class="rec-product">${esc(r.product_name)}</div>
+                    <div class="rec-branch"><i class="fas fa-store" style="margin-right:4px;font-size:11px;"></i>${esc(r.branch_name)}</div>
+                    <div class="rec-stats">
+                        <div class="rec-stat">Stock: <strong>${r.current_stock}</strong></div>
+                        <div class="rec-stat">Min: <strong>${r.minimum_level}</strong></div>
+                        <div class="rec-stat">Sold/30d: <strong>${r.sold_30d}</strong></div>
+                    </div>
+                    <div class="rec-order">
+                        <span class="rec-order-label"><i class="fas fa-cart-plus"></i> Recommended Order</span>
+                        <span class="rec-order-qty">${r.reorder_qty} units</span>
+                    </div>
+                    <div class="rec-reason">"${esc(r.reason)}"</div>
+                </div>`
+            ).join('')
+        }</div>`;
+
+    } catch (e) {
+        load.style.display = 'none';
+        err.textContent   = 'Network error: ' + e.message;
+        err.style.display = 'block';
+    } finally {
+        btn.disabled  = false;
+        btn.innerHTML = '<i class="fas fa-sync-alt"></i> Regenerate';
+    }
+}
+
+function priorityIcon(p) {
+    return p === 'critical' ? '🔴' : p === 'high' ? '🟡' : '🔵';
+}
+function esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>
 
