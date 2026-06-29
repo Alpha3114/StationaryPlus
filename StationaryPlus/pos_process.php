@@ -1,16 +1,6 @@
 <?php
 // ============================================================
 //  pos_process.php — POS: process walk-in sale
-//
-//  POST fields:
-//    items        — JSON array [{product_id, quantity}, ...]
-//    customer_id  — user_id or empty (walk-in guest)
-//    method       — CASH | TRANSFER | OTHER
-//    amount_paid  — float (cash tendered; for change calculation)
-//    reference    — optional reference number (transfer)
-//    proof        — optional file upload (transfer/other)
-//
-//  Returns JSON { success, order_id, payment_id, total, change, items }
 // ============================================================
 
 if (session_status() === PHP_SESSION_NONE) session_start();
@@ -28,6 +18,7 @@ $method     = trim($_POST['method']      ?? '');
 $amountPaid = (float)($_POST['amount_paid'] ?? 0);
 $reference  = trim($_POST['reference']   ?? '') ?: null;
 $branchId   = $_SESSION['branch_id']     ?? null;
+$staffId    = $_SESSION['user_id'];
 
 $items = json_decode($itemsRaw, true);
 
@@ -66,7 +57,6 @@ if (in_array($method, ['TRANSFER', 'OTHER'])
 }
 
 // ── 4. Fetch & validate products from DB ─────────────────────
-//  Never trust client-side prices — re-fetch everything from DB.
 $productIds   = array_unique(array_column($items, 'product_id'));
 $placeholders = implode(',', array_fill(0, count($productIds), '?'));
 $types        = str_repeat('s', count($productIds));
@@ -74,7 +64,8 @@ $types        = str_repeat('s', count($productIds));
 if ($branchId) {
     $stmt = $conn->prepare(
         "SELECT p.product_id, p.product_name, p.price,
-                COALESCE(i.stock_quantity, 0) AS stock
+                COALESCE(i.stock_quantity, 0) AS stock,
+                i.inventory_id
          FROM products p
          LEFT JOIN inventory i
                 ON p.product_id = i.product_id AND i.branch_id = ?
@@ -85,7 +76,8 @@ if ($branchId) {
 } else {
     $stmt = $conn->prepare(
         "SELECT p.product_id, p.product_name, p.price,
-                COALESCE(SUM(i.stock_quantity), 0) AS stock
+                COALESCE(SUM(i.stock_quantity), 0) AS stock,
+                MIN(i.inventory_id) AS inventory_id
          FROM products p
          LEFT JOIN inventory i ON p.product_id = i.product_id
          WHERE p.product_id IN ($placeholders)
@@ -101,7 +93,6 @@ $stmt->close();
 
 $productMap = array_column($dbRows, null, 'product_id');
 
-// Build validated cart and compute total
 $total          = 0.0;
 $validatedItems = [];
 
@@ -129,9 +120,11 @@ foreach ($items as $item) {
     $validatedItems[] = [
         'product_id'   => $pid,
         'product_name' => $prod['product_name'],
+        'inventory_id' => $prod['inventory_id'],
         'quantity'     => $qty,
         'unit_price'   => $unitPrice,
         'subtotal'     => $subtotal,
+        'old_stock'    => $stock,
     ];
 }
 
@@ -153,15 +146,15 @@ $conn->begin_transaction();
 try {
     // 5a. Create the order
     $orderId     = 'ORD-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
-    $orderStatus = 'COLLECTED'; // Walk-in sale — already fulfilled
+    $orderStatus = 'COLLECTED';
     $notes       = 'Walk-in sale (POS)';
 
     $stmt = $conn->prepare(
         "INSERT INTO orders
-            (order_id, user_id, order_type, order_status, estimated_total, notes)
-         VALUES (?, ?, 'ORDER', ?, ?, ?)"
+            (order_id, user_id, order_type, order_status, estimated_total, notes, branch_id)
+         VALUES (?, ?, 'ORDER', ?, ?, ?, ?)"
     );
-    $stmt->bind_param('sssds', $orderId, $customerId, $orderStatus, $total, $notes);
+    $stmt->bind_param('sssdss', $orderId, $customerId, $orderStatus, $total, $notes, $branchId);
     $stmt->execute();
     $stmt->close();
 
@@ -197,18 +190,23 @@ try {
     $stmt->execute();
     $stmt->close();
 
-    // 5d. Decrement inventory
+    // 5d. Decrement inventory + log each movement
     foreach ($validatedItems as $vi) {
-        if ($branchId) {
+        $oldQty    = $vi['old_stock'];
+        $newQty    = $oldQty - $vi['quantity'];
+        $changeQty = -$vi['quantity'];
+
+        if ($branchId && $vi['inventory_id']) {
+            // Deduct from specific branch inventory row
             $stmt = $conn->prepare(
                 "UPDATE inventory
-                 SET stock_quantity = GREATEST(0, stock_quantity - ?),
+                 SET stock_quantity = ?,
                      last_updated   = NOW()
-                 WHERE product_id = ? AND branch_id = ?"
+                 WHERE inventory_id = ?"
             );
-            $stmt->bind_param('iss', $vi['quantity'], $vi['product_id'], $branchId);
+            $stmt->bind_param('is', $newQty, $vi['inventory_id']);
         } else {
-            // No branch context — deduct from total pool (admin scenario)
+            // No branch — deduct from first available inventory row
             $stmt = $conn->prepare(
                 "UPDATE inventory
                  SET stock_quantity = GREATEST(0, stock_quantity - ?),
@@ -220,6 +218,22 @@ try {
         }
         $stmt->execute();
         $stmt->close();
+
+        // Log the inventory movement
+        $logStmt = $conn->prepare(
+            "INSERT INTO inventory_log
+                (inventory_id, product_id, branch_id, change_qty, old_qty, new_qty,
+                 reason, reference_id, changed_by)
+             VALUES (?, ?, ?, ?, ?, ?, 'POS_SALE', ?, ?)"
+        );
+        $logStmt->bind_param(
+            'sssiiiss',
+            $vi['inventory_id'], $vi['product_id'], $branchId,
+            $changeQty, $oldQty, $newQty,
+            $orderId, $staffId
+        );
+        $logStmt->execute();
+        $logStmt->close();
     }
 
     $conn->commit();

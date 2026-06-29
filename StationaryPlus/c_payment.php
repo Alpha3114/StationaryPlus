@@ -1,40 +1,36 @@
 <?php
 // ============================================================
-//  c_payment.php — Payment Record Submission
-//
-//  Refactored: payments.order_id is now the single FK.
-//  No more preorder_id column or dual-table joins.
-//  Both confirmed orders and pre-orders are fetched from
-//  the unified orders table filtered by order_type.
+//  c_payment.php — Customer Payment Submission
 // ============================================================
- 
+
 if (session_status() === PHP_SESSION_NONE) session_start();
- 
+
 require_once 'auth.php';
 require_role('CUSTOMER');
 require_once 'db.php';
- 
+
 $userId  = $_SESSION['user_id'];
 $message = '';
 $msgType = '';
- 
+
 function generate_payment_id(): string {
     return 'PAY-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
 }
- 
-// ── Load all unpaid orders (both types) for this user ─────────
-//  "Unpaid" = no VALID payment recorded yet, and not cancelled/collected.
+
+// ── Load unpaid orders for dropdown ───────────────────────────
+// Excludes orders that already have a PENDING or VALID payment —
+// customer must wait for rejection before re-submitting.
 $stmt = $conn->prepare(
     "SELECT
-         o.order_id      AS id,
+         o.order_id        AS id,
          o.estimated_total AS amount,
-         o.order_type    AS rec_type
+         o.order_type      AS rec_type
      FROM orders o
      WHERE o.user_id = ?
        AND o.order_status NOT IN ('CANCELLED','COLLECTED')
        AND o.order_id NOT IN (
            SELECT p.order_id FROM payments p
-           WHERE p.verification_status = 'VALID'
+           WHERE p.verification_status IN ('VALID','PENDING')
        )
      ORDER BY o.order_type, o.order_date DESC"
 );
@@ -42,11 +38,10 @@ $stmt->bind_param('s', $userId);
 $stmt->execute();
 $unpaidAll = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
- 
-// Split into optgroups for the form <select>
+
 $unpaidOrders    = array_filter($unpaidAll, fn($r) => $r['rec_type'] === 'ORDER');
 $unpaidPreorders = array_filter($unpaidAll, fn($r) => $r['rec_type'] === 'PREORDER');
- 
+
 // ── Handle POST ───────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $selectedId = trim($_POST['selected_id'] ?? '');
@@ -54,41 +49,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $amount     = trim($_POST['amount']       ?? '');
     $reference  = trim($_POST['reference']    ?? '') ?: null;
     $payDate    = trim($_POST['pay_date']     ?? '');
- 
+
     $errors = [];
- 
+
     if (!$selectedId)
         $errors[] = 'Please select an order or pre-order.';
     if (!in_array($method, ['CASH','TRANSFER','OTHER']))
         $errors[] = 'Please select a valid payment method.';
-    if (!is_numeric($amount) || $amount <= 0)
+    if (!is_numeric($amount) || (float)$amount <= 0)
         $errors[] = 'Invalid amount.';
     if (!$payDate)
         $errors[] = 'Please enter a payment date.';
- 
-    // Verify the selected order actually belongs to this user
+
+    // Verify order belongs to this user and fetch its type
+    $orderType = '';
     if ($selectedId) {
         $stmt = $conn->prepare(
-            "SELECT order_id FROM orders
-             WHERE order_id = ? AND user_id = ? LIMIT 1"
+            "SELECT order_type FROM orders WHERE order_id = ? AND user_id = ? LIMIT 1"
         );
         $stmt->bind_param('ss', $selectedId, $userId);
         $stmt->execute();
-        $stmt->store_result();
-        if ($stmt->num_rows === 0) {
-            $errors[] = 'Invalid order selected.';
-        }
+        $orderRow = $stmt->get_result()->fetch_assoc();
         $stmt->close();
+
+        if (!$orderRow) {
+            $errors[] = 'Invalid order selected.';
+        } else {
+            $orderType = $orderRow['order_type'];
+        }
     }
- 
-    // Handle proof upload (for TRANSFER / OTHER)
+
+    // Cash is not accepted for pre-orders (no staff present to collect)
+    if ($method === 'CASH' && $orderType === 'PREORDER') {
+        $errors[] = 'Cash is not accepted for pre-orders. Please use Bank Transfer or E-Wallet.';
+    }
+
+    // Double-payment guard — belt AND suspenders (query already excludes these,
+    // but a race condition or direct POST could bypass the dropdown)
+    if ($selectedId && empty($errors)) {
+        $stmt = $conn->prepare(
+            "SELECT COUNT(*) AS cnt FROM payments
+             WHERE order_id = ? AND verification_status IN ('VALID','PENDING')"
+        );
+        $stmt->bind_param('s', $selectedId);
+        $stmt->execute();
+        $existing = (int)$stmt->get_result()->fetch_assoc()['cnt'];
+        $stmt->close();
+
+        if ($existing > 0) {
+            $errors[] = 'A payment is already pending or verified for this order.';
+        }
+    }
+
+    // Handle proof upload — required for TRANSFER and OTHER
     $proofPath = null;
     if (in_array($method, ['TRANSFER','OTHER'])) {
-        if (isset($_FILES['proof']) && $_FILES['proof']['error'] === UPLOAD_ERR_OK) {
+        if (!isset($_FILES['proof']) || $_FILES['proof']['error'] !== UPLOAD_ERR_OK) {
+            $errors[] = 'Payment proof is required for ' . ($method === 'TRANSFER' ? 'Bank Transfer' : 'E-Wallet') . ' payments. Please upload a receipt or screenshot.';
+        } else {
             $allowed = ['image/jpeg','image/png','application/pdf'];
             $mime    = mime_content_type($_FILES['proof']['tmp_name']);
             $size    = $_FILES['proof']['size'];
- 
+
             if (!in_array($mime, $allowed)) {
                 $errors[] = 'Proof file must be JPG, PNG, or PDF.';
             } elseif ($size > 5 * 1024 * 1024) {
@@ -103,43 +125,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
- 
+
     if (empty($errors)) {
         $paymentId = generate_payment_id();
- 
-        // Single order_id FK — no more dual nullable columns
+
         $stmt = $conn->prepare(
-        "INSERT INTO payments
-            (payment_id, order_id, payment_method, amount,
-             record_date, verification_status, reference_number, proof_path)
-            VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?)"
+            "INSERT INTO payments
+                (payment_id, order_id, payment_method, amount,
+                 record_date, verification_status, reference_number, proof_path)
+             VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?)"
         );
-        $stmt->bind_param('sssdsss', $paymentId, $selectedId, $method, $amount, $payDate, $reference, $proofPath);
+        $stmt->bind_param(
+            'sssdsss',
+            $paymentId, $selectedId, $method, $amount,
+            $payDate, $reference, $proofPath
+        );
         $stmt->execute();
         $stmt->close();
- 
-        $message = "Payment record <strong>$paymentId</strong> submitted successfully! Staff will verify shortly.";
+
+        $message = "Payment record <strong>$paymentId</strong> submitted successfully. Staff will verify your payment shortly.";
         $msgType = 'success';
- 
+
         header('Refresh: 0');
     } else {
-        $message = implode(' ', $errors);
+        $message = implode('<br>', $errors);
         $msgType = 'error';
     }
 }
- 
+
 // ── Payment history ───────────────────────────────────────────
-//  Single join — no more LEFT JOIN on both orders and preorders
 $stmt = $conn->prepare(
     "SELECT
-         p.payment_id,
-         p.payment_method,
-         p.amount,
-         p.record_date,
-         p.verification_status,
-         p.reference_number,
-         p.order_id,
-         o.order_type
+         p.payment_id, p.payment_method, p.amount,
+         p.record_date, p.verification_status,
+         p.reference_number, p.order_id, o.order_type
      FROM payments p
      JOIN orders o ON p.order_id = o.order_id
      WHERE o.user_id = ?
@@ -150,22 +169,22 @@ $stmt->bind_param('s', $userId);
 $stmt->execute();
 $paymentHistory = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
- 
+
 function verificationBadge(string $status): string {
     $map = [
         'VALID'   => ['#10b981','#ecfdf5','Verified'],
         'INVALID' => ['#ef4444','#fef2f2','Rejected'],
-        'PENDING' => ['#f59e0b','#fffbeb','Pending'],
+        'PENDING' => ['#f59e0b','#fffbeb','Pending Review'],
     ];
     [$color, $bg, $label] = $map[$status] ?? ['#888','#f3f4f6', $status];
     return "<span style='background:$bg;color:$color;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;'>$label</span>";
 }
- 
+
 function methodLabel(string $method): string {
     return match($method) {
         'CASH'     => 'Cash',
         'TRANSFER' => 'Bank Transfer',
-        'OTHER'    => 'Other',
+        'OTHER'    => 'E-Wallet',
         default    => $method,
     };
 }
@@ -206,32 +225,25 @@ function methodLabel(string $method): string {
         .page-title { font-size:24px;font-weight:700; }
         .page-subtitle { font-size:14px;color:var(--text-secondary);margin-top:4px; }
         .content-container { padding:30px;flex-grow:1;display:flex;flex-direction:column;gap:28px; }
-        .alert { padding:13px 18px;border-radius:8px;font-size:14px;display:flex;align-items:center;gap:10px; }
+        .alert { padding:13px 18px;border-radius:8px;font-size:14px;display:flex;align-items:flex-start;gap:10px;line-height:1.6; }
         .alert-success { background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7; }
         .alert-error { background:#fff0f0;color:#c62828;border:1px solid #ef9a9a; }
-
-        /* Form card */
         .card { background-color:var(--white);border-radius:12px;overflow:hidden;box-shadow:var(--card-shadow);border:1px solid var(--border); }
         .card-header { padding:20px 28px;border-bottom:1px solid var(--border);background-color:rgba(168,53,53,0.03); }
         .card-title { font-size:17px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:10px; }
         .card-desc { font-size:13px;color:var(--text-secondary);margin-top:6px; }
         .card-body { padding:28px; }
-
-        /* Payment form grid */
         .pay-grid { display:grid;grid-template-columns:repeat(2,1fr);gap:20px;margin-bottom:20px; }
         .full { grid-column:span 2; }
         .form-label { display:block;margin-bottom:8px;font-weight:600;font-size:14px;color:var(--text-primary); }
         .form-label span { font-weight:400;color:var(--text-secondary);font-size:13px; }
-        .form-select, .form-input {
-            width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:8px;
-            font-size:14px;background-color:var(--accent);color:var(--text-primary);transition:all 0.2s;
-        }
+        .form-label .req { color:var(--primary);font-weight:700; }
+        .form-select,.form-input { width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background-color:var(--accent);color:var(--text-primary);transition:all 0.2s; }
         .form-select:focus,.form-input:focus { outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(168,53,53,0.08);background:var(--white); }
         .form-input[readonly] { background:rgba(168,53,53,0.05);color:var(--text-secondary);cursor:not-allowed; }
-
-        /* File upload */
         .file-zone { border:2px dashed var(--border);border-radius:8px;padding:28px;text-align:center;background:rgba(168,53,53,0.02);cursor:pointer;transition:all 0.2s;position:relative; }
         .file-zone:hover,.file-zone.drag { border-color:var(--primary);background:rgba(168,53,53,0.05); }
+        .file-zone.required-error { border-color:#ef4444;background:rgba(239,68,68,0.03); }
         .file-zone input[type=file] { position:absolute;inset:0;opacity:0;cursor:pointer; }
         .file-zone i { font-size:28px;color:var(--primary);opacity:0.6;margin-bottom:8px;display:block; }
         .file-zone p { font-size:14px;color:var(--text-secondary); }
@@ -241,16 +253,15 @@ function methodLabel(string $method): string {
         .file-selected-name { font-size:13px;font-weight:600;color:var(--text-primary); }
         .file-clear { background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:16px;padding:2px 6px;border-radius:4px; }
         .file-clear:hover { color:#c62828; }
-
-        /* Proof toggle */
         .proof-section { display:none; }
         .proof-section.show { display:block; }
-
-        /* Submit btn */
+        .proof-required-note { display:none;margin-top:6px;font-size:12px;color:var(--primary);font-weight:600; }
+        .proof-required-note.show { display:flex;align-items:center;gap:5px; }
+        /* Cash-not-available notice */
+        .cash-notice { display:none;margin-top:6px;padding:9px 13px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e;align-items:center;gap:7px; }
+        .cash-notice.show { display:flex; }
         .submit-btn { padding:13px 32px;background-color:var(--primary);color:white;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;transition:background-color 0.2s;display:inline-flex;align-items:center;gap:10px; }
         .submit-btn:hover { background-color:#8b2a2a; }
-
-        /* History table */
         .history-table { width:100%;border-collapse:collapse; }
         .history-table thead { background:rgba(168,53,53,0.04);border-bottom:2px solid var(--border); }
         .history-table th { padding:12px 18px;text-align:left;font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap; }
@@ -260,11 +271,9 @@ function methodLabel(string $method): string {
         .history-table td { padding:14px 18px;font-size:13px;color:var(--text-primary);vertical-align:middle; }
         .pay-ref { font-weight:700;color:var(--primary);font-family:monospace;font-size:12px; }
         .empty-history { text-align:center;padding:30px;color:var(--text-secondary);font-size:14px; }
-
         .page-footer { text-align:center;padding:22px;color:var(--text-secondary);font-size:13px;border-top:1px solid var(--border);background-color:var(--white); }
         .footer-links { margin-top:8px; }
         .footer-links a { color:var(--primary);text-decoration:none;margin:0 10px; }
-
         @media (max-width:1024px) {
             :root { --sidebar-width:70px; }
             .logo-text,.nav-text,.user-details,.nav-title,.logout-link span { display:none; }
@@ -294,8 +303,8 @@ function methodLabel(string $method): string {
 
         <?php if ($message): ?>
         <div class="alert alert-<?= $msgType ?>">
-            <i class="fas <?= $msgType==='success' ? 'fa-check-circle' : 'fa-exclamation-circle' ?>"></i>
-            <?= $message ?>
+            <i class="fas <?= $msgType==='success' ? 'fa-check-circle' : 'fa-exclamation-circle' ?>" style="flex-shrink:0;margin-top:2px;"></i>
+            <div><?= $message ?></div>
         </div>
         <?php endif; ?>
 
@@ -306,34 +315,43 @@ function methodLabel(string $method): string {
                 <div class="card-desc">Record your payment here. Staff will verify and update your order status.</div>
             </div>
             <div class="card-body">
-                <form method="POST" action="c_payment.php" enctype="multipart/form-data">
+                <form method="POST" action="c_payment.php" enctype="multipart/form-data" id="paymentForm">
+
+                    <!-- Tracks the selected order type for JS method filtering -->
+                    <input type="hidden" name="rec_type" id="recTypeInput" value="">
 
                     <div class="pay-grid">
 
-                        <!-- Order/Preorder selector -->
+                        <!-- Order / Pre-order selector -->
                         <div class="full">
                             <label class="form-label">Order / Pre-order <span>(select the one you are paying for)</span></label>
-                            <select name="selected_id" class="form-select" id="recordSelect" required onchange="updateAmount(this)">
+                            <select name="selected_id" class="form-select" id="recordSelect"
+                                    required onchange="updateAmount(this)">
                                 <option value="">-- Select record --</option>
                                 <?php if (!empty($unpaidOrders)): ?>
                                 <optgroup label="Orders">
-                                    <?php foreach ($unpaidOrders as $r): ?>
-                                    <?php $amt = isset($r['amount']) && $r['amount'] !== null ? (float)$r['amount'] : null; ?>
+                                    <?php foreach ($unpaidOrders as $r):
+                                        $amt = isset($r['amount']) && $r['amount'] !== null ? (float)$r['amount'] : null;
+                                    ?>
                                     <option value="<?= htmlspecialchars($r['id']) ?>"
                                             data-type="order"
                                             data-amount="<?= $amt !== null ? $amt : '' ?>">
-                                        <?= htmlspecialchars($r['id']) ?> <?= $amt !== null ? '— RM ' . number_format($amt, 2) : '(amount pending)' ?>
+                                        <?= htmlspecialchars($r['id']) ?>
+                                        <?= $amt !== null ? '— RM ' . number_format($amt, 2) : '(amount pending)' ?>
                                     </option>
                                     <?php endforeach; ?>
                                 </optgroup>
                                 <?php endif; ?>
                                 <?php if (!empty($unpaidPreorders)): ?>
-                                <optgroup label="Pre-orders">
-                                    <?php foreach ($unpaidPreorders as $r): ?>
+                                <optgroup label="Pre-orders / Reservations">
+                                    <?php foreach ($unpaidPreorders as $r):
+                                        $amt = isset($r['amount']) && $r['amount'] !== null ? (float)$r['amount'] : null;
+                                    ?>
                                     <option value="<?= htmlspecialchars($r['id']) ?>"
                                             data-type="preorder"
-                                            data-amount="">
-                                        <?= htmlspecialchars($r['id']) ?> (amount TBC by staff)
+                                            data-amount="<?= $amt !== null ? $amt : '' ?>">
+                                        <?= htmlspecialchars($r['id']) ?>
+                                        <?= $amt !== null ? '— RM ' . number_format($amt, 2) : '(amount TBC by staff)' ?>
                                     </option>
                                     <?php endforeach; ?>
                                 </optgroup>
@@ -344,28 +362,41 @@ function methodLabel(string $method): string {
                             </select>
                         </div>
 
-                        <!-- Method -->
+                        <!-- Payment method -->
                         <div>
                             <label class="form-label">Payment Method</label>
-                            <select name="method" class="form-select" id="methodSelect" required onchange="toggleProof(this.value)">
+                            <select name="method" class="form-select" id="methodSelect"
+                                    required onchange="toggleProof(this.value)">
                                 <option value="">-- Select method --</option>
-                                <option value="CASH">Cash</option>
-                                <option value="TRANSFER">Bank Transfer</option>
-                                <option value="OTHER">E-Wallet / Other</option>
+                                <option value="CASH"     id="optCash">Cash</option>
+                                <option value="TRANSFER" id="optTransfer">Bank Transfer</option>
+                                <option value="OTHER"    id="optOther">E-Wallet / Other</option>
                             </select>
+                            <!-- Shown when pre-order is selected and Cash is chosen -->
+                            <div class="cash-notice" id="cashNotice">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                Cash is not accepted for pre-orders. Please use Bank Transfer or E-Wallet.
+                            </div>
                         </div>
 
                         <!-- Amount -->
                         <div>
-                            <label class="form-label">Amount (RM) <span>(auto-filled from order)</span></label>
+                            <label class="form-label">
+                                Amount (RM)
+                                <span id="amountHint">(auto-filled from order)</span>
+                            </label>
                             <input type="number" name="amount" id="amountInput" class="form-input"
                                    placeholder="0.00" step="0.01" min="0.01" required>
                         </div>
 
                         <!-- Reference -->
                         <div>
-                            <label class="form-label">Reference Number <span>(optional)</span></label>
-                            <input type="text" name="reference" class="form-input" placeholder="e.g. TRX-123456789">
+                            <label class="form-label">
+                                Reference Number
+                                <span id="refHint">(optional)</span>
+                            </label>
+                            <input type="text" name="reference" id="referenceInput"
+                                   class="form-input" placeholder="e.g. TRX-123456789">
                         </div>
 
                         <!-- Date -->
@@ -375,22 +406,28 @@ function methodLabel(string $method): string {
                                    value="<?= date('Y-m-d') ?>" required>
                         </div>
 
-                        <!-- Proof upload -->
+                        <!-- Proof upload — required for TRANSFER/OTHER -->
                         <div class="full proof-section" id="proofSection">
                             <label class="form-label">
                                 Payment Proof
-                                <span id="proofRequired">(required for Bank Transfer / E-Wallet)</span>
+                                <span class="req" id="proofRequiredLabel">*</span>
+                                <span id="proofHint">Required for Bank Transfer / E-Wallet</span>
                             </label>
                             <div class="file-zone" id="fileZone">
-                                <input type="file" name="proof" id="proofFile" accept=".jpg,.jpeg,.png,.pdf"
+                                <input type="file" name="proof" id="proofFile"
+                                       accept=".jpg,.jpeg,.png,.pdf"
                                        onchange="showFile(this)">
                                 <i class="fas fa-cloud-upload-alt"></i>
                                 <p>Click or drag to upload screenshot / receipt</p>
-                                <small>JPG, PNG or PDF — max 5MB</small>
+                                <small>JPG, PNG or PDF — max 5 MB</small>
+                            </div>
+                            <div class="proof-required-note" id="proofRequiredNote">
+                                <i class="fas fa-exclamation-circle"></i>
+                                Please upload proof before submitting.
                             </div>
                             <div class="file-selected" id="fileSelected">
                                 <span class="file-selected-name" id="fileSelectedName"></span>
-                                <button type="button" class="file-clear" onclick="clearFile()">
+                                <button type="button" class="file-clear" onclick="clearProofFile()">
                                     <i class="fas fa-times"></i>
                                 </button>
                             </div>
@@ -398,7 +435,7 @@ function methodLabel(string $method): string {
 
                     </div><!-- /.pay-grid -->
 
-                    <button type="submit" class="submit-btn">
+                    <button type="submit" class="submit-btn" id="submitBtn">
                         <i class="fas fa-paper-plane"></i> Submit Payment Record
                     </button>
 
@@ -434,6 +471,9 @@ function methodLabel(string $method): string {
                             <td><?= date('d M Y', strtotime($pay['record_date'])) ?></td>
                             <td style="font-family:monospace;font-size:12px;">
                                 <?= htmlspecialchars($pay['order_id']) ?>
+                                <span style="font-size:11px;color:var(--text-secondary);margin-left:4px;">
+                                    (<?= $pay['order_type'] === 'PREORDER' ? 'Reservation' : 'Walk-in' ?>)
+                                </span>
                             </td>
                             <td><?= methodLabel($pay['payment_method']) ?></td>
                             <td style="font-weight:600;">RM <?= number_format($pay['amount'],2) ?></td>
@@ -451,54 +491,126 @@ function methodLabel(string $method): string {
 
     <footer class="page-footer">
         <div>&copy; <?= date('Y') ?> StationaryPlus &mdash; Stationery &amp; Printing Management System</div>
-        <div class="footer-links"><a href="#">Help Center</a> | <a href="#">Contact Support</a> | <a href="#">Privacy Policy</a></div>
+        <div class="footer-links">
+            <a href="c_orderstatus.php">Order Status</a> |
+            <a href="c_dashboard.php">Dashboard</a>
+        </div>
     </footer>
 </main>
 
 <script>
+// ── Order selector: auto-fill amount, filter methods ─────────
 function updateAmount(select) {
     const opt    = select.options[select.selectedIndex];
     const amount = opt.getAttribute('data-amount');
     const type   = opt.getAttribute('data-type') || '';
     const input  = document.getElementById('amountInput');
 
+    // Store type so form submit validation can use it
+    document.getElementById('recTypeInput').value = type;
+
+    // Auto-fill amount if known
     if (amount !== null && amount !== '' && !isNaN(parseFloat(amount))) {
-        input.value       = parseFloat(amount).toFixed(2);
-        input.readOnly    = true;
-        input.placeholder = '';
+        input.value            = parseFloat(amount).toFixed(2);
+        input.readOnly         = true;
         input.style.background = 'rgba(168,53,53,0.05)';
         input.style.color      = 'var(--text-secondary)';
         input.style.cursor     = 'not-allowed';
+        document.getElementById('amountHint').textContent = '(auto-filled from order)';
     } else {
-        // Preorder or order with no amount yet — let user enter manually
-        input.value       = '';
-        input.readOnly    = false;
-        input.placeholder = type === 'preorder' ? 'Enter amount when known' : '0.00';
+        input.value            = '';
+        input.readOnly         = false;
         input.style.background = '';
         input.style.color      = '';
         input.style.cursor     = '';
+        document.getElementById('amountHint').textContent =
+            type === 'preorder' ? '(enter amount from your receipt)' : '(enter amount)';
     }
-    document.getElementById('recTypeInput').value = type;
+
+    // Restrict payment methods for pre-orders: no cash
+    const cashOpt     = document.getElementById('optCash');
+    const methodSelect = document.getElementById('methodSelect');
+
+    if (type === 'preorder') {
+        cashOpt.disabled = true;
+        cashOpt.textContent = 'Cash (not available for pre-orders)';
+        // If cash was already selected, reset
+        if (methodSelect.value === 'CASH') {
+            methodSelect.value = '';
+            toggleProof('');
+        }
+    } else {
+        cashOpt.disabled = false;
+        cashOpt.textContent = 'Cash';
+    }
+
+    // Reset method if no order selected
+    if (!type) {
+        cashOpt.disabled = false;
+        cashOpt.textContent = 'Cash';
+    }
 }
 
+// ── Payment method: show/hide proof section ───────────────────
 function toggleProof(method) {
-    const section = document.getElementById('proofSection');
-    section.classList.toggle('show', method === 'TRANSFER' || method === 'OTHER');
+    const section   = document.getElementById('proofSection');
+    const notice    = document.getElementById('cashNotice');
+    const refHint   = document.getElementById('refHint');
+    const isPreorder = document.getElementById('recTypeInput').value === 'preorder';
+
+    const needsProof = method === 'TRANSFER' || method === 'OTHER';
+    section.classList.toggle('show', needsProof);
+
+    // Cash + preorder warning
+    notice.classList.toggle('show', method === 'CASH' && isPreorder);
+
+    // Update reference hint
+    if (method === 'TRANSFER') {
+        refHint.textContent = '(transaction/reference number)';
+    } else if (method === 'OTHER') {
+        refHint.textContent = '(transaction ID)';
+    } else {
+        refHint.textContent = '(optional)';
+    }
+
+    // Clear any error state when method changes
+    document.getElementById('fileZone').classList.remove('required-error');
+    document.getElementById('proofRequiredNote').classList.remove('show');
 }
 
+// ── Proof file display ────────────────────────────────────────
 function showFile(input) {
     if (input.files && input.files[0]) {
         document.getElementById('fileSelectedName').textContent = input.files[0].name;
         document.getElementById('fileSelected').classList.add('show');
+        document.getElementById('fileZone').classList.remove('required-error');
+        document.getElementById('proofRequiredNote').classList.remove('show');
     }
 }
 
-function clearFile() {
+function clearProofFile() {
     document.getElementById('proofFile').value = '';
     document.getElementById('fileSelected').classList.remove('show');
 }
 
-// Drag styles
+// ── Form submit: client-side validation ───────────────────────
+document.getElementById('paymentForm').addEventListener('submit', function (e) {
+    const method = document.getElementById('methodSelect').value;
+    const needsProof = method === 'TRANSFER' || method === 'OTHER';
+
+    if (needsProof) {
+        const proofFile = document.getElementById('proofFile');
+        if (!proofFile.files || proofFile.files.length === 0) {
+            e.preventDefault();
+            document.getElementById('fileZone').classList.add('required-error');
+            document.getElementById('proofRequiredNote').classList.add('show');
+            document.getElementById('proofSection').scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+        }
+    }
+});
+
+// ── Drag and drop ─────────────────────────────────────────────
 const zone = document.getElementById('fileZone');
 if (zone) {
     zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });

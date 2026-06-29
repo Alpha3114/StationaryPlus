@@ -13,6 +13,12 @@ set_exception_handler(function (Throwable $e) {
 });
 // ============================================================
 //  upload_print.php — Print file upload + AI colour detection
+//
+//  STEP 1 of 2:  Saves file to disk, runs AI analysis, stores
+//  all pending data in $_SESSION.  Nothing is written to the DB.
+//
+//  STEP 2 of 2:  confirm_print.php reads the session entry and
+//  does the actual INSERT when the customer clicks Confirm.
 // ============================================================
 
 if (session_status() === PHP_SESSION_NONE) session_start();
@@ -70,13 +76,12 @@ if (!move_uploaded_file($file['tmp_name'], $savePath)) {
 // ── 3. Read print specs from POST ────────────────────────────
 $allowedSizes = ['A0', 'A1', 'A2', 'A3', 'A4', 'A5'];
 
-// order_id is OPTIONAL — nullable in DB
-$orderId    = trim($_POST['preorder_id'] ?? '') ?: null;
+$linkedOrderId = trim($_POST['preorder_id'] ?? '') ?: null;
 
-$paperSize  = in_array($_POST['paper_size'] ?? '', $allowedSizes)
-                ? $_POST['paper_size'] : 'A4';
-$paperType  = trim($_POST['paper_type'] ?? '80gsm Standard');
-$copies     = max(1, min(99, (int)($_POST['copies'] ?? 1)));
+$paperSize = in_array($_POST['paper_size'] ?? '', $allowedSizes)
+               ? $_POST['paper_size'] : 'A4';
+$paperType = trim($_POST['paper_type'] ?? '80gsm Standard');
+$copies    = max(1, min(99, (int)($_POST['copies'] ?? 1)));
 
 $bindingMap  = [
     'None'   => 'NONE',   'none'   => 'NONE',
@@ -93,24 +98,68 @@ $fileType = match($mime) {
     default           => strtoupper($ext),
 };
 
-// ── 4. Build Claude vision request ───────────────────────────
-$base64 = base64_encode(file_get_contents($savePath));
-$isPdf  = ($mime === 'application/pdf');
+$printMode = trim($_POST['print_mode'] ?? 'MIXED');
+if (!in_array($printMode, ['BW', 'COLOR', 'MIXED'])) $printMode = 'MIXED';
 
-$messages = [[
-    'role'    => 'user',
-    'content' => [
-        [
-            'type'   => $isPdf ? 'document' : 'image',
-            'source' => [
-                'type'       => 'base64',
-                'media_type' => $mime,
-                'data'       => $base64,
+// ── Helper: count pages in a PDF without any library ─────────
+function countPdfPages(string $path): int {
+    $content = @file_get_contents($path);
+    if (!$content) return 1;
+    preg_match_all('/\/Type\s*\/Page[^s]/', $content, $matches);
+    $count = count($matches[0]);
+    return max(1, $count);
+}
+
+// ── 4 + 5. Colour detection — branch on print mode ───────────
+$colorPages  = 0;
+$bwPages     = 0;
+$totalPages  = 1;
+$pageDetails = [];
+$parseOk     = true;
+$aiRaw       = '';
+
+if ($printMode === 'BW') {
+
+    $totalPages  = ($fileType === 'PDF') ? countPdfPages($savePath) : 1;
+    $bwPages     = $totalPages;
+    $colorPages  = 0;
+    $pageDetails = array_map(
+        fn($i) => ['page' => $i + 1, 'is_color' => false, 'confidence' => 'customer_selected'],
+        range(0, $totalPages - 1)
+    );
+
+} elseif ($printMode === 'COLOR') {
+
+    $totalPages  = ($fileType === 'PDF') ? countPdfPages($savePath) : 1;
+    $colorPages  = $totalPages;
+    $bwPages     = 0;
+    $pageDetails = array_map(
+        fn($i) => ['page' => $i + 1, 'is_color' => true, 'confidence' => 'customer_selected'],
+        range(0, $totalPages - 1)
+    );
+
+} else {
+
+    $parseOk = false;
+    $parsed  = null;
+
+    $base64 = base64_encode(file_get_contents($savePath));
+    $isPdf  = ($mime === 'application/pdf');
+
+    $messages = [[
+        'role'    => 'user',
+        'content' => [
+            [
+                'type'   => $isPdf ? 'document' : 'image',
+                'source' => [
+                    'type'       => 'base64',
+                    'media_type' => $mime,
+                    'data'       => $base64,
+                ],
             ],
-        ],
-        [
-            'type' => 'text',
-            'text' =>
+            [
+                'type' => 'text',
+                'text' =>
 'You are a print shop system. Your ONLY job is to output a JSON object.
 
 Analyse every page of the attached document and determine if each page is colour or black-and-white.
@@ -123,69 +172,47 @@ RULES:
 
 OUTPUT FORMAT — output ONLY this JSON, nothing else, no explanation, no markdown:
 {"total_pages":2,"pages":[{"page":1,"is_color":true,"confidence":"high"},{"page":2,"is_color":false,"confidence":"high"}]}'
+            ],
         ],
-    ],
-]];
+    ]];
 
-$aiRaw = callClaudeWithMessages($messages, 4096);
+    $aiRaw = callClaudeWithMessages($messages, 4096);
 
-// ── 5. Parse the AI response — three fallback strategies ──────
-$colorPages  = 0;
-$bwPages     = 0;
-$totalPages  = 1;
-$pageDetails = [];
-$parseOk     = false;
-$parsed      = null;
+    if (!empty($aiRaw)) {
+        $clean   = preg_replace('/```(?:json)?\s*([\s\S]*?)```/', '$1', trim($aiRaw));
+        $clean   = trim($clean);
+        $attempt = json_decode($clean, true);
+        if (is_array($attempt) && isset($attempt['pages'])) $parsed = $attempt;
 
-if (!empty($aiRaw)) {
-    // Strip markdown fences if present
-    $clean = preg_replace('/```(?:json)?\s*([\s\S]*?)```/', '$1', trim($aiRaw));
-    $clean = trim($clean);
-
-    // Strategy 1: the whole response is valid JSON
-    $attempt = json_decode($clean, true);
-    if (is_array($attempt) && isset($attempt['pages'])) {
-        $parsed = $attempt;
-    }
-
-    // Strategy 2: extract first {...} block that contains "total_pages"
-    if (!$parsed) {
-        if (preg_match('/\{(?:[^{}]|(?R))*\}/s', $clean, $m)) {
-            $attempt = json_decode($m[0], true);
-            if (is_array($attempt) && isset($attempt['pages'])) {
-                $parsed = $attempt;
+        if (!$parsed) {
+            if (preg_match('/\{(?:[^{}]|(?R))*\}/s', $clean, $m)) {
+                $attempt = json_decode($m[0], true);
+                if (is_array($attempt) && isset($attempt['pages'])) $parsed = $attempt;
+            }
+        }
+        if (!$parsed) {
+            $start = strpos($clean, '{'); $end = strrpos($clean, '}');
+            if ($start !== false && $end !== false && $end > $start) {
+                $attempt = json_decode(substr($clean, $start, $end - $start + 1), true);
+                if (is_array($attempt) && isset($attempt['pages'])) $parsed = $attempt;
             }
         }
     }
 
-    // Strategy 3: looser — grab anything between first { and last }
-    if (!$parsed) {
-        $start = strpos($clean, '{');
-        $end   = strrpos($clean, '}');
-        if ($start !== false && $end !== false && $end > $start) {
-            $attempt = json_decode(substr($clean, $start, $end - $start + 1), true);
-            if (is_array($attempt) && isset($attempt['pages'])) {
-                $parsed = $attempt;
-            }
+    if ($parsed && isset($parsed['pages']) && is_array($parsed['pages'])) {
+        $parseOk     = true;
+        $pageDetails = $parsed['pages'];
+        $totalPages  = max(1, (int)($parsed['total_pages'] ?? count($pageDetails)));
+        foreach ($pageDetails as $p) {
+            if (!empty($p['is_color'])) $colorPages++;
+            else                         $bwPages++;
         }
+    } else {
+        error_log("upload_print.php: AI parse failed. Raw: " . substr($aiRaw ?? '', 0, 500));
+        $totalPages  = 1;
+        $bwPages     = 1;
+        $pageDetails = [['page' => 1, 'is_color' => false, 'confidence' => 'low']];
     }
-}
-
-if ($parsed && isset($parsed['pages']) && is_array($parsed['pages'])) {
-    $parseOk     = true;
-    $pageDetails = $parsed['pages'];
-    $totalPages  = max(1, (int)($parsed['total_pages'] ?? count($pageDetails)));
-
-    foreach ($pageDetails as $p) {
-        if (!empty($p['is_color'])) $colorPages++;
-        else                         $bwPages++;
-    }
-} else {
-    // Fallback: treat as single B&W page
-    error_log("upload_print.php: Claude parse failed. Raw response: " . substr($aiRaw, 0, 500));
-    $totalPages  = 1;
-    $bwPages     = 1;
-    $pageDetails = [['page' => 1, 'is_color' => false, 'confidence' => 'low']];
 }
 
 // ── 6. Calculate price and duration ──────────────────────────
@@ -194,63 +221,54 @@ $price        = $breakdown['total'];
 $durationMins = estimateDuration($colorPages, $bwPages, $copies);
 $printType    = $colorPages > 0 ? 'COLOR' : 'BLACK_WHITE';
 
-// ── 7. Persist to DB ─────────────────────────────────────────
-// ── 7a. If no pre-order was linked, create one now ────────────
-if ($orderId === null) {
-    $autoOrderId = 'PRE-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
- 
-    $printNote = 'Print job: ' . $file['name'];
- 
-    $oStmt = $conn->prepare(
-        "INSERT INTO orders
-            (order_id, user_id, order_type, order_status, estimated_total, notes)
-         VALUES (?, ?, 'PREORDER', 'NEW', ?, ?)"
-    );
-    $oStmt->bind_param('ssds', $autoOrderId, $userId, $price, $printNote);
-    $oStmt->execute();
-    $oStmt->close();
- 
-    $orderId = $autoOrderId; // use this for the print_files insert below
+// ── 7. Store pending data in session (NO DB write yet) ────────
+//  confirm_print.php will read this and do the actual INSERT
+//  when the customer clicks "Confirm & Submit".
+if (!isset($_SESSION['pending_prints'])) {
+    $_SESSION['pending_prints'] = [];
 }
- 
-// ── 7b. Insert the print file (order_id is always set now) ────
+
 $analysisJson = json_encode([
-    'pages'    => $pageDetails,
-    'parse_ok' => $parseOk,
-    'raw'      => substr($aiRaw, 0, 1000),
+    'pages'      => $pageDetails,
+    'parse_ok'   => $parseOk,
+    'print_mode' => $printMode,
+    'raw'        => substr($aiRaw, 0, 1000),
 ]);
- 
-$stmt = $conn->prepare(
-    "INSERT INTO print_files
-        (file_id, order_id, user_id, file_name, file_path, file_type,
-         print_type, paper_size, paper_type, binding_type, copies,
-         total_pages, color_pages, bw_pages,
-         estimated_price, duration_min, ai_analysis, file_status)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'RECEIVED')"
-);
-$stmt->bind_param(
-    'ssssssssssiiiidids',   // note the extra 'i' for duration_min
-    $fileId, $orderId, $userId, $file['name'], $savePath, $fileType,
-    $printType, $paperSize, $paperType, $bindingType, $copies,
-    $totalPages, $colorPages, $bwPages,
-    $price, $durationMins, $analysisJson
-);
-$stmt->execute();
-$stmt->close();
- 
-// ── 8. Return result to client ────────────────────────────────
+
+$_SESSION['pending_prints'][$fileId] = [
+    'user_id'        => $userId,
+    'file_id'        => $fileId,
+    'file_name'      => $file['name'],
+    'file_path'      => $savePath,
+    'file_type'      => $fileType,
+    'linked_order_id'=> $linkedOrderId,   // pre-order to link, if any
+    'paper_size'     => $paperSize,
+    'paper_type'     => $paperType,
+    'binding_type'   => $bindingType,
+    'copies'         => $copies,
+    'print_type'     => $printType,
+    'print_mode'     => $printMode,
+    'total_pages'    => $totalPages,
+    'color_pages'    => $colorPages,
+    'bw_pages'       => $bwPages,
+    'estimated_price'=> $price,
+    'duration_min'   => $durationMins,
+    'analysis_json'  => $analysisJson,
+    'created_at'     => time(),           // for expiry check in confirm_print.php
+];
+
+// ── 8. Return analysis result to client ──────────────────────
 echo json_encode([
     'success'      => true,
     'file_id'      => $fileId,
     'filename'     => htmlspecialchars($file['name']),
-    'order_id'     => $orderId,       // now always populated
     'total_pages'  => $totalPages,
     'color_pages'  => $colorPages,
     'bw_pages'     => $bwPages,
     'price'        => $price,
     'breakdown'    => $breakdown,
-    'duration_min' => $durationMins,  // still returned to JS for live display
+    'duration_min' => $durationMins,
     'page_details' => $pageDetails,
     'ai_parse_ok'  => $parseOk,
+    'print_mode'   => $printMode,
 ]);
- 

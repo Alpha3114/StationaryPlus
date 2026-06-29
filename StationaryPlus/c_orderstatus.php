@@ -1,59 +1,62 @@
 <?php
 // ============================================================
 //  c_orderstatus.php — Customer Order & Pre-order Status
-//
-//  Refactored: single query against the unified orders table.
-//  Filters by order_type instead of hitting two separate tables.
 // ============================================================
- 
+
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'auth.php';
 require_role('CUSTOMER');
 require_once 'db.php';
- 
+
 $userId = $_SESSION['user_id'];
- 
-$filterType   = $_GET['type']   ?? 'all';   // all | order | preorder
+
+$filterType   = $_GET['type']   ?? 'all';
 $filterStatus = $_GET['status'] ?? 'all';
 $filterPeriod = $_GET['period'] ?? '30';
- 
+
 $periodSQL = match($filterPeriod) {
-    '7'  => "AND order_date >= DATE_SUB(NOW(), INTERVAL 7 DAY)",
-    '30' => "AND order_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)",
-    '90' => "AND order_date >= DATE_SUB(NOW(), INTERVAL 90 DAY)",
+    '7'  => "AND o.order_date >= DATE_SUB(NOW(), INTERVAL 7 DAY)",
+    '30' => "AND o.order_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)",
+    '90' => "AND o.order_date >= DATE_SUB(NOW(), INTERVAL 90 DAY)",
     default => ''
 };
- 
-// ── Build type filter ─────────────────────────────────────────
+
 $typeSQL = match($filterType) {
-    'order'    => "AND order_type = 'ORDER'",
-    'preorder' => "AND order_type = 'PREORDER'",
+    'order'    => "AND o.order_type = 'ORDER'",
+    'preorder' => "AND o.order_type = 'PREORDER'",
     default    => ''
 };
- 
-// ── Build status filter ───────────────────────────────────────
+
 $validStatuses = ['NEW','PROCESSING','READY','COLLECTED','CANCELLED'];
 $statusSQL     = '';
 $statusParam   = null;
- 
 if ($filterStatus !== 'all' && in_array($filterStatus, $validStatuses)) {
-    $statusSQL   = "AND order_status = ?";
+    $statusSQL   = "AND o.order_status = ?";
     $statusParam = $filterStatus;
 }
- 
-// ── Single query — one table, all types ───────────────────────
+
+// ── Main query ────────────────────────────────────────────────
+// Correlated subqueries fetch the most recent payment status
+// without fanning out rows (avoids duplicates from multi-file orders).
 $sql = "SELECT
-            o.order_id        AS id,
+            o.order_id            AS id,
             o.order_date,
-            o.order_status    AS status,
-            o.estimated_total AS amount,
-            o.order_type      AS type,
+            o.order_status        AS status,
+            o.estimated_total     AS amount,
+            o.order_type          AS type,
             o.notes,
             pf.file_id            AS pf_file_id,
             pf.file_name          AS pf_file_name,
             pf.file_status        AS pf_file_status,
             pf.rejection_reason   AS pf_rejection_reason,
-            pf.duration_min       AS pf_duration_min
+            pf.duration_min       AS pf_duration_min,
+            -- Most recent payment for this order
+            (SELECT verification_status FROM payments
+             WHERE order_id = o.order_id
+             ORDER BY record_date DESC LIMIT 1) AS pay_status,
+            (SELECT payment_id FROM payments
+             WHERE order_id = o.order_id
+             ORDER BY record_date DESC LIMIT 1) AS pay_id
         FROM orders o
         LEFT JOIN print_files pf ON pf.order_id = o.order_id
         WHERE o.user_id = ?
@@ -61,7 +64,7 @@ $sql = "SELECT
           $typeSQL
           $statusSQL
         ORDER BY o.order_date DESC";
- 
+
 $stmt = $conn->prepare($sql);
 if ($statusParam) {
     $stmt->bind_param('ss', $userId, $statusParam);
@@ -71,24 +74,38 @@ if ($statusParam) {
 $stmt->execute();
 $allRows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
- 
-// ── Status badge helper ───────────────────────────────────────
+
+// ── Badge helpers ─────────────────────────────────────────────
 function statusBadge(string $status): string {
     $map = [
         'NEW'        => ['#3b82f6','#eff6ff','New'],
         'PROCESSING' => ['#f59e0b','#fffbeb','Processing'],
-        'READY'      => ['#10b981','#ecfdf5','Ready'],
+        'READY'      => ['#10b981','#ecfdf5','Ready for Collection'],
         'COLLECTED'  => ['#6b7280','#f3f4f6','Collected'],
         'CANCELLED'  => ['#ef4444','#fef2f2','Cancelled'],
     ];
     [$color, $bg, $label] = $map[$status] ?? ['#888','#f3f4f6', $status];
-    return "<span style='background:$bg;color:$color;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;'>$label</span>";
+    return "<span style='background:$bg;color:$color;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;white-space:nowrap;'>$label</span>";
 }
+
 function typeBadge(string $type): string {
     if ($type === 'PREORDER') {
         return "<span style='background:#f3f0ff;color:#6d28d9;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;'>Pre-order</span>";
     }
     return "<span style='background:#eff6ff;color:#1d4ed8;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;'>Order</span>";
+}
+
+function paymentBadge(?string $status): string {
+    if ($status === null) {
+        return "<span style='background:#f3f4f6;color:#6b7280;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;'>Not submitted</span>";
+    }
+    $map = [
+        'VALID'   => ['#10b981','#ecfdf5','✓ Verified'],
+        'PENDING' => ['#f59e0b','#fffbeb','Pending Review'],
+        'INVALID' => ['#ef4444','#fef2f2','✗ Rejected'],
+    ];
+    [$color, $bg, $label] = $map[$status] ?? ['#6b7280','#f3f4f6', $status];
+    return "<span style='background:$bg;color:$color;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;white-space:nowrap;'>$label</span>";
 }
 ?>
 <!DOCTYPE html>
@@ -110,7 +127,7 @@ function typeBadge(string $type): string {
         .nav-title { font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.8px;padding:0 25px 12px 25px; }
         .nav-menu { list-style:none; }
         .nav-item { margin-bottom:2px; }
-        .nav-link { display:flex;align-items:center;padding:13px 25px;color:var(--text-primary);text-decoration:none;transition:all 0.2s ease;border-left:4px solid transparent; }
+        .nav-link { display:flex;align-items:center;padding:13px 25px;color:var(--text-primary);text-decoration:none;transition:all 0.2s;border-left:4px solid transparent; }
         .nav-link:hover { background-color:rgba(168,53,53,0.05);color:var(--primary);border-left-color:rgba(168,53,53,0.3); }
         .nav-link.active { background-color:rgba(168,53,53,0.08);color:var(--primary);border-left-color:var(--primary);font-weight:600; }
         .nav-icon { width:22px;text-align:center;margin-right:14px;font-size:16px; }
@@ -120,36 +137,37 @@ function typeBadge(string $type): string {
         .user-avatar { width:40px;height:40px;border-radius:50%;background-color:rgba(168,53,53,0.1);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:700;font-size:16px;margin-right:12px;flex-shrink:0; }
         .user-name { font-weight:600;font-size:15px;color:var(--text-primary); }
         .user-role { font-size:12px;color:var(--text-secondary);margin-top:2px; }
-        .logout-link { display:flex;align-items:center;gap:10px;padding:10px 14px;background-color:rgba(168,53,53,0.06);color:var(--primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;transition:background-color 0.2s ease; }
+        .logout-link { display:flex;align-items:center;gap:10px;padding:10px 14px;background-color:rgba(168,53,53,0.06);color:var(--primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600; }
         .logout-link:hover { background-color:rgba(168,53,53,0.14); }
         .main-content { flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column; }
         .top-header { background-color:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10; }
-        .page-title { font-size:24px;font-weight:700;color:var(--text-primary); }
+        .page-title { font-size:24px;font-weight:700; }
         .page-subtitle { font-size:14px;color:var(--text-secondary);margin-top:4px; }
-        .content-container { padding:30px;flex-grow:1; }
-        .section-card { background-color:var(--white);border-radius:12px;overflow:hidden;box-shadow:var(--card-shadow);border:1px solid var(--border); }
-        .section-header { padding:20px 28px;border-bottom:1px solid var(--border);background-color:rgba(168,53,53,0.03);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px; }
-        .section-title { font-size:18px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:10px; }
-        .result-count { font-size:13px;color:var(--text-secondary); }
-        .filter-bar { padding:16px 28px;border-bottom:1px solid var(--border);display:flex;gap:10px;flex-wrap:wrap;background:rgba(168,53,53,0.01); }
-        .filter-select { padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;background-color:var(--white);color:var(--text-primary);cursor:pointer; }
+        .content-container { padding:30px;flex-grow:1;display:flex;flex-direction:column;gap:24px; }
+        .section-card { background:var(--white);border-radius:12px;box-shadow:var(--card-shadow);border:1px solid var(--border);overflow:hidden; }
+        .section-header { padding:18px 24px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:rgba(168,53,53,0.02); }
+        .section-title { font-size:16px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:8px; }
+        .result-count { font-size:13px;color:var(--text-secondary);background:rgba(168,53,53,0.08);padding:4px 12px;border-radius:20px;font-weight:600; }
+        .filter-bar { display:flex;gap:10px;align-items:center;padding:16px 24px;border-bottom:1px solid var(--border);flex-wrap:wrap;background:rgba(168,53,53,0.01); }
+        .filter-select { padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;background:var(--white);color:var(--text-primary);cursor:pointer; }
         .filter-select:focus { outline:none;border-color:var(--primary); }
-        .filter-btn { padding:9px 18px;background-color:var(--primary);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer; }
-        .filter-btn:hover { background-color:#8b2a2a; }
-        .reset-link { padding:9px 12px;color:var(--text-secondary);font-size:13px;text-decoration:none;display:flex;align-items:center;gap:5px;border-radius:8px; }
-        .reset-link:hover { color:var(--primary); }
+        .filter-btn { padding:8px 18px;background:var(--primary);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px; }
+        .reset-link { font-size:13px;color:var(--text-secondary);text-decoration:none;padding:8px 12px;border-radius:8px;transition:all 0.2s; }
+        .reset-link:hover { color:var(--primary);background:rgba(168,53,53,0.06); }
         .table-wrap { overflow-x:auto; }
         .orders-table { width:100%;border-collapse:collapse; }
-        .orders-table thead { background-color:rgba(168,53,53,0.04);border-bottom:2px solid var(--border); }
+        .orders-table thead { background:rgba(168,53,53,0.03);border-bottom:2px solid var(--border); }
         .orders-table th { padding:13px 20px;text-align:left;font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap; }
         .orders-table tbody tr { border-bottom:1px solid var(--border);transition:background-color 0.15s; }
         .orders-table tbody tr:last-child { border-bottom:none; }
         .orders-table tbody tr:hover { background-color:rgba(168,53,53,0.02); }
-        .orders-table td { padding:15px 20px;font-size:14px;color:var(--text-primary);vertical-align:middle; }
+        .orders-table td { padding:14px 20px;font-size:14px;color:var(--text-primary);vertical-align:middle; }
         .order-id { font-weight:700;color:var(--primary);font-family:monospace;font-size:13px; }
         .order-date { color:var(--text-secondary);font-size:13px; }
-        .detail-btn { padding:7px 14px;background-color:rgba(168,53,53,0.08);color:var(--primary);border:1px solid rgba(168,53,53,0.3);border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s; }
+        .detail-btn { padding:7px 14px;background-color:rgba(168,53,53,0.08);color:var(--primary);border:1px solid rgba(168,53,53,0.3);border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;white-space:nowrap; }
         .detail-btn:hover { background-color:rgba(168,53,53,0.16); }
+        .resubmit-link { display:inline-flex;align-items:center;gap:5px;margin-top:5px;font-size:11px;font-weight:600;color:#dc2626;text-decoration:none;padding:3px 8px;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;transition:all 0.15s; }
+        .resubmit-link:hover { background:#dc2626;color:white; }
         .empty-state { padding:60px 20px;text-align:center;color:var(--text-secondary); }
         .empty-state i { font-size:44px;opacity:0.2;margin-bottom:14px;display:block; }
         /* Modal */
@@ -205,16 +223,11 @@ function typeBadge(string $type): string {
                     </select>
                     <select name="status" class="filter-select">
                         <option value="all"        <?= $filterStatus==='all'        ? 'selected':'' ?>>All Statuses</option>
-                        <optgroup label="Orders">
-                            <option value="NEW"        <?= $filterStatus==='NEW'        ? 'selected':'' ?>>New</option>
-                            <option value="PROCESSING" <?= $filterStatus==='PROCESSING' ? 'selected':'' ?>>Processing</option>
-                            <option value="READY"      <?= $filterStatus==='READY'      ? 'selected':'' ?>>Ready</option>
-                            <option value="COLLECTED"  <?= $filterStatus==='COLLECTED'  ? 'selected':'' ?>>Collected</option>
-                            <option value="CANCELLED"  <?= $filterStatus==='CANCELLED'  ? 'selected':'' ?>>Cancelled</option>
-                        </optgroup>
-                        <optgroup label="Pre-orders">
-                            <option value="SUBMITTED"  <?= $filterStatus==='SUBMITTED'  ? 'selected':'' ?>>Submitted</option>
-                        </optgroup>
+                        <option value="NEW"        <?= $filterStatus==='NEW'        ? 'selected':'' ?>>New</option>
+                        <option value="PROCESSING" <?= $filterStatus==='PROCESSING' ? 'selected':'' ?>>Processing</option>
+                        <option value="READY"      <?= $filterStatus==='READY'      ? 'selected':'' ?>>Ready</option>
+                        <option value="COLLECTED"  <?= $filterStatus==='COLLECTED'  ? 'selected':'' ?>>Collected</option>
+                        <option value="CANCELLED"  <?= $filterStatus==='CANCELLED'  ? 'selected':'' ?>>Cancelled</option>
                     </select>
                     <select name="period" class="filter-select">
                         <option value="7"   <?= $filterPeriod==='7'   ? 'selected':'' ?>>Last 7 days</option>
@@ -241,89 +254,106 @@ function typeBadge(string $type): string {
                             <th>Type</th>
                             <th>Date</th>
                             <th>Amount</th>
-                            <th>Status</th>
+                            <th>Order Status</th>
+                            <th>Payment</th>
                             <th>File Status</th>
                             <th>Action</th>
                         </tr>
                     </thead>
                     <tbody>
-    <?php foreach ($allRows as $row): ?>
-    <tr>
-        <td><span class="order-id"><?= htmlspecialchars($row['id']) ?></span></td>
-        <td><?= typeBadge($row['type']) ?></td>
-        <td class="order-date"><?= date('d M Y', strtotime($row['order_date'])) ?></td>
-        <td><?= $row['amount'] !== null ? 'RM '.number_format($row['amount'],2) : '—' ?></td>
-        <td><?= statusBadge($row['status']) ?></td>
+                    <?php foreach ($allRows as $row): ?>
+                    <tr>
+                        <td><span class="order-id"><?= htmlspecialchars($row['id']) ?></span></td>
+                        <td><?= typeBadge($row['type']) ?></td>
+                        <td class="order-date"><?= date('d M Y', strtotime($row['order_date'])) ?></td>
+                        <td><?= $row['amount'] !== null ? 'RM '.number_format($row['amount'],2) : '—' ?></td>
+                        <td><?= statusBadge($row['status']) ?></td>
 
-        <?php if (!empty($row['pf_file_id'])): ?>
-        <td style="padding:10px 16px;">
+                        <!-- Payment status column -->
+                        <td style="padding:10px 16px;">
+                            <?= paymentBadge($row['pay_status'] ?? null) ?>
+                            <?php if (($row['pay_status'] ?? null) === 'INVALID'): ?>
+                            <div>
+                                <a href="c_payment.php" class="resubmit-link">
+                                    <i class="fas fa-redo"></i> Resubmit payment
+                                </a>
+                            </div>
+                            <?php endif; ?>
+                            <?php if (($row['pay_status'] ?? null) === null && $row['status'] === 'NEW'): ?>
+                            <div style="margin-top:5px;">
+                                <a href="c_payment.php" style="font-size:11px;color:var(--primary);text-decoration:none;font-weight:600;">
+                                    <i class="fas fa-arrow-right"></i> Submit payment
+                                </a>
+                            </div>
+                            <?php endif; ?>
+                        </td>
 
-            <?php /* ── Estimated print time (shows above the status badge) ── */ ?>
-            <?php if (!empty($row['pf_duration_min'])): ?>
-            <div style="margin-bottom:6px;display:inline-flex;align-items:center;gap:6px;
-                        padding:5px 11px;background:#eff6ff;border:1px solid #bfdbfe;
-                        border-radius:20px;font-size:12px;font-weight:600;color:#1d4ed8;">
-                <i class="fas fa-clock"></i>
-                <?php
-                $mins = (int)$row['pf_duration_min'];
-                if ($mins >= 60) {
-                    $h = intdiv($mins, 60);
-                    $m = $mins % 60;
-                    echo "Est. print time: {$h}h" . ($m > 0 ? " {$m}min" : "");
-                } else {
-                    echo "Est. print time: {$mins} min";
-                }
-                ?>
-            </div>
-            <br>
-            <?php endif; ?>
+                        <!-- Print file status column -->
+                        <?php if (!empty($row['pf_file_id'])): ?>
+                        <td style="padding:10px 16px;">
 
-            <?php /* ── File status badge ── */ ?>
-            <?php
-            $pfStatus = $row['pf_file_status'] ?? '';
-            $pfColors = [
-                'RECEIVED' => ['#3b82f6','#eff6ff','Under Review'],
-                'REVIEWED' => ['#10b981','#ecfdf5','File Approved'],
-                'REJECTED' => ['#ef4444','#fef2f2','File Rejected'],
-            ];
-            [$pfColor, $pfBg, $pfLabel] = $pfColors[$pfStatus] ?? ['#6b7280','#f3f4f6', $pfStatus];
-            ?>
-            <span style="background:<?= $pfBg ?>;color:<?= $pfColor ?>;
-                         border:1px solid <?= $pfColor ?>55;padding:3px 10px;
-                         border-radius:20px;font-size:12px;font-weight:600;">
-                <?= htmlspecialchars($pfLabel) ?>
-            </span>
+                            <?php if (!empty($row['pf_duration_min'])): ?>
+                            <div style="margin-bottom:6px;display:inline-flex;align-items:center;gap:6px;
+                                        padding:5px 11px;background:#eff6ff;border:1px solid #bfdbfe;
+                                        border-radius:20px;font-size:12px;font-weight:600;color:#1d4ed8;">
+                                <i class="fas fa-clock"></i>
+                                <?php
+                                $mins = (int)$row['pf_duration_min'];
+                                if ($mins >= 60) {
+                                    $h = intdiv($mins, 60);
+                                    $m = $mins % 60;
+                                    echo "Est. print time: {$h}h" . ($m > 0 ? " {$m}min" : "");
+                                } else {
+                                    echo "Est. print time: {$mins} min";
+                                }
+                                ?>
+                            </div><br>
+                            <?php endif; ?>
 
-            <?php /* ── Rejection reason (only when rejected) ── */ ?>
-            <?php if ($pfStatus === 'REJECTED' && !empty($row['pf_rejection_reason'])): ?>
-            <div style="margin-top:6px;padding:8px 12px;
-                        background:#fef2f2;border:1px solid #fca5a5;
-                        border-radius:7px;font-size:12px;color:#991b1b;
-                        display:flex;align-items:flex-start;gap:7px;">
-                <i class="fas fa-exclamation-circle" style="margin-top:2px;flex-shrink:0;"></i>
-                <div>
-                    <strong>File rejected:</strong>
-                    <?= htmlspecialchars($row['pf_rejection_reason']) ?>
-                    <div style="margin-top:4px;font-size:11px;color:#b91c1c;">
-                        Please re-upload a corrected file.
-                    </div>
-                </div>
-            </div>
-            <?php endif; ?>
+                            <?php
+                            $pfStatus = $row['pf_file_status'] ?? '';
+                            $pfColors = [
+                                'RECEIVED' => ['#3b82f6','#eff6ff','Under Review'],
+                                'REVIEWED' => ['#10b981','#ecfdf5','File Approved'],
+                                'REJECTED' => ['#ef4444','#fef2f2','File Rejected'],
+                            ];
+                            [$pfColor, $pfBg, $pfLabel] = $pfColors[$pfStatus] ?? ['#6b7280','#f3f4f6', $pfStatus];
+                            ?>
+                            <span style="background:<?= $pfBg ?>;color:<?= $pfColor ?>;
+                                         border:1px solid <?= $pfColor ?>55;padding:3px 10px;
+                                         border-radius:20px;font-size:12px;font-weight:600;">
+                                <?= htmlspecialchars($pfLabel) ?>
+                            </span>
 
-        </td>
-        <?php else: ?>
-        <td style="padding:10px 16px;color:#9ca3af;font-size:13px;">—</td>
-        <?php endif; ?>
+                            <?php if ($pfStatus === 'REJECTED' && !empty($row['pf_rejection_reason'])): ?>
+                            <div style="margin-top:6px;padding:8px 12px;
+                                        background:#fef2f2;border:1px solid #fca5a5;
+                                        border-radius:7px;font-size:12px;color:#991b1b;
+                                        display:flex;align-items:flex-start;gap:7px;">
+                                <i class="fas fa-exclamation-circle" style="margin-top:2px;flex-shrink:0;"></i>
+                                <div>
+                                    <strong>File rejected:</strong>
+                                    <?= htmlspecialchars($row['pf_rejection_reason']) ?>
+                                    <div style="margin-top:4px;font-size:11px;color:#b91c1c;">
+                                        Please re-upload a corrected file.
+                                    </div>
+                                </div>
+                            </div>
+                            <?php endif; ?>
+                        </td>
+                        <?php else: ?>
+                        <td style="padding:10px 16px;color:#9ca3af;font-size:13px;">—</td>
+                        <?php endif; ?>
 
-        <td>
-            <button class="detail-btn" onclick="openModal('<?= htmlspecialchars($row['id'], ENT_QUOTES) ?>')">
-                <i class="fas fa-eye"></i> Details
-            </button>
-        </td>
-    </tr>
-    <?php endforeach; ?>
-</tbody>
+                        <td>
+                            <button class="detail-btn"
+                                    onclick="openModal('<?= htmlspecialchars($row['id'], ENT_QUOTES) ?>')">
+                                <i class="fas fa-eye"></i> Details
+                            </button>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                    </tbody>
                 </table>
                 <?php endif; ?>
             </div>
@@ -332,14 +362,17 @@ function typeBadge(string $type): string {
 
     <footer class="page-footer">
         <div>&copy; <?= date('Y') ?> StationaryPlus &mdash; Stationery &amp; Printing Management System</div>
-        <div class="footer-links"><a href="#">Help Center</a> | <a href="#">Contact Support</a> | <a href="#">Privacy Policy</a></div>
+        <div class="footer-links">
+            <a href="c_payment.php">Make a Payment</a> |
+            <a href="c_dashboard.php">Dashboard</a>
+        </div>
     </footer>
 </main>
 
 <div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
     <div class="modal">
         <div class="modal-header">
-            <div class="modal-title" id="modalTitle">Details</div>
+            <div class="modal-title" id="modalTitle">Order Details</div>
             <button class="modal-close" onclick="closeModal()"><i class="fas fa-times"></i></button>
         </div>
         <div class="modal-body" id="modalBody"></div>
@@ -370,96 +403,112 @@ function renderReceipt(d) {
     }
 
     const isPreorder = d.type === 'PREORDER';
-    const typeLabel  = isPreorder ? 'Pre-order' : 'Order';
-    const statusColors = {
-        NEW: ['#3b82f6','#eff6ff'], PROCESSING: ['#f59e0b','#fffbeb'],
-        READY: ['#10b981','#ecfdf5'], COLLECTED: ['#6b7280','#f3f4f6'],
-        CANCELLED: ['#ef4444','#fef2f2']
-    };
-    const [sc, sb] = statusColors[d.status] || ['#888','#f3f4f6'];
-    const statusLabel = d.status.charAt(0) + d.status.slice(1).toLowerCase();
+    const typeLabel  = isPreorder ? 'Pre-order / Reservation' : 'Walk-in Sale';
 
-    const itemRows = (d.items || []).map(i => {
-        const sub = (i.qty * i.unit_price).toFixed(2);
-        return `<tr>
-            <td style="padding:10px 0;border-bottom:1px dashed #e0e0e0;font-size:13px;">${esc(i.name)}</td>
-            <td style="padding:10px 0;border-bottom:1px dashed #e0e0e0;text-align:center;font-size:13px;color:#707070;">${i.qty}</td>
-            <td style="padding:10px 0;border-bottom:1px dashed #e0e0e0;text-align:right;font-size:13px;color:#707070;">RM ${parseFloat(i.unit_price).toFixed(2)}</td>
-            <td style="padding:10px 0;border-bottom:1px dashed #e0e0e0;text-align:right;font-size:13px;font-weight:600;">RM ${sub}</td>
-        </tr>`;
-    }).join('');
+    const payBadge = {
+        'VALID':   "<span style='background:#ecfdf5;color:#059669;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;'>✓ Verified</span>",
+        'PENDING': "<span style='background:#fffbeb;color:#d97706;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;'>Pending Review</span>",
+        'INVALID': "<span style='background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;'>✗ Rejected — please resubmit</span>",
+    }[d.pay_status] || "<span style='background:#f3f4f6;color:#6b7280;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;'>Not submitted</span>";
 
-    const total = d.amount !== null
-        ? parseFloat(d.amount).toFixed(2)
-        : (d.items || []).reduce((s, i) => s + i.qty * i.unit_price, 0).toFixed(2);
+    // Order items rows
+    let itemsHtml = '';
+    if (d.items && d.items.length > 0) {
+        itemsHtml = `
+        <div style="margin:14px 0 4px;font-size:12px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;">
+            <i class="fas fa-box"></i> Stationery Items
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:10px;">
+            <thead style="background:rgba(168,53,53,0.04);">
+                <tr>
+                    <th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--text-secondary);">Item</th>
+                    <th style="padding:8px 10px;text-align:center;font-size:11px;color:var(--text-secondary);">Qty</th>
+                    <th style="padding:8px 10px;text-align:right;font-size:11px;color:var(--text-secondary);">Subtotal</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${d.items.map(i => `
+                <tr style="border-bottom:1px solid #f0f0f0;">
+                    <td style="padding:9px 10px;font-weight:600;">${esc(i.name)}</td>
+                    <td style="padding:9px 10px;text-align:center;">${i.qty}</td>
+                    <td style="padding:9px 10px;text-align:right;font-family:monospace;">RM ${(i.qty * i.unit_price).toFixed(2)}</td>
+                </tr>`).join('')}
+            </tbody>
+        </table>`;
+    }
 
-    document.getElementById('modalTitle').textContent = typeLabel + ' Receipt';
+    // Print files rows
+    let filesHtml = '';
+    if (d.print_files && d.print_files.length > 0) {
+        filesHtml = `
+        <div style="margin:14px 0 4px;font-size:12px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;">
+            <i class="fas fa-print"></i> Print Files
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:10px;">
+            <thead style="background:rgba(168,53,53,0.04);">
+                <tr>
+                    <th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--text-secondary);">File</th>
+                    <th style="padding:8px 10px;text-align:left;font-size:11px;color:var(--text-secondary);">Details</th>
+                    <th style="padding:8px 10px;text-align:right;font-size:11px;color:var(--text-secondary);">Est. Price</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${d.print_files.map(f => `
+                <tr style="border-bottom:1px solid #f0f0f0;">
+                    <td style="padding:9px 10px;font-weight:600;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(f.file_name)}</td>
+                    <td style="padding:9px 10px;font-size:12px;color:var(--text-secondary);">
+                        ${f.total_pages} pg · ${f.color_pages > 0 ? f.color_pages + ' colour' : ''}${f.color_pages > 0 && f.bw_pages > 0 ? ' / ' : ''}${f.bw_pages > 0 ? f.bw_pages + ' B&W' : ''}
+                        · ${f.paper_size} · ${f.copies} cop${f.copies !== 1 ? 'ies' : 'y'}
+                    </td>
+                    <td style="padding:9px 10px;text-align:right;font-family:monospace;">RM ${parseFloat(f.estimated_price).toFixed(2)}</td>
+                </tr>`).join('')}
+            </tbody>
+        </table>`;
+    }
+
     document.getElementById('modalBody').innerHTML = `
-        <!-- Store header -->
-        <div style="text-align:center;padding:20px 22px 16px;border-bottom:2px dashed #e0e0e0;margin-bottom:20px;">
-            <div style="width:44px;height:44px;background:#A83535;border-radius:10px;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;">
-                <i class="fas fa-pen-nib" style="color:white;font-size:20px;"></i>
-            </div>
-            <div style="font-size:18px;font-weight:700;color:#A83535;">StationaryPlus</div>
-            <div style="font-size:12px;color:#707070;margin-top:4px;">${typeLabel} Receipt</div>
-        </div>
+        <div class="detail-row"><span class="detail-label">Order ID</span><span class="detail-value" style="font-family:monospace;">${esc(d.id)}</span></div>
+        <div class="detail-row"><span class="detail-label">Type</span><span class="detail-value">${typeLabel}</span></div>
+        <div class="detail-row"><span class="detail-label">Date</span><span class="detail-value">${esc(d.date)}</span></div>
+        <div class="detail-row"><span class="detail-label">Order Status</span><span class="detail-value">${esc(d.status)}</span></div>
+        <div class="detail-row"><span class="detail-label">Payment</span><span class="detail-value">${payBadge}</span></div>
+        ${d.notes ? `<div class="detail-row"><span class="detail-label">Notes</span><span class="detail-value">${esc(d.notes)}</span></div>` : ''}
 
-        <!-- Order meta -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px;font-size:13px;">
-            <div>
-                <div style="color:#707070;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px;">${typeLabel} ID</div>
-                <div style="font-family:monospace;font-weight:700;color:#A83535;">${esc(d.id)}</div>
-            </div>
-            <div>
-                <div style="color:#707070;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px;">Date</div>
-                <div style="font-weight:600;">${esc(d.date)}</div>
-            </div>
-            <div>
-                <div style="color:#707070;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px;">Status</div>
-                <span style="background:${sb};color:${sc};padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;">${statusLabel}</span>
-            </div>
-            ${d.notes ? `<div style="grid-column:1/-1;">
-                <div style="color:#707070;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:3px;">Notes</div>
-                <div style="font-size:13px;background:#F1EDE8;padding:8px 10px;border-radius:6px;">${esc(d.notes)}</div>
-            </div>` : ''}
-        </div>
+        ${itemsHtml}
+        ${filesHtml}
 
-        <!-- Items -->
-        <div style="border-top:2px dashed #e0e0e0;padding-top:16px;margin-bottom:4px;">
-            <div style="font-size:11px;font-weight:700;color:#707070;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">Items Ordered</div>
-            <table style="width:100%;border-collapse:collapse;">
-                <thead>
-                    <tr style="font-size:11px;color:#707070;text-transform:uppercase;letter-spacing:0.4px;">
-                        <th style="text-align:left;padding-bottom:8px;">Item</th>
-                        <th style="text-align:center;padding-bottom:8px;">Qty</th>
-                        <th style="text-align:right;padding-bottom:8px;">Price</th>
-                        <th style="text-align:right;padding-bottom:8px;">Subtotal</th>
-                    </tr>
-                </thead>
-                <tbody>${itemRows || '<tr><td colspan="4" style="text-align:center;color:#707070;padding:14px;font-size:13px;">No items found</td></tr>'}</tbody>
-            </table>
+        <div style="display:flex;justify-content:space-between;padding:14px 0 0;margin-top:8px;border-top:2px solid var(--primary);">
+            <span style="font-size:15px;font-weight:700;">Estimated Total</span>
+            <span style="font-size:20px;font-weight:800;color:var(--primary);">
+                ${d.total !== null ? 'RM ' + parseFloat(d.total).toFixed(2) : '—'}
+            </span>
         </div>
-
-        <!-- Total -->
-        <div style="border-top:2px solid #2E2E2E;margin-top:12px;padding-top:14px;display:flex;justify-content:space-between;align-items:center;">
-            <span style="font-size:15px;font-weight:700;">Total</span>
-            <span style="font-size:20px;font-weight:700;color:#A83535;">RM ${total}</span>
-        </div>
-
-        <!-- Footer -->
-        <div style="text-align:center;margin-top:20px;padding-top:16px;border-top:2px dashed #e0e0e0;font-size:12px;color:#707070;">
-            Thank you for your order! 🎉
-        </div>
+        ${d.pay_status === 'INVALID' ? `
+        <div style="margin-top:14px;padding:10px 14px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:13px;color:#991b1b;">
+            <i class="fas fa-exclamation-circle"></i>
+            Your payment was rejected. <a href="c_payment.php" style="color:#dc2626;font-weight:700;">Click here to resubmit.</a>
+        </div>` : ''}
+        ${d.pay_status === null && d.status === 'NEW' ? `
+        <div style="margin-top:14px;text-align:center;">
+            <a href="c_payment.php" style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;background:var(--primary);color:white;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;">
+                <i class="fas fa-paper-plane"></i> Submit Payment
+            </a>
+        </div>` : ''}
     `;
 }
 
-function esc(str) {
-    if (!str) return '';
-    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function closeModal() {
+    document.getElementById('modalOverlay').classList.remove('open');
+    document.getElementById('modalBody').innerHTML = '';
 }
 
-function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+function esc(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 </script>
+
 </body>
 </html>

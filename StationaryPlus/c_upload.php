@@ -12,7 +12,6 @@ require_once 'db.php';
 $userId = $_SESSION['user_id'];
 
 // ── Load customer's pending pre-orders for the selector ───────
-// Pre-orders live in the unified `orders` table with order_type = 'PREORDER'
 $stmt = $conn->prepare(
     "SELECT o.order_id, o.order_date
      FROM orders o
@@ -48,10 +47,9 @@ $stmt->close();
 
 function statusBadge(string $s): string {
     $map = [
-        'PENDING'  => ['#f59e0b','#fffbeb','Pending'],
-        'PRINTING' => ['#3b82f6','#eff6ff','Printing'],
-        'DONE'     => ['#10b981','#ecfdf5','Done'],
-        'CANCELLED'=> ['#ef4444','#fef2f2','Cancelled'],
+        'RECEIVED' => ['#3b82f6','#eff6ff','Under Review'],
+        'REVIEWED' => ['#10b981','#ecfdf5','Approved'],
+        'REJECTED' => ['#ef4444','#fef2f2','Rejected'],
     ];
     [$c,$bg,$l] = $map[$s] ?? ['#6b7280','#f3f4f6',$s];
     return "<span style='background:$bg;color:$c;border:1px solid {$c}55;
@@ -95,24 +93,24 @@ function statusBadge(string $s): string {
         .user-avatar{width:40px;height:40px;border-radius:50%;background-color:rgba(168,53,53,0.1);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:700;font-size:16px;margin-right:12px;flex-shrink:0;}
         .user-name{font-weight:600;font-size:15px;color:var(--text-primary);}
         .user-role{font-size:12px;color:var(--text-secondary);margin-top:2px;}
-        .logout-link{display:flex;align-items:center;gap:10px;padding:10px 14px;background-color:rgba(168,53,53,0.06);color:var(--primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;}
+        .logout-link{display:flex;align-items:center;gap:10px;padding:10px 14px;background-color:rgba(168,53,53,0.06);color:var(--primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;transition:background-color 0.2s ease;}
         .logout-link:hover{background-color:rgba(168,53,53,0.14);}
 
         /* ── Main ── */
         .main-content{flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column;}
         .top-header{background-color:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;}
-        .page-title{font-size:24px;font-weight:700;color:var(--text-primary);}
+        .page-title{font-size:24px;font-weight:700;}
         .page-subtitle{font-size:14px;color:var(--text-secondary);margin-top:4px;}
-        .content-wrap{padding:28px 30px;flex-grow:1;display:flex;flex-direction:column;gap:24px;}
+        .content-wrap{padding:24px 30px;flex-grow:1;}
 
         /* ── Card ── */
-        .card{background:var(--white);border-radius:12px;border:1px solid var(--border);box-shadow:var(--card-shadow);overflow:hidden;}
-        .card-header{padding:18px 26px;border-bottom:1px solid var(--border);background:rgba(168,53,53,0.03);display:flex;align-items:center;justify-content:space-between;}
-        .card-title{font-size:16px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:10px;}
-        .card-body{padding:26px;}
+        .card{background:var(--white);border-radius:12px;box-shadow:var(--card-shadow);border:1px solid var(--border);margin-bottom:24px;overflow:hidden;}
+        .card-header{padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+        .card-title{font-size:16px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:8px;}
+        .card-body{padding:24px;}
 
-        /* ── Form grid ── */
-        .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+        /* ── Form ── */
+        .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
         .form-grid.three{grid-template-columns:1fr 1fr 1fr;}
         .full{grid-column:span 2;}
         .form-label{display:block;margin-bottom:7px;font-weight:600;font-size:13px;color:var(--text-primary);}
@@ -120,6 +118,29 @@ function statusBadge(string $s): string {
         .form-select,.form-input{width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--accent);color:var(--text-primary);transition:all 0.2s;}
         .form-select:focus,.form-input:focus{outline:none;border-color:var(--primary);background:var(--white);box-shadow:0 0 0 3px rgba(168,53,53,0.08);}
         textarea.form-input{resize:vertical;min-height:80px;font-family:inherit;}
+
+        /* ── Print mode selector ── */
+        .mode-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+        .mode-card{position:relative;cursor:pointer;}
+        .mode-card input[type=radio]{position:absolute;opacity:0;width:0;height:0;}
+        .mode-label{
+            display:flex;flex-direction:column;align-items:center;gap:7px;
+            padding:14px 10px;border:2px solid var(--border);border-radius:10px;
+            background:var(--white);cursor:pointer;transition:all 0.2s;text-align:center;
+            font-size:13px;font-weight:600;color:var(--text-secondary);
+        }
+        .mode-label:hover{border-color:var(--primary);color:var(--primary);}
+        .mode-label .mode-icon{font-size:22px;line-height:1;transition:transform 0.2s;}
+        .mode-label .mode-desc{font-size:11px;font-weight:400;color:var(--text-secondary);}
+        .mode-card input:checked + .mode-label{border-color:var(--primary);background:rgba(168,53,53,0.06);color:var(--primary);}
+        .mode-card input:checked + .mode-label .mode-icon{transform:scale(1.12);}
+        .mode-card input:checked + .mode-label .mode-desc{color:rgba(168,53,53,0.7);}
+        .mode-note{
+            display:none;margin-top:10px;padding:9px 13px;
+            background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;
+            font-size:12px;color:#1d4ed8;align-items:center;gap:8px;
+        }
+        .mode-note.show{display:flex;}
 
         /* ── Drop zone ── */
         .drop-zone{border:2px dashed var(--border);border-radius:10px;padding:36px 20px;text-align:center;background:rgba(168,53,53,0.02);cursor:pointer;transition:all 0.2s;position:relative;}
@@ -145,27 +166,24 @@ function statusBadge(string $s): string {
         .loading-overlay.show{display:flex;}
         .spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.7s linear infinite;}
         @keyframes spin{to{transform:rotate(360deg);}}
-        .loading-text{font-size:14px;color:var(--text-secondary);font-weight:500;}
+        .loading-text{font-size:14px;color:var(--text-secondary);font-weight:500;text-align:center;}
 
         /* ── Result panel ── */
         .result-panel{display:none;}
         .result-panel.show{display:block;}
 
-        /* Page colour map */
         .page-map{display:flex;flex-wrap:wrap;gap:5px;margin:12px 0;}
         .page-dot{width:32px;height:32px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;cursor:default;transition:transform 0.1s;}
         .page-dot:hover{transform:scale(1.15);}
         .page-dot.colour{background:#fdf2f2;color:#A83535;border:1px solid #fca5a5;}
         .page-dot.bw{background:#f3f4f6;color:#6b7280;border:1px solid #E0E0E0;}
 
-        /* Summary bar */
         .summary-bar{display:flex;gap:12px;flex-wrap:wrap;margin:14px 0;}
         .summary-pill{padding:6px 14px;border-radius:20px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;}
         .pill-colour{background:#fdf2f2;color:#A83535;border:1px solid #fca5a5;}
         .pill-bw{background:#f3f4f6;color:#6b7280;border:1px solid #E0E0E0;}
         .pill-pages{background:#eff6ff;color:#3b82f6;border:1px solid #bfdbfe;}
 
-        /* Price table */
         .price-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:4px;}
         .price-table td{padding:9px 4px;border-bottom:1px solid var(--border);}
         .price-table tr:last-child td{border-bottom:none;}
@@ -175,21 +193,19 @@ function statusBadge(string $s): string {
         .price-total .t-label{font-size:16px;font-weight:700;color:var(--text-primary);}
         .price-total .t-val{font-size:24px;font-weight:700;color:var(--primary);}
 
-        /* Duration badge */
         .duration-badge{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;background:rgba(59,130,246,0.07);border:1px solid #bfdbfe;border-radius:8px;font-size:13px;color:#1d4ed8;font-weight:600;margin-top:14px;}
 
-        /* Confirm button */
         .confirm-btn{width:100%;padding:13px;background:#10b981;color:white;border:none;border-radius:9px;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:background 0.2s;margin-top:16px;}
         .confirm-btn:hover{background:#059669;}
         .confirm-btn:disabled{background:#d1d5db;cursor:not-allowed;}
 
-        /* Alert */
+        /* ── Alerts ── */
         .alert{padding:13px 18px;border-radius:8px;font-size:14px;display:flex;align-items:flex-start;gap:10px;margin-bottom:4px;}
         .alert-error{background:#fff0f0;color:#c62828;border:1px solid #ef9a9a;}
         .alert-success{background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;}
         .alert-warn{background:#fffbeb;color:#92400e;border:1px solid #fde68a;}
 
-        /* History table */
+        /* ── History table ── */
         .hist-table{width:100%;border-collapse:collapse;}
         .hist-table thead{background:rgba(168,53,53,0.04);border-bottom:2px solid var(--border);}
         .hist-table th{padding:11px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;}
@@ -201,7 +217,7 @@ function statusBadge(string $s): string {
         .empty-hist{text-align:center;padding:36px;color:var(--text-secondary);}
         .empty-hist i{font-size:32px;opacity:0.2;margin-bottom:10px;display:block;}
 
-        /* Footer */
+        /* ── Footer ── */
         .page-footer{text-align:center;padding:20px;color:var(--text-secondary);font-size:13px;border-top:1px solid var(--border);background:var(--white);}
         .footer-links a{color:var(--primary);text-decoration:none;margin:0 10px;}
 
@@ -217,6 +233,7 @@ function statusBadge(string $s): string {
         @media(max-width:768px){
             .form-grid,.form-grid.three{grid-template-columns:1fr;}
             .full{grid-column:span 1;}
+            .mode-grid{grid-template-columns:1fr;}
         }
     </style>
 </head>
@@ -227,7 +244,7 @@ function statusBadge(string $s): string {
 <main class="main-content">
     <header class="top-header">
         <h1 class="page-title">Upload Files for Printing</h1>
-        <p class="page-subtitle">AI automatically detects colour pages and calculates your print price</p>
+        <p class="page-subtitle">Choose your print mode — AI analysis only runs when you need it</p>
     </header>
 
     <div class="content-wrap">
@@ -241,16 +258,13 @@ function statusBadge(string $s): string {
             </div>
             <div class="card-body">
 
-                <!-- Error / success alerts -->
                 <div id="alertBox" style="display:none;margin-bottom:16px;"></div>
 
                 <div class="form-grid">
 
-                    <!-- Preorder link -->
+                    <!-- Pre-order link -->
                     <div class="full">
-                        <label class="form-label">
-                            Link to Pre-order <small>(optional)</small>
-                        </label>
+                        <label class="form-label">Link to Pre-order <small>(optional)</small></label>
                         <select id="preorderSelect" class="form-select">
                             <option value="">— No linked pre-order —</option>
                             <?php foreach ($preorders as $po): ?>
@@ -260,6 +274,41 @@ function statusBadge(string $s): string {
                                 </option>
                             <?php endforeach; ?>
                         </select>
+                    </div>
+
+                    <!-- Print mode selector -->
+                    <div class="full">
+                        <label class="form-label">Print Mode</label>
+                        <div class="mode-grid">
+                            <label class="mode-card">
+                                <input type="radio" name="print_mode" id="modeBW" value="BW">
+                                <span class="mode-label">
+                                    <span class="mode-icon">⬛</span>
+                                    Black &amp; White
+                                    <span class="mode-desc">All pages B&amp;W</span>
+                                </span>
+                            </label>
+                            <label class="mode-card">
+                                <input type="radio" name="print_mode" id="modeColor" value="COLOR">
+                                <span class="mode-label">
+                                    <span class="mode-icon">🎨</span>
+                                    Full Colour
+                                    <span class="mode-desc">All pages in colour</span>
+                                </span>
+                            </label>
+                            <label class="mode-card">
+                                <input type="radio" name="print_mode" id="modeMixed" value="MIXED" checked>
+                                <span class="mode-label">
+                                    <span class="mode-icon">🤖</span>
+                                    Mixed (Auto-detect)
+                                    <span class="mode-desc">AI reads each page</span>
+                                </span>
+                            </label>
+                        </div>
+                        <div class="mode-note show" id="modeNote">
+                            <i class="fas fa-robot"></i>
+                            AI will analyse your file page-by-page to detect colour content. This takes a few extra seconds.
+                        </div>
                     </div>
 
                     <!-- File drop zone -->
@@ -298,6 +347,7 @@ function statusBadge(string $s): string {
                         <label class="form-label">Paper Type</label>
                         <select id="paperType" class="form-select">
                             <option value="80gsm Standard" selected>80gsm Standard</option>
+                            <option value="70gsm Economy">70gsm Economy</option>
                             <option value="100gsm Premium">100gsm Premium</option>
                             <option value="Glossy Photo Paper">Glossy Photo Paper</option>
                             <option value="Art Paper">Art Paper</option>
@@ -337,77 +387,62 @@ function statusBadge(string $s): string {
 
                 </div><!-- /.form-grid -->
 
-                <!-- Loading state (shown during AI analysis) -->
+                <!-- Loading state -->
                 <div class="loading-overlay" id="loadingOverlay">
                     <div class="spinner"></div>
                     <div class="loading-text">
-                        <strong>Analysing your file…</strong><br>
-                        <span style="font-size:12px;">AI is reading each page to detect colour content</span>
+                        <strong id="loadingTitle">Processing your file…</strong><br>
+                        <span id="loadingSubtitle" style="font-size:12px;">Calculating price and print time</span>
                     </div>
                 </div>
 
-                <!-- Analyse button -->
+                <!-- Submit button -->
                 <button class="analyse-btn" id="analyseBtn" disabled>
-                    <i class="fas fa-magic"></i> Analyse &amp; Calculate Price
+                    <i class="fas fa-magic" id="analyseBtnIcon"></i>
+                    <span id="analyseBtnText">Calculate Price</span>
                 </button>
 
             </div>
         </div>
 
-        <!-- ── AI result panel (hidden until analysis complete) ── -->
+        <!-- ── Result panel ── -->
         <div class="card result-panel" id="resultPanel">
             <div class="card-header">
                 <div class="card-title">
-                    <i class="fas fa-chart-pie"></i> AI Colour Analysis &amp; Price Estimate
+                    <i class="fas fa-chart-pie"></i>
+                    <span id="resultPanelTitle">Price Estimate</span>
                 </div>
                 <span id="resultFilename" style="font-size:13px;color:var(--text-secondary);font-weight:600;"></span>
             </div>
             <div class="card-body">
 
-                <!-- AI parse warning -->
+                <!-- AI parse warning (only shown for MIXED mode failures) -->
                 <div class="alert alert-warn" id="parseWarn" style="display:none;">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    <div>AI could not fully parse the document. Results default to Black &amp; White — staff will verify before printing.</div>
-                </div>
-
-                <!-- Page colour map -->
-                <div style="margin-bottom:20px;">
-                    <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:8px;">
-                        Page colour map <span style="font-weight:400;color:var(--text-secondary);font-size:12px;">(hover to see page number)</span>
-                    </div>
-                    <div class="page-map" id="pageMap"></div>
-                    <div style="display:flex;gap:14px;margin-top:6px;">
-                        <span style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-secondary);">
-                            <span style="width:12px;height:12px;border-radius:3px;background:#fdf2f2;border:1px solid #fca5a5;display:inline-block;"></span> Colour page
-                        </span>
-                        <span style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-secondary);">
-                            <span style="width:12px;height:12px;border-radius:3px;background:#f3f4f6;border:1px solid #E0E0E0;display:inline-block;"></span> Black &amp; White page
-                        </span>
-                    </div>
-                </div>
-
-                <!-- Summary pills -->
-                <div class="summary-bar" id="summaryBar"></div>
-
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:4px;">
-
-                    <!-- Price breakdown -->
+                    <i class="fas fa-exclamation-triangle" style="flex-shrink:0;margin-top:2px;"></i>
                     <div>
-                        <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:10px;">
-                            Price Breakdown
+                        AI could not fully parse the document.
+                        A default B&amp;W estimate has been applied — staff will confirm the final price during review.
+                    </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;">
+
+                    <!-- Left: page map + price -->
+                    <div>
+                        <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:6px;">
+                            Page Breakdown
                         </div>
+                        <div class="page-map" id="pageMap"></div>
+                        <div class="summary-bar" id="summaryBar"></div>
+
                         <table class="price-table" id="priceTable"></table>
                         <div class="price-total">
                             <span class="t-label">Estimated Total</span>
                             <span class="t-val" id="priceTotal">RM 0.00</span>
                         </div>
-                        <p style="font-size:11px;color:var(--text-secondary);margin-top:8px;">
-                            <i class="fas fa-info-circle"></i>
-                            Final price confirmed by staff before payment.
-                        </p>
                     </div>
 
-                    <!-- Duration + confirm -->
+                    <!-- Right: duration + confirm -->
                     <div>
                         <div style="font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:10px;">
                             Estimated Print Time
@@ -423,18 +458,17 @@ function statusBadge(string $s): string {
                             <div id="specsSummary" style="font-size:12px;color:var(--text-secondary);line-height:1.8;"></div>
                         </div>
 
-                        <button class="confirm-btn" id="confirmBtn">
+                        <button class="confirm-btn" id="confirmBtn" disabled>
                             <i class="fas fa-check-circle"></i> Confirm &amp; Submit Print Job
                         </button>
                     </div>
-
                 </div>
 
                 <!-- Success message after confirm -->
                 <div class="alert alert-success" id="confirmSuccess" style="display:none;margin-top:16px;">
                     <i class="fas fa-check-circle" style="flex-shrink:0;"></i>
                     <div>
-                        <strong>Print job submitted!</strong> Staff will process your file and update the status below.
+                        <strong>Print job submitted!</strong> Staff will review your file and update the status below.
                         The final price will be confirmed before payment.
                     </div>
                 </div>
@@ -485,8 +519,8 @@ function statusBadge(string $s): string {
                             </td>
                             <td style="font-size:12px;color:var(--text-secondary);">
                                 <?= htmlspecialchars($u['paper_size']) ?>
-                                · <?= $u['copies'] ?> cop<?= $u['copies'] > 1 ? 'ies':'y' ?>
-                                <?= $u['binding_type'] !== 'NONE' ? '· '.htmlspecialchars($u['binding_type']) : '' ?>
+                                · <?= $u['copies'] ?> cop<?= $u['copies'] > 1 ? 'ies' : 'y' ?>
+                                <?= $u['binding_type'] !== 'NONE' ? '· ' . htmlspecialchars($u['binding_type']) : '' ?>
                             </td>
                             <td style="font-weight:600;color:var(--primary);">
                                 RM <?= number_format($u['estimated_price'], 2) ?>
@@ -494,16 +528,16 @@ function statusBadge(string $s): string {
                             <td style="font-size:12px;color:var(--text-secondary);">
                                 <?= date('d M Y', strtotime($u['upload_date'])) ?>
                             </td>
-                            <td><?= statusBadge($u['file_status']) ?>
-    <?php if (($u['file_status'] ?? '') === 'REJECTED' && !empty($u['rejection_reason'])): ?>
-    <div style="margin-top:6px;padding:7px 10px;
-                background:#fef2f2;border:1px solid #fca5a5;
-                border-radius:7px;font-size:11px;color:#991b1b;
-                display:flex;align-items:flex-start;gap:6px;max-width:220px;">
-        <i class="fas fa-exclamation-circle" style="margin-top:2px;flex-shrink:0;"></i>
-        <span><?= htmlspecialchars($u['rejection_reason']) ?></span>
-    </div>
-    <?php endif; ?></td>
+                            <td>
+                                <?= statusBadge($u['file_status']) ?>
+                                <?php if (($u['file_status'] ?? '') === 'REJECTED' && !empty($u['rejection_reason'])): ?>
+                                <div style="margin-top:6px;padding:6px 10px;background:#fef2f2;border:1px solid #fca5a5;
+                                            border-radius:7px;font-size:11px;color:#991b1b;max-width:200px;">
+                                    <i class="fas fa-exclamation-circle"></i>
+                                    <?= htmlspecialchars($u['rejection_reason']) ?>
+                                </div>
+                                <?php endif; ?>
+                            </td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -515,49 +549,44 @@ function statusBadge(string $s): string {
     </div><!-- /.content-wrap -->
 
     <footer class="page-footer">
-        &copy; <?= date('Y') ?> StationaryPlus &mdash; Stationery &amp; Printing Management System
+        &copy; <?= date('Y') ?> StationaryPlus.
         <div class="footer-links">
-            <a href="#">Help Center</a> | <a href="#">Contact Support</a> | <a href="#">Privacy Policy</a>
+            <a href="c_dashboard.php">Dashboard</a>
+            <a href="c_orderstatus.php">Order Status</a>
+            <a href="c_payment.php">Payments</a>
         </div>
     </footer>
 </main>
 
 <script>
-// ── File selection ────────────────────────────────────────────
-const fileInput    = document.getElementById('fileInput');
-const dropZone     = document.getElementById('dropZone');
-const fileChosen   = document.getElementById('fileChosen');
-const fileChosenName = document.getElementById('fileChosenName');
-const analyseBtn   = document.getElementById('analyseBtn');
-
+// ── File handling ─────────────────────────────────────────────
+const dropZone   = document.getElementById('dropZone');
+const fileInput  = document.getElementById('fileInput');
+const analyseBtn = document.getElementById('analyseBtn');
 let selectedFile = null;
 
-function setFile(file) {
-    if (!file) return;
-    selectedFile = file;
-    fileChosenName.textContent = file.name;
-    fileChosen.classList.add('show');
+function setFile(f) {
+    selectedFile = f;
+    document.getElementById('fileChosenName').textContent = f.name;
+    document.getElementById('fileChosen').classList.add('show');
     dropZone.classList.add('has-file');
-    dropZone.querySelector('.drop-title').textContent = 'File selected';
     analyseBtn.disabled = false;
-    hideAlert();
-    document.getElementById('resultPanel').classList.remove('show');
 }
 
 function clearFile() {
     selectedFile = null;
     fileInput.value = '';
-    fileChosen.classList.remove('show');
+    document.getElementById('fileChosen').classList.remove('show');
     dropZone.classList.remove('has-file');
-    dropZone.querySelector('.drop-title').textContent = 'Click to browse or drag & drop';
     analyseBtn.disabled = true;
     document.getElementById('resultPanel').classList.remove('show');
+    document.getElementById('confirmSuccess').style.display = 'none';
 }
 
-fileInput.addEventListener('change', e => setFile(e.target.files[0]));
+dropZone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => { if (e.target.files[0]) setFile(e.target.files[0]); });
 document.getElementById('fileClear').addEventListener('click', clearFile);
 
-// Drag & drop
 dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
 dropZone.addEventListener('drop', e => {
@@ -567,16 +596,48 @@ dropZone.addEventListener('drop', e => {
     if (f) { fileInput.files = e.dataTransfer.files; setFile(f); }
 });
 
-// ── Copies ±  ─────────────────────────────────────────────────
+// ── Copies ± ──────────────────────────────────────────────────
 const copiesInput = document.getElementById('copies');
 document.getElementById('decBtn').onclick = () => { if (copiesInput.value > 1)  copiesInput.value--; };
 document.getElementById('incBtn').onclick = () => { if (copiesInput.value < 99) copiesInput.value++; };
+
+// ── Print mode ────────────────────────────────────────────────
+function getSelectedMode() {
+    return document.querySelector('input[name="print_mode"]:checked')?.value ?? 'MIXED';
+}
+
+function updateModeUI() {
+    const mode    = getSelectedMode();
+    const note    = document.getElementById('modeNote');
+    const btnText = document.getElementById('analyseBtnText');
+    const btnIcon = document.getElementById('analyseBtnIcon');
+    const title   = document.getElementById('resultPanelTitle');
+
+    note.classList.toggle('show', mode === 'MIXED');
+
+    if (mode === 'MIXED') {
+        btnText.textContent = 'Analyse & Calculate Price';
+        btnIcon.className   = 'fas fa-magic';
+        if (title) title.textContent = 'AI Colour Analysis & Price Estimate';
+    } else {
+        btnText.textContent = 'Calculate Price';
+        btnIcon.className   = 'fas fa-calculator';
+        if (title) title.textContent = 'Price Estimate';
+    }
+}
+
+document.querySelectorAll('input[name="print_mode"]').forEach(r =>
+    r.addEventListener('change', updateModeUI)
+);
+
+// Run once on load to match the pre-checked MIXED option
+updateModeUI();
 
 // ── Alert helpers ─────────────────────────────────────────────
 function showAlert(msg, type = 'error') {
     const box = document.getElementById('alertBox');
     box.innerHTML = `<div class="alert alert-${type}">
-        <i class="fas fa-${type==='error'?'exclamation-circle':'check-circle'}" style="flex-shrink:0;margin-top:2px;"></i>
+        <i class="fas fa-${type === 'error' ? 'exclamation-circle' : 'check-circle'}" style="flex-shrink:0;margin-top:2px;"></i>
         <div>${msg}</div></div>`;
     box.style.display = 'block';
     box.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -585,18 +646,26 @@ function hideAlert() {
     document.getElementById('alertBox').style.display = 'none';
 }
 
-// ── Analyse button ────────────────────────────────────────────
+// ── Analyse / calculate button ────────────────────────────────
 analyseBtn.addEventListener('click', async () => {
     if (!selectedFile) { showAlert('Please select a file first.'); return; }
 
-    const copies  = parseInt(copiesInput.value) || 1;
-    const size    = document.getElementById('paperSize').value;
-    const type    = document.getElementById('paperType').value;
-    const binding = document.getElementById('binding').value;
+    const copies   = parseInt(copiesInput.value) || 1;
+    const size     = document.getElementById('paperSize').value;
+    const type     = document.getElementById('paperType').value;
+    const binding  = document.getElementById('binding').value;
     const preorder = document.getElementById('preorderSelect').value;
+    const mode     = getSelectedMode();
 
-    // Show loading
-    analyseBtn.style.display        = 'none';
+    // Update loading text based on mode
+    document.getElementById('loadingTitle').textContent =
+        mode === 'MIXED' ? 'Analysing your file…' : 'Processing your file…';
+    document.getElementById('loadingSubtitle').textContent =
+        mode === 'MIXED'
+            ? 'AI is reading each page to detect colour content'
+            : 'Calculating price and print time';
+
+    analyseBtn.style.display = 'none';
     document.getElementById('loadingOverlay').classList.add('show');
     document.getElementById('resultPanel').classList.remove('show');
     hideAlert();
@@ -608,6 +677,7 @@ analyseBtn.addEventListener('click', async () => {
     form.append('paper_type',  type);
     form.append('binding',     binding);
     form.append('copies',      copies);
+    form.append('print_mode',  mode);
 
     try {
         const res  = await fetch('upload_print.php', { method: 'POST', body: form });
@@ -618,7 +688,7 @@ analyseBtn.addEventListener('click', async () => {
             return;
         }
 
-        renderResult(data);
+        renderResult(data, mode);
 
     } catch (err) {
         showAlert('Network error: ' + err.message);
@@ -628,12 +698,15 @@ analyseBtn.addEventListener('click', async () => {
     }
 });
 
-// ── Render analysis result ────────────────────────────────────
-function renderResult(d) {
+// ── Render result ─────────────────────────────────────────────
+function renderResult(d, mode) {
     const b = d.breakdown;
 
     document.getElementById('resultFilename').textContent = d.filename;
-    document.getElementById('parseWarn').style.display = d.ai_parse_ok ? 'none' : 'flex';
+
+    // Parse warning only relevant for MIXED mode failures
+    document.getElementById('parseWarn').style.display =
+        (mode === 'MIXED' && !d.ai_parse_ok) ? 'flex' : 'none';
 
     // Page colour map
     const map = document.getElementById('pageMap');
@@ -641,9 +714,10 @@ function renderResult(d) {
     if (d.page_details && d.page_details.length > 0) {
         d.page_details.forEach(p => {
             const dot = document.createElement('span');
-            dot.className = 'page-dot ' + (p.is_color ? 'colour' : 'bw');
+            dot.className   = 'page-dot ' + (p.is_color ? 'colour' : 'bw');
             dot.textContent = p.page;
-            dot.title = `Page ${p.page}: ${p.is_color ? 'Colour' : 'Black & White'} (${p.confidence} confidence)`;
+            dot.title       = `Page ${p.page}: ${p.is_color ? 'Colour' : 'Black & White'}` +
+                              (p.confidence !== 'customer_selected' ? ` (${p.confidence} confidence)` : ' (your selection)');
             map.appendChild(dot);
         });
     } else {
@@ -654,7 +728,7 @@ function renderResult(d) {
     document.getElementById('summaryBar').innerHTML = `
         <span class="summary-pill pill-pages"><i class="fas fa-file"></i> ${d.total_pages} page${d.total_pages !== 1 ? 's' : ''}</span>
         ${d.color_pages > 0 ? `<span class="summary-pill pill-colour"><i class="fas fa-palette"></i> ${d.color_pages} colour</span>` : ''}
-        ${d.bw_pages > 0    ? `<span class="summary-pill pill-bw"><i class="fas fa-circle-half-stroke"></i> ${d.bw_pages} B&W</span>` : ''}
+        ${d.bw_pages    > 0 ? `<span class="summary-pill pill-bw"><i class="fas fa-circle-half-stroke"></i> ${d.bw_pages} B&W</span>` : ''}
         <span class="summary-pill" style="background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;">
             <i class="fas fa-copy"></i> ${b.copies} cop${b.copies !== 1 ? 'ies' : 'y'}
         </span>`;
@@ -680,8 +754,8 @@ function renderResult(d) {
     document.getElementById('priceTotal').textContent = 'RM ' + d.price.toFixed(2);
 
     // Duration
-    const hrs  = Math.floor(d.duration_min / 60);
-    const mins = Math.round(d.duration_min % 60);
+    const hrs    = Math.floor(d.duration_min / 60);
+    const mins   = Math.round(d.duration_min % 60);
     const durStr = hrs > 0
         ? `${hrs} hr${hrs > 1 ? 's' : ''} ${mins} min${mins !== 1 ? 's' : ''}`
         : `${mins} minute${mins !== 1 ? 's' : ''}`;
@@ -692,46 +766,62 @@ function renderResult(d) {
     document.getElementById('specsSummary').innerHTML = `
         Paper: ${b.paper_size} · ${document.getElementById('paperType').value}<br>
         Binding: ${b.binding}<br>
-        Copies: ${b.copies}`;
+        Copies: ${b.copies}<br>
+        Mode: ${{'BW':'Black & White','COLOR':'Full Colour','MIXED':'Mixed (AI detected)'}[mode] ?? mode}`;
 
     // Show panel, wire confirm button
     document.getElementById('resultPanel').classList.add('show');
     document.getElementById('confirmSuccess').style.display = 'none';
     document.getElementById('resultPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-    // Store file_id for confirm
     document.getElementById('confirmBtn').dataset.fileId = d.file_id;
     document.getElementById('confirmBtn').disabled = false;
 }
 
 // ── Confirm button ────────────────────────────────────────────
-let sessionUploads = [];   // track files uploaded this session
+let sessionUploads = [];
 
 document.getElementById('confirmBtn').addEventListener('click', async function () {
-    this.disabled = true;
-    this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting…';
+    const btn         = this;
+    const fileId      = btn.dataset.fileId;
+    const currentName = document.getElementById('resultFilename').textContent;
+    const currentPrice= document.getElementById('priceTotal').textContent;
 
-    await new Promise(r => setTimeout(r, 500));
+    btn.disabled  = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting…';
 
-    // Record this upload in the session list
-    const currentFileId  = this.dataset.fileId;
-    const currentName    = document.getElementById('resultFilename').textContent;
-    const currentPrice   = document.getElementById('priceTotal').textContent;
-    sessionUploads.push({ fileId: currentFileId, name: currentName, price: currentPrice });
+    try {
+        const form = new FormData();
+        form.append('file_id', fileId);
 
-    // Update session upload list display
-    renderSessionUploads();
+        const res  = await fetch('confirm_print.php', { method: 'POST', body: form });
+        const data = await res.json();
 
-    // Reset for next file — keep order selection
-    clearFile();
-    document.getElementById('resultPanel').classList.remove('show');
-    document.getElementById('confirmSuccess').style.display = 'none';
+        if (!data.success) {
+            showAlert(data.error || 'Submission failed. Please try again.');
+            btn.disabled  = false;
+            btn.innerHTML = '<i class="fas fa-check-circle"></i> Confirm &amp; Submit Print Job';
+            return;
+        }
 
-    this.innerHTML   = '<i class="fas fa-check-circle"></i> Confirm & Submit Print Job';
-    this.disabled    = false;
+        // Record this upload in the session list for display
+        sessionUploads.push({ fileId, name: currentName, price: currentPrice });
+        renderSessionUploads();
 
-    // Scroll back up to the upload area
-    document.getElementById('dropZone').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Reset UI for next upload
+        clearFile();
+        document.getElementById('resultPanel').classList.remove('show');
+        document.getElementById('dropZone').scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    } catch (err) {
+        showAlert('Network error. Please try again.');
+        btn.disabled  = false;
+        btn.innerHTML = '<i class="fas fa-check-circle"></i> Confirm &amp; Submit Print Job';
+        return;
+    }
+
+    btn.innerHTML = '<i class="fas fa-check-circle"></i> Confirm &amp; Submit Print Job';
+    btn.disabled  = false;
 });
 
 function renderSessionUploads() {
@@ -746,17 +836,16 @@ function renderSessionUploads() {
         );
     }
 
-    const rows = sessionUploads.map((u, i) => `
-        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;
-                    border-bottom:1px solid #d1fae5;font-size:13px;">
+    const rows = sessionUploads.map(u => `
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #d1fae5;font-size:13px;">
             <i class="fas fa-check-circle" style="color:#10b981;flex-shrink:0;"></i>
             <span style="flex-grow:1;font-weight:600;color:#065f46;">${u.name}</span>
             <span style="color:#065f46;font-family:monospace;">${u.price}</span>
             <span style="font-family:monospace;font-size:11px;color:#6b7280;">${u.fileId}</span>
         </div>`).join('');
 
-    const linkedOrder = document.getElementById('preorderSelect').value;
-    const orderLabel  = linkedOrder
+    const linkedOrder  = document.getElementById('preorderSelect').value;
+    const orderLabel   = linkedOrder
         ? `Linked to order <strong>${linkedOrder}</strong>`
         : 'No linked order (standalone print job)';
 

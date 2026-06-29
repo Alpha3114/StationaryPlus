@@ -1,33 +1,149 @@
 <?php
 // ============================================================
 //  s_ordermanagement.php — Staff Order Management
-//
-//  Refactored: single query against the unified orders table.
-//  No more merging two result sets and sorting in PHP.
 // ============================================================
- 
+
 if (session_status() === PHP_SESSION_NONE) session_start();
- 
+
 require_once 'auth.php';
 require_role(['STAFF','ADMIN']);
 require_once 'db.php';
- 
+
 // ── Handle status update (POST) ───────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
-    $orderId   = trim($_POST['order_id']   ?? '');
-    $newStatus = trim($_POST['new_status'] ?? '');
- 
+    $orderId      = trim($_POST['order_id']   ?? '');
+    $newStatus    = trim($_POST['new_status'] ?? '');
+    $staffBranch  = $_SESSION['branch_id'] ?? null;
+
     $validStatuses = ['NEW','PROCESSING','READY','COLLECTED','CANCELLED'];
- 
+
     if ($orderId && in_array($newStatus, $validStatuses)) {
+
+        // Fetch current order state before making any changes
         $stmt = $conn->prepare(
-            "UPDATE orders SET order_status = ? WHERE order_id = ?"
+            "SELECT order_status, order_type, branch_id FROM orders WHERE order_id = ? LIMIT 1"
         );
-        $stmt->bind_param('ss', $newStatus, $orderId);
+        $stmt->bind_param('s', $orderId);
         $stmt->execute();
+        $currentOrder = $stmt->get_result()->fetch_assoc();
         $stmt->close();
+
+        if ($currentOrder) {
+            $prevStatus  = $currentOrder['order_status'];
+            $orderType   = $currentOrder['order_type'];
+            $orderBranch = $currentOrder['branch_id'] ?? $staffBranch;
+
+            // ── Guard: PREORDER cannot be manually moved to PROCESSING ──────
+            // without a verified payment. The transition should come through
+            // verify_payment.php automatically. This prevents staff from
+            // skipping the payment step.
+            if ($newStatus === 'PROCESSING'
+                && $orderType === 'PREORDER'
+                && $prevStatus !== 'PROCESSING') {
+
+                $pStmt = $conn->prepare(
+                    "SELECT COUNT(*) AS cnt FROM payments
+                     WHERE order_id = ? AND verification_status = 'VALID'"
+                );
+                $pStmt->bind_param('s', $orderId);
+                $pStmt->execute();
+                $hasValidPayment = (int)$pStmt->get_result()->fetch_assoc()['cnt'] > 0;
+                $pStmt->close();
+
+                if (!$hasValidPayment) {
+                    $qs = http_build_query(array_filter([
+                        'error'  => 'payment_required',
+                        'search' => $_GET['search'] ?? '',
+                        'status' => $_GET['status'] ?? '',
+                        'filter' => $_GET['filter'] ?? '',
+                    ]));
+                    header('Location: s_ordermanagement.php?' . $qs);
+                    exit;
+                }
+            }
+
+            // ── Deduct inventory when a PREORDER is marked COLLECTED ──────
+            // Guard: only fires once — skipped if order was already COLLECTED.
+            // Walk-in ORDERs are excluded; their inventory is deducted at POS.
+            if ($newStatus  === 'COLLECTED'
+                && $prevStatus !== 'COLLECTED'
+                && $orderType  === 'PREORDER') {
+
+                $iStmt = $conn->prepare(
+                    "SELECT product_id, quantity FROM order_items WHERE order_id = ?"
+                );
+                $iStmt->bind_param('s', $orderId);
+                $iStmt->execute();
+                $items = $iStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+                $iStmt->close();
+
+                $staffId = $_SESSION['user_id'];
+
+                foreach ($items as $item) {
+                    // Fetch current inventory state before deducting (needed for log)
+                    if ($orderBranch) {
+                        $selStmt = $conn->prepare(
+                            "SELECT inventory_id, stock_quantity FROM inventory
+                             WHERE product_id = ? AND branch_id = ? LIMIT 1"
+                        );
+                        $selStmt->bind_param('ss', $item['product_id'], $orderBranch);
+                    } else {
+                        $selStmt = $conn->prepare(
+                            "SELECT inventory_id, stock_quantity FROM inventory
+                             WHERE product_id = ? ORDER BY stock_quantity DESC LIMIT 1"
+                        );
+                        $selStmt->bind_param('s', $item['product_id']);
+                    }
+                    $selStmt->execute();
+                    $invRow = $selStmt->get_result()->fetch_assoc();
+                    $selStmt->close();
+
+                    if (!$invRow) continue;
+
+                    $inventoryId = $invRow['inventory_id'];
+                    $oldQty      = (int)$invRow['stock_quantity'];
+                    $newQty      = $oldQty - (int)$item['quantity'];
+                    $changeQty   = -(int)$item['quantity'];
+
+                    // Deduct inventory
+                    $dStmt = $conn->prepare(
+                        "UPDATE inventory
+                         SET stock_quantity = ?,
+                             last_updated   = NOW()
+                         WHERE inventory_id = ?"
+                    );
+                    $dStmt->bind_param('is', $newQty, $inventoryId);
+                    $dStmt->execute();
+                    $dStmt->close();
+
+                    // Log the movement
+                    $logStmt = $conn->prepare(
+                        "INSERT INTO inventory_log
+                            (inventory_id, product_id, branch_id, change_qty, old_qty, new_qty,
+                             reason, reference_id, changed_by)
+                         VALUES (?, ?, ?, ?, ?, ?, 'ORDER_COLLECTED', ?, ?)"
+                    );
+                    $logStmt->bind_param(
+                        'sssiiiss',
+                        $inventoryId, $item['product_id'], $orderBranch,
+                        $changeQty, $oldQty, $newQty,
+                        $orderId, $staffId
+                    );
+                    $logStmt->execute();
+                    $logStmt->close();
+                }
+            }
+
+            // ── Update the order status ───────────────────────────────────
+            $stmt = $conn->prepare(
+                "UPDATE orders SET order_status = ? WHERE order_id = ?"
+            );
+            $stmt->bind_param('ss', $newStatus, $orderId);
+            $stmt->execute();
+            $stmt->close();
+        }
     }
- 
+
     $redirect = '?';
     if (!empty($_GET['search'])) $redirect .= 'search='  . urlencode($_GET['search'])  . '&';
     if (!empty($_GET['status'])) $redirect .= 'status='  . urlencode($_GET['status'])  . '&';
@@ -35,17 +151,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
     header('Location: s_ordermanagement.php' . rtrim($redirect, '&?'));
     exit;
 }
- 
+
 // ── Filters ───────────────────────────────────────────────────
+$branchId     = $_SESSION['branch_id'] ?? null;
 $search       = trim($_GET['search'] ?? '');
 $filterType   = $_GET['filter'] ?? 'all';   // all | order | preorder
 $filterStatus = $_GET['status'] ?? 'all';
- 
+
 // ── Build WHERE clauses ───────────────────────────────────────
 $where  = ['1=1'];
 $params = [];
 $types  = '';
- 
+
 if ($search !== '') {
     $where[]  = "(o.order_id LIKE ? OR u.name LIKE ?)";
     $like     = "%$search%";
@@ -53,47 +170,56 @@ if ($search !== '') {
     $params[] = $like;
     $types   .= 'ss';
 }
- 
+
 if ($filterType === 'order') {
     $where[] = "o.order_type = 'ORDER'";
 } elseif ($filterType === 'preorder') {
     $where[] = "o.order_type = 'PREORDER'";
 }
- 
+
 $validStatuses = ['NEW','PROCESSING','READY','COLLECTED','CANCELLED'];
 if ($filterStatus !== 'all' && in_array($filterStatus, $validStatuses)) {
     $where[]  = "o.order_status = ?";
     $params[] = $filterStatus;
     $types   .= 's';
 }
- 
+
+// Branch scoping — staff only see their own branch's orders
+if ($branchId) {
+    $where[]  = "o.branch_id = ?";
+    $params[] = $branchId;
+    $types   .= 's';
+}
+
 $whereSQL = implode(' AND ', $where);
- 
-// ── Single query for all rows ─────────────────────────────────
+
+// ── Main query ────────────────────────────────────────────────
+// LEFT JOIN users because walk-in orders (created via POS) have NULL user_id
 $sql = "SELECT
-            o.order_id      AS id,
-            o.order_type    AS type,
+            o.order_id        AS id,
+            o.order_type      AS type,
             o.order_date,
-            o.order_status  AS status,
+            o.order_status    AS status,
             o.estimated_total AS amount,
             o.notes,
-            u.name          AS customer_name,
-            u.email         AS customer_email,
-            COUNT(oi.order_item_id) AS item_count
+            COALESCE(u.name,  'Walk-in') AS customer_name,
+            COALESCE(u.email, '—')        AS customer_email,
+            u.phone_number                AS customer_phone,
+            COUNT(oi.order_item_id)       AS item_count
         FROM orders o
-        JOIN users u ON o.user_id = u.user_id
+        LEFT JOIN users u      ON o.user_id  = u.user_id
         LEFT JOIN order_items oi ON o.order_id = oi.order_id
         WHERE $whereSQL
         GROUP BY o.order_id
         ORDER BY o.order_date DESC
         LIMIT 100";
- 
+
 $stmt = $conn->prepare($sql);
 if ($types) $stmt->bind_param($types, ...$params);
 $stmt->execute();
 $allRows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
- 
+
 // ── Status badge helper ───────────────────────────────────────
 function statusBadge(string $status): string {
     $map = [
@@ -228,6 +354,10 @@ function statusBadge(string $status): string {
         .update-btn { width:100%;padding:11px;background:var(--primary);color:white;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:background 0.2s; }
         .update-btn:hover { background:#8b2a2a; }
 
+        /* Inventory notice shown below update form when COLLECTED is selected */
+        .inv-notice { display:none;margin-top:10px;padding:9px 13px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;font-size:12px;color:#065f46;align-items:center;gap:8px; }
+        .inv-notice.show { display:flex; }
+
         /* Empty list */
         .empty-list { padding:50px 20px;text-align:center;color:var(--text-secondary); }
         .empty-list i { font-size:40px;opacity:0.2;margin-bottom:12px;display:block; }
@@ -258,7 +388,7 @@ function statusBadge(string $status): string {
     <header class="top-header">
         <div>
             <div class="page-title">Order Management</div>
-            <div class="page-subtitle">Review, process, and update customer orders &amp; pre-orders</div>
+            <div class="page-subtitle">Review, process, and update customer orders &amp; reservations</div>
         </div>
         <div class="header-right">
             <!-- Search -->
@@ -287,14 +417,23 @@ function statusBadge(string $status): string {
                 <a href="?filter=all&status=<?= urlencode($filterStatus) ?>&search=<?= urlencode($search) ?>"
                    class="tab <?= $filterType==='all'      ? 'active':'' ?>">All</a>
                 <a href="?filter=order&status=<?= urlencode($filterStatus) ?>&search=<?= urlencode($search) ?>"
-                   class="tab <?= $filterType==='order'    ? 'active':'' ?>">Orders</a>
+                   class="tab <?= $filterType==='order'    ? 'active':'' ?>">Walk-in Sales</a>
                 <a href="?filter=preorder&status=<?= urlencode($filterStatus) ?>&search=<?= urlencode($search) ?>"
-                   class="tab <?= $filterType==='preorder' ? 'active':'' ?>">Pre-orders</a>
+                   class="tab <?= $filterType==='preorder' ? 'active':'' ?>">Reservations</a>
             </div>
         </div>
     </header>
 
     <div class="split-layout">
+        <?php if (isset($_GET['error']) && $_GET['error'] === 'payment_required'): ?>
+        <div style="position:fixed;top:74px;left:var(--sidebar-width);right:0;z-index:20;
+                    padding:12px 24px;background:#fff7ed;border-bottom:1px solid #fed7aa;
+                    display:flex;align-items:center;gap:10px;font-size:13px;color:#92400e;">
+            <i class="fas fa-exclamation-triangle" style="flex-shrink:0;"></i>
+            <strong>Cannot set to Processing:</strong>
+            This reservation has no verified payment yet. Payment must be verified by staff first.
+        </div>
+        <?php endif; ?>
 
         <!-- ── LEFT: order list ── -->
         <div class="list-pane" id="listPane">
@@ -354,12 +493,10 @@ function statusBadge(string $status): string {
 <script>
 // ── AJAX detail loader ────────────────────────────────────────
 function loadDetail(id, type) {
-    // Highlight active row
     document.querySelectorAll('.order-row').forEach(r => r.classList.remove('active'));
     const row = document.querySelector(`.order-row[data-id="${id}"]`);
     if (row) row.classList.add('active');
 
-    // Show spinner
     document.getElementById('detailBody').innerHTML =
         '<div class="empty-pane"><div class="spinner"></div><p>Loading…</p></div>';
 
@@ -373,8 +510,10 @@ function loadDetail(id, type) {
 }
 
 function renderDetail(d, id, type) {
-    const statusOptions = type === 'preorder'
-        ? ['PROCESSING','READY','CANCELLED']
+    const isPreorder = type === 'preorder';
+
+    const statusOptions = isPreorder
+        ? ['NEW','PROCESSING','READY','COLLECTED','CANCELLED']
         : ['NEW','PROCESSING','READY','COLLECTED','CANCELLED'];
 
     const optionsHTML = statusOptions.map(s =>
@@ -391,11 +530,16 @@ function renderDetail(d, id, type) {
     ).join('');
 
     const total = d.items.reduce((s, i) => s + i.qty * i.unit_price, 0);
-    const amountDisplay = d.amount !== null ? `RM ${parseFloat(d.amount).toFixed(2)}` : `RM ${total.toFixed(2)}`;
+    const amountDisplay = d.amount !== null
+        ? `RM ${parseFloat(d.amount).toFixed(2)}`
+        : `RM ${total.toFixed(2)}`;
 
     document.getElementById('detailBody').innerHTML = `
         <div class="info-section">
-            <div class="info-section-title"><i class="fas fa-file-alt"></i> ${type === 'preorder' ? 'Pre-order' : 'Order'} Info</div>
+            <div class="info-section-title">
+                <i class="fas fa-file-alt"></i>
+                ${isPreorder ? 'Reservation' : 'Walk-in Sale'} Info
+            </div>
             <div class="info-grid">
                 <div class="info-item"><div class="info-label">ID</div><div class="info-value" style="font-family:monospace;">${escHtml(id)}</div></div>
                 <div class="info-item"><div class="info-label">Date</div><div class="info-value">${escHtml(d.date)}</div></div>
@@ -421,13 +565,33 @@ function renderDetail(d, id, type) {
             <form method="POST" action="s_ordermanagement.php<?= '?' . http_build_query(array_filter(['search'=>$search,'filter'=>$filterType,'status'=>$filterStatus])) ?>">
                 <input type="hidden" name="order_id"   value="${escHtml(id)}">
                 <input type="hidden" name="order_type" value="${type}">
-                <select name="new_status" class="status-select-form">${optionsHTML}</select>
+                <select name="new_status" class="status-select-form" id="statusSelectForm"
+                        onchange="toggleInvNotice(this.value, '${type}', '${escHtml(d.status)}')">
+                    ${optionsHTML}
+                </select>
+                <div class="inv-notice" id="invNotice">
+                    <i class="fas fa-boxes"></i>
+                    Stock will be deducted automatically when you save.
+                </div>
                 <button type="submit" name="update_status" class="update-btn">
                     <i class="fas fa-check-circle"></i> Update Status
                 </button>
             </form>
         </div>
     `;
+
+    // Show notice if COLLECTED is already selected on render
+    toggleInvNotice(d.status, type, d.status);
+}
+
+// Show the inventory deduction notice when COLLECTED is chosen for a reservation
+function toggleInvNotice(newStatus, type, currentStatus) {
+    const notice = document.getElementById('invNotice');
+    if (!notice) return;
+    const willDeduct = newStatus === 'COLLECTED'
+                    && currentStatus !== 'COLLECTED'
+                    && type === 'preorder';
+    notice.classList.toggle('show', willDeduct);
 }
 
 function escHtml(str) {

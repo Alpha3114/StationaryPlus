@@ -19,16 +19,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_stock'])) {
     $newQty      = (int)($_POST['new_qty'] ?? -1);
 
     if ($inventoryId !== '' && $newQty >= 0) {
+
+        // Fetch current state before changing anything
         $stmt = $conn->prepare(
-            "UPDATE inventory SET stock_quantity = ? WHERE inventory_id = ?"
+            "SELECT stock_quantity, product_id, branch_id FROM inventory WHERE inventory_id = ? LIMIT 1"
         );
-        $stmt->bind_param('is', $newQty, $inventoryId);
+        $stmt->bind_param('s', $inventoryId);
         $stmt->execute();
+        $current = $stmt->get_result()->fetch_assoc();
         $stmt->close();
-        $successMsg = "Stock updated successfully.";
+
+        if ($current) {
+            $oldQty    = (int)$current['stock_quantity'];
+            $productId = $current['product_id'];
+            $invBranch = $current['branch_id'];
+            $changeQty = $newQty - $oldQty;
+
+            // Update the stock level
+            $stmt = $conn->prepare(
+                "UPDATE inventory SET stock_quantity = ?, last_updated = NOW() WHERE inventory_id = ?"
+            );
+            $stmt->bind_param('is', $newQty, $inventoryId);
+            $stmt->execute();
+            $stmt->close();
+
+            // Log the movement (only if quantity actually changed)
+            if ($changeQty !== 0) {
+                $stmt = $conn->prepare(
+                    "INSERT INTO inventory_log
+                        (inventory_id, product_id, branch_id, change_qty, old_qty, new_qty,
+                         reason, changed_by)
+                     VALUES (?, ?, ?, ?, ?, ?, 'MANUAL_UPDATE', ?)"
+                );
+                $stmt->bind_param('sssiiis',
+                    $inventoryId, $productId, $invBranch,
+                    $changeQty, $oldQty, $newQty,
+                    $userId
+                );
+                $stmt->execute();
+                $stmt->close();
+            }
+
+            $successMsg = "Stock updated successfully.";
+        }
     }
 
-    // Redirect to preserve filters and avoid re-submit on refresh
     $qs = http_build_query(array_filter([
         'search' => $_GET['search'] ?? '',
         'filter' => $_GET['filter'] ?? '',
@@ -38,15 +73,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_stock'])) {
     exit;
 }
 
-// Show success message after redirect
 if (isset($_GET['updated'])) {
     $successMsg = "Stock updated successfully.";
 }
 
 // ── Filters ───────────────────────────────────────────────────
-$search      = trim($_GET['search'] ?? '');
-$filterView  = $_GET['filter']      ?? 'all';   // all | low
-$filterBranch = $_GET['branch']     ?? 'all';
+$search       = trim($_GET['search'] ?? '');
+$filterView   = $_GET['filter']      ?? 'all';
+$filterBranch = $_GET['branch']      ?? 'all';
 
 // ── Stats ─────────────────────────────────────────────────────
 $res = $conn->query("SELECT COUNT(*) AS cnt FROM products WHERE product_status = 'ACTIVE'");
@@ -55,11 +89,9 @@ $totalProducts = $res->fetch_assoc()['cnt'] ?? 0;
 $res = $conn->query("SELECT COUNT(*) AS cnt FROM branches WHERE status = 'ACTIVE'");
 $totalBranches = $res->fetch_assoc()['cnt'] ?? 0;
 
-// Low stock count scoped to branch if staff
 if ($branchId) {
     $stmt = $conn->prepare(
-        "SELECT COUNT(*) AS cnt FROM inventory
-         WHERE stock_quantity <= minimum_level AND branch_id = ?"
+        "SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity <= minimum_level AND branch_id = ?"
     );
     $stmt->bind_param('s', $branchId);
 } else {
@@ -76,12 +108,11 @@ $branches = $conn->query(
     "SELECT branch_id, branch_name FROM branches WHERE status = 'ACTIVE' ORDER BY branch_name"
 )->fetch_all(MYSQLI_ASSOC);
 
-// ── Build main inventory query ────────────────────────────────
+// ── Main inventory query ──────────────────────────────────────
 $where  = ["p.product_status = 'ACTIVE'"];
 $params = [];
 $types  = '';
 
-// Staff only see their own branch; admins can filter
 if ($branchId) {
     $where[]  = "i.branch_id = ?";
     $params[] = $branchId;
@@ -106,23 +137,22 @@ if ($filterView === 'low') {
 
 $whereSQL = 'WHERE ' . implode(' AND ', $where);
 
-$sql = "SELECT i.inventory_id, i.stock_quantity, i.minimum_level,
-               p.product_name, p.category,
-               b.branch_name
-        FROM inventory i
-        JOIN products p ON i.product_id = p.product_id
-        JOIN branches b ON i.branch_id  = b.branch_id
-        $whereSQL
-        ORDER BY i.stock_quantity ASC, p.product_name ASC
-        LIMIT 100";
-
-$stmt = $conn->prepare($sql);
+$stmt = $conn->prepare(
+    "SELECT i.inventory_id, i.stock_quantity, i.minimum_level,
+            p.product_name, p.category, b.branch_name
+     FROM inventory i
+     JOIN products p ON i.product_id = p.product_id
+     JOIN branches b ON i.branch_id  = b.branch_id
+     $whereSQL
+     ORDER BY i.stock_quantity ASC, p.product_name ASC
+     LIMIT 100"
+);
 if ($types) $stmt->bind_param($types, ...$params);
 $stmt->execute();
 $inventory = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
 
-// ── Low stock alerts (always scoped to branch if staff) ───────
+// ── Low stock alerts ──────────────────────────────────────────
 $alertWhere  = ["i.stock_quantity <= i.minimum_level", "p.product_status = 'ACTIVE'"];
 $alertParams = [];
 $alertTypes  = '';
@@ -150,6 +180,41 @@ $stmt->execute();
 $lowStockItems = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
 
+// ── Movement history ──────────────────────────────────────────
+$histWhere  = ['1=1'];
+$histParams = [];
+$histTypes  = '';
+
+if ($branchId) {
+    $histWhere[]  = 'il.branch_id = ?';
+    $histParams[] = $branchId;
+    $histTypes   .= 's';
+} elseif ($filterBranch !== 'all') {
+    $histWhere[]  = 'il.branch_id = ?';
+    $histParams[] = $filterBranch;
+    $histTypes   .= 's';
+}
+
+$histWhereSQL = implode(' AND ', $histWhere);
+
+$stmt = $conn->prepare(
+    "SELECT il.log_id, il.change_qty, il.old_qty, il.new_qty,
+            il.reason, il.reference_id, il.changed_at,
+            p.product_name, b.branch_name,
+            u.name AS changed_by_name
+     FROM inventory_log il
+     JOIN products  p ON il.product_id = p.product_id
+     LEFT JOIN branches b ON il.branch_id  = b.branch_id
+     LEFT JOIN users    u ON il.changed_by = u.user_id
+     WHERE $histWhereSQL
+     ORDER BY il.changed_at DESC
+     LIMIT 100"
+);
+if ($histTypes) $stmt->bind_param($histTypes, ...$histParams);
+$stmt->execute();
+$movementHistory = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$stmt->close();
+
 // ── Category → icon/colour map ────────────────────────────────
 function categoryIcon(string $cat): array {
     $cat = strtolower($cat);
@@ -167,6 +232,18 @@ function categoryIcon(string $cat): array {
         if (str_contains($cat, $key)) return $val;
     }
     return ['fa-box', '#607D8B'];
+}
+
+function reasonBadge(string $reason): string {
+    $map = [
+        'MANUAL_UPDATE'   => ['#6b7280','#f3f4f6','Manual Update'],
+        'POS_SALE'        => ['#A83535','#fdf2f2','POS Sale'],
+        'ORDER_COLLECTED' => ['#d97706','#fffbeb','Order Collected'],
+    ];
+    [$color, $bg, $label] = $map[$reason] ?? ['#6b7280','#f3f4f6', $reason];
+    return "<span style='background:$bg;color:$color;border:1px solid {$color}44;
+                padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600;
+                white-space:nowrap;'>$label</span>";
 }
 ?>
 <!DOCTYPE html>
@@ -191,7 +268,6 @@ function categoryIcon(string $cat): array {
         }
 
         * { margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif; }
-
         body { background-color:var(--background);color:var(--text-primary);min-height:100vh;display:flex; }
 
         /* ── Sidebar ── */
@@ -298,24 +374,17 @@ function categoryIcon(string $cat): array {
         .level-warning  { background:rgba(245,158,11,0.12);color:#d97706;border:1px solid rgba(245,158,11,0.3);padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600; }
         .shortage-text  { font-size:12px;color:#ef4444;font-weight:600; }
 
+        /* Movement history — change qty chip */
+        .change-chip { font-size:12px;font-weight:700;padding:3px 9px;border-radius:20px;font-family:monospace;white-space:nowrap; }
+        .change-pos { background:#ecfdf5;color:#059669;border:1px solid #a7f3d0; }
+        .change-neg { background:#fef2f2;color:#dc2626;border:1px solid #fca5a5; }
+        .qty-flow { font-size:12px;color:var(--text-secondary);white-space:nowrap; }
+        .ref-link { font-family:monospace;font-size:11px;color:var(--primary);font-weight:600; }
+
         /* Empty state */
         .empty-state { padding:40px 20px;text-align:center;color:var(--text-secondary); }
         .empty-state i { font-size:36px;opacity:0.2;margin-bottom:10px;display:block; }
         .empty-state p { font-size:14px; }
-
-        @media (max-width:1024px) {
-            :root { --sidebar-width:70px; }
-            .logo-text,.nav-text,.user-details,.nav-title,.logout-link span { display:none; }
-            .logo-area,.nav-section,.user-section { padding:18px 12px; }
-            .nav-link { justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent; }
-            .nav-link:hover,.nav-link.active { border-left:none;border-right-color:var(--primary); }
-            .nav-icon { margin-right:0;font-size:20px; }
-            .logout-link { justify-content:center;padding:10px; }
-        }
-        @media (max-width:768px) {
-            .stats-row { grid-template-columns:1fr 1fr; }
-            .search-input { width:160px; }
-        }
 
         /* ── AI Restock panel ── */
         .ai-restock-card{background:linear-gradient(135deg,rgba(37,99,235,0.04),rgba(16,185,129,0.04));border:1.5px solid rgba(37,99,235,0.15);border-radius:12px;padding:20px 22px;}
@@ -350,6 +419,20 @@ function categoryIcon(string $cat): array {
         .rec-reason{font-size:12px;color:var(--text-secondary);line-height:1.5;font-style:italic;}
         .ai-all-clear{padding:16px 18px;background:rgba(16,185,129,0.06);border:1px solid #a7f3d0;border-radius:9px;font-size:13px;color:#065f46;display:flex;align-items:center;gap:10px;}
         .ai-err-r{padding:12px 16px;background:#fff0f0;border:1px solid #ef9a9a;border-radius:9px;font-size:13px;color:#c62828;}
+
+        @media (max-width:1024px) {
+            :root { --sidebar-width:70px; }
+            .logo-text,.nav-text,.user-details,.nav-title,.logout-link span { display:none; }
+            .logo-area,.nav-section,.user-section { padding:18px 12px; }
+            .nav-link { justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent; }
+            .nav-link:hover,.nav-link.active { border-left:none;border-right-color:var(--primary); }
+            .nav-icon { margin-right:0;font-size:20px; }
+            .logout-link { justify-content:center;padding:10px; }
+        }
+        @media (max-width:768px) {
+            .stats-row { grid-template-columns:1fr 1fr; }
+            .search-input { width:160px; }
+        }
     </style>
 </head>
 <body>
@@ -362,11 +445,10 @@ function categoryIcon(string $cat): array {
     <header class="top-header">
         <div>
             <div class="page-title">Inventory Management</div>
-            <div class="page-subtitle">Monitor stock levels and update quantities</div>
+            <div class="page-subtitle">Monitor stock levels, update quantities, and track every movement</div>
         </div>
 
         <form method="GET" action="s_inv.php" class="header-right">
-            <!-- Search -->
             <div class="search-wrap">
                 <i class="fas fa-search search-icon-pos"></i>
                 <input type="text" name="search" class="search-input"
@@ -374,7 +456,6 @@ function categoryIcon(string $cat): array {
                        value="<?= htmlspecialchars($search) ?>">
             </div>
 
-            <!-- Branch filter (admin only — staff are locked to their branch) -->
             <?php if (!$branchId): ?>
             <select name="branch" class="filter-select" onchange="this.form.submit()">
                 <option value="all" <?= $filterBranch==='all' ? 'selected':'' ?>>All Branches</option>
@@ -389,7 +470,6 @@ function categoryIcon(string $cat): array {
 
             <input type="hidden" name="filter" value="<?= htmlspecialchars($filterView) ?>">
 
-            <!-- View tabs -->
             <a href="?filter=all&search=<?= urlencode($search) ?>&branch=<?= urlencode($filterBranch) ?>"
                class="tab <?= $filterView==='all' ? 'active':'' ?>">All Stock</a>
             <a href="?filter=low&search=<?= urlencode($search) ?>&branch=<?= urlencode($filterBranch) ?>"
@@ -402,7 +482,6 @@ function categoryIcon(string $cat): array {
         </form>
     </header>
 
-    <!-- Success banner -->
     <?php if ($successMsg): ?>
     <div class="success-banner">
         <i class="fas fa-check-circle"></i> <?= htmlspecialchars($successMsg) ?>
@@ -500,12 +579,11 @@ function categoryIcon(string $cat): array {
                             [$icon, $color] = categoryIcon($item['category'] ?? '');
                             $qty = (int)$item['stock_quantity'];
                             $min = (int)$item['minimum_level'];
-                            // Bar percentage: 100% = 2× minimum; clamp to 0-100
                             $pct = $min > 0 ? min(100, (int)round(($qty / ($min * 2)) * 100)) : 100;
 
-                            if ($qty === 0)      { $barClass = 'bar-critical'; $numClass = 'critical'; }
-                            elseif ($qty <= $min){ $barClass = 'bar-warning';  $numClass = 'warning';  }
-                            else                { $barClass = 'bar-ok';       $numClass = 'ok';       }
+                            if ($qty === 0)       { $barClass = 'bar-critical'; $numClass = 'critical'; }
+                            elseif ($qty <= $min) { $barClass = 'bar-warning';  $numClass = 'warning';  }
+                            else                  { $barClass = 'bar-ok';       $numClass = 'ok';       }
                         ?>
                         <tr>
                             <td>
@@ -583,9 +661,9 @@ function categoryIcon(string $cat): array {
                     <tbody>
                         <?php foreach ($lowStockItems as $item):
                             [$icon, $color] = categoryIcon($item['category'] ?? '');
-                            $qty      = (int)$item['stock_quantity'];
-                            $min      = (int)$item['minimum_level'];
-                            $shortage = $min - $qty;
+                            $qty        = (int)$item['stock_quantity'];
+                            $min        = (int)$item['minimum_level'];
+                            $shortage   = $min - $qty;
                             $isCritical = ($qty === 0 || $shortage >= (int)($min * 0.5));
                         ?>
                         <tr>
@@ -622,19 +700,93 @@ function categoryIcon(string $cat): array {
             </div>
         </div>
 
+        <!-- ── Movement History ── -->
+        <div class="section-card">
+            <div class="card-header">
+                <div class="card-title">
+                    <i class="fas fa-history"></i> Movement History
+                </div>
+                <span style="font-size:13px;color:var(--text-secondary);">
+                    Last <?= count($movementHistory) ?> entries
+                </span>
+            </div>
+            <div class="table-wrap">
+                <?php if (empty($movementHistory)): ?>
+                    <div class="empty-state">
+                        <i class="fas fa-history"></i>
+                        <p>No inventory movements recorded yet. Changes will appear here automatically.</p>
+                    </div>
+                <?php else: ?>
+                <table class="inv-table">
+                    <thead>
+                        <tr>
+                            <th>Date &amp; Time</th>
+                            <th>Product</th>
+                            <th>Branch</th>
+                            <th>Change</th>
+                            <th>Before → After</th>
+                            <th>Reason</th>
+                            <th>Reference</th>
+                            <th>Staff</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($movementHistory as $log):
+                            $isPositive = (int)$log['change_qty'] >= 0;
+                        ?>
+                        <tr>
+                            <td style="font-size:12px;color:var(--text-secondary);white-space:nowrap;">
+                                <?= date('d M Y', strtotime($log['changed_at'])) ?><br>
+                                <span style="font-size:11px;"><?= date('H:i:s', strtotime($log['changed_at'])) ?></span>
+                            </td>
+                            <td>
+                                <div class="prod-name"><?= htmlspecialchars($log['product_name']) ?></div>
+                            </td>
+                            <td style="font-size:12px;">
+                                <?= htmlspecialchars($log['branch_name'] ?? '—') ?>
+                            </td>
+                            <td>
+                                <span class="change-chip <?= $isPositive ? 'change-pos' : 'change-neg' ?>">
+                                    <?= $isPositive ? '+' : '' ?><?= (int)$log['change_qty'] ?>
+                                </span>
+                            </td>
+                            <td>
+                                <span class="qty-flow">
+                                    <?= (int)$log['old_qty'] ?>
+                                    <i class="fas fa-arrow-right" style="font-size:10px;color:var(--text-secondary);margin:0 4px;"></i>
+                                    <?= (int)$log['new_qty'] ?>
+                                </span>
+                            </td>
+                            <td><?= reasonBadge($log['reason']) ?></td>
+                            <td>
+                                <?php if (!empty($log['reference_id'])): ?>
+                                    <span class="ref-link"><?= htmlspecialchars($log['reference_id']) ?></span>
+                                <?php else: ?>
+                                    <span style="color:var(--text-secondary);font-size:12px;">—</span>
+                                <?php endif; ?>
+                            </td>
+                            <td style="font-size:12px;">
+                                <?= htmlspecialchars($log['changed_by_name'] ?? '—') ?>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <?php endif; ?>
+            </div>
+        </div>
+
     </div><!-- /.inv-content -->
 
 </main>
 
 <script>
-// Live input highlight when qty drops at or below minimum
 function highlightQty(input, min) {
     const val = parseInt(input.value) || 0;
     input.classList.toggle('below', val <= min);
     input.value = input.value.replace(/[^0-9]/g, '');
 }
 
-// ── AI Restock Recommendations ────────────────────────────────
 async function getRestockRecs() {
     const btn  = document.getElementById('restockBtn');
     const body = document.getElementById('restockBody');
