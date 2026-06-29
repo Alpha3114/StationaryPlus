@@ -11,17 +11,24 @@ require_once 'db.php';
 
 $userId = $_SESSION['user_id'];
 
-// ── Load customer's pending pre-orders for the selector ───────
+// ?link_order=PRE-xxx lets c_orderstatus.php send the customer here to re-upload
+// a corrected file to a specific existing order.
+$linkOrderId = trim($_GET['link_order'] ?? '');
+
+// ── Load customer's pre-orders for the selector ───────────────
+// FIX: Removed the NOT IN (print_files) restriction — customers can
+//      now attach multiple print files to the same order, and can
+//      re-upload to an order that had a rejected file.
 $stmt = $conn->prepare(
-    "SELECT o.order_id, o.order_date
+    "SELECT o.order_id, o.order_date,
+            COUNT(pf.file_id) AS file_count,
+            SUM(CASE WHEN pf.file_status = 'REJECTED' THEN 1 ELSE 0 END) AS rejected_count
      FROM orders o
+     LEFT JOIN print_files pf ON pf.order_id = o.order_id
      WHERE o.user_id = ?
        AND o.order_type = 'PREORDER'
        AND o.order_status NOT IN ('CANCELLED')
-       AND o.order_id NOT IN (
-           SELECT DISTINCT order_id FROM print_files
-           WHERE order_id IS NOT NULL
-       )
+     GROUP BY o.order_id
      ORDER BY o.order_date DESC
      LIMIT 20"
 );
@@ -266,14 +273,31 @@ function statusBadge(string $s): string {
                     <div class="full">
                         <label class="form-label">Link to Pre-order <small>(optional)</small></label>
                         <select id="preorderSelect" class="form-select">
-                            <option value="">— No linked pre-order —</option>
-                            <?php foreach ($preorders as $po): ?>
-                                <option value="<?= htmlspecialchars($po['order_id']) ?>">
-                                    <?= htmlspecialchars($po['order_id']) ?>
-                                    — <?= date('d M Y', strtotime($po['order_date'])) ?>
+                            <option value="">— No linked pre-order (standalone print job) —</option>
+                            <?php foreach ($preorders as $po):
+                                $label = htmlspecialchars($po['order_id'])
+                                       . ' — ' . date('d M Y', strtotime($po['order_date']));
+                                if ((int)$po['rejected_count'] > 0) {
+                                    $label .= ' ⚠ ' . $po['rejected_count'] . ' file(s) rejected';
+                                } elseif ((int)$po['file_count'] > 0) {
+                                    $label .= ' (' . $po['file_count'] . ' file' . ($po['file_count'] > 1 ? 's' : '') . ' attached)';
+                                }
+                                $isSelected = ($linkOrderId && $linkOrderId === $po['order_id']);
+                            ?>
+                                <option value="<?= htmlspecialchars($po['order_id']) ?>"
+                                        <?= $isSelected ? 'selected' : '' ?>>
+                                    <?= $label ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
+                        <?php if ($linkOrderId): ?>
+                        <div style="margin-top:7px;padding:8px 13px;background:#fffbeb;border:1px solid #fde68a;
+                                    border-radius:7px;font-size:12px;color:#92400e;display:flex;gap:7px;align-items:center;">
+                            <i class="fas fa-info-circle"></i>
+                            You're re-uploading a corrected file for order
+                            <strong><?= htmlspecialchars($linkOrderId) ?></strong>.
+                        </div>
+                        <?php endif; ?>
                     </div>
 
                     <!-- Print mode selector -->

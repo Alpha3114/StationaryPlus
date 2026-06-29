@@ -9,27 +9,23 @@ require_once 'auth.php';
 require_role('CUSTOMER');
 require_once 'db.php';
 
+$userId = $_SESSION['user_id'];  // FIX: was missing — needed for "remember branch"
+
 // ── Branch context ────────────────────────────────────────────
 $branchList = $conn->query(
     "SELECT branch_id, branch_name FROM branches WHERE status = 'ACTIVE' ORDER BY branch_name"
 )->fetch_all(MYSQLI_ASSOC);
 
-// Handle branch switch
+// Handle branch switch — session only, never touches preferred_branch_id
+// Preferred branch is managed exclusively from the dashboard.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['switch_branch'])) {
     $newBranch = trim($_POST['branch_id'] ?? '');
-    $remember  = isset($_POST['remember_branch']);
 
     $chk = $conn->prepare("SELECT branch_id FROM branches WHERE branch_id = ? AND status = 'ACTIVE' LIMIT 1");
     $chk->bind_param('s', $newBranch);
     $chk->execute(); $chk->store_result();
     if ($chk->num_rows > 0) {
         $_SESSION['branch_id'] = $newBranch;
-        if ($remember) {
-            $stmt = $conn->prepare("UPDATE users SET preferred_branch_id = ? WHERE user_id = ?");
-            $stmt->bind_param('ss', $newBranch, $userId);
-            $stmt->execute();
-            $stmt->close();
-        }
     }
     $chk->close();
     header('Location: c_viewproducts.php'); exit;
@@ -515,6 +511,10 @@ function pageUrl(int $p): string {
                        appearance:none;
                        background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23A83535' d='M6 8L1 3h10z'/%3E%3C/svg%3E\");
                        background-repeat:no-repeat;background-position:right 10px center;">
+            <!-- Placeholder shown when no branch is selected -->
+            <option value="" <?= !$activeBranchId ? 'selected' : '' ?>>
+                <?= $activeBranchId ? '' : '— Select your branch —' ?>
+            </option>
             <?php foreach ($branchList as $b): ?>
                 <option value="<?= htmlspecialchars($b['branch_id']) ?>"
                     <?= $activeBranchId === $b['branch_id'] ? 'selected' : '' ?>>

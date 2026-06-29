@@ -63,7 +63,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['user_id']   = $user['user_id'];
                 $_SESSION['user_name'] = $user['name'];
                 $_SESSION['user_role'] = $user['user_role'];
-                $_SESSION['branch_id'] = $user['branch_id'];
+                $_SESSION['branch_id'] = $user['branch_id']; // null for customers (staff field)
+
+                // For customers, load their preferred branch instead
+                if ($user['user_role'] === 'CUSTOMER') {
+                    $bStmt = $conn->prepare(
+                        "SELECT preferred_branch_id FROM users WHERE user_id = ? LIMIT 1"
+                    );
+                    $bStmt->bind_param('s', $user['user_id']);
+                    $bStmt->execute();
+                    $prefBranch = $bStmt->get_result()->fetch_assoc()['preferred_branch_id'] ?? null;
+                    $bStmt->close();
+                    $_SESSION['branch_id'] = $prefBranch;
+                }
 
                 $map = ['ADMIN' => 'a_dashboard.php', 'STAFF' => 's_dashboard.php', 'CUSTOMER' => 'c_dashboard.php'];
                 header('Location: ' . ($map[$user['user_role']] ?? 'login.php'));

@@ -279,7 +279,13 @@ function paymentBadge(?string $status): string {
                                 </a>
                             </div>
                             <?php endif; ?>
-                            <?php if (($row['pay_status'] ?? null) === null && $row['status'] === 'NEW'): ?>
+                            <?php
+                            // Only nudge payment when:
+                            // - No payment submitted yet AND order is NEW
+                            // - AND either no print file, or the print file is already REVIEWED
+                            $pfReviewed = empty($row['pf_file_id']) || ($row['pf_file_status'] ?? '') === 'REVIEWED';
+                            if (($row['pay_status'] ?? null) === null && $row['status'] === 'NEW' && $pfReviewed):
+                            ?>
                             <div style="margin-top:5px;">
                                 <a href="c_payment.php" style="font-size:11px;color:var(--primary);text-decoration:none;font-weight:600;">
                                     <i class="fas fa-arrow-right"></i> Submit payment
@@ -334,8 +340,14 @@ function paymentBadge(?string $status): string {
                                 <div>
                                     <strong>File rejected:</strong>
                                     <?= htmlspecialchars($row['pf_rejection_reason']) ?>
-                                    <div style="margin-top:4px;font-size:11px;color:#b91c1c;">
-                                        Please re-upload a corrected file.
+                                    <div style="margin-top:6px;">
+                                        <a href="c_upload.php?link_order=<?= urlencode($row['id']) ?>"
+                                           style="display:inline-flex;align-items:center;gap:5px;
+                                                  padding:4px 10px;background:#dc2626;color:white;
+                                                  border-radius:6px;font-size:11px;font-weight:700;
+                                                  text-decoration:none;">
+                                            <i class="fas fa-upload"></i> Re-upload corrected file
+                                        </a>
                                     </div>
                                 </div>
                             </div>

@@ -73,6 +73,43 @@ if ($status === 'REJECTED') {
 $stmt->execute();
 $stmt->close();
 
+// ── Cascade final_price to orders.estimated_total ─────────────
+// When staff confirms a price, update the order total to reflect
+// BOTH the confirmed print price AND any stationery items on the same order.
+if ($status === 'REVIEWED'
+    && $finalPrice !== null
+    && is_numeric($finalPrice)
+    && (float)$finalPrice >= 0
+    && !empty($file['order_id'])) {
+
+    // Stationery items subtotal for this order
+    $iStmt = $conn->prepare(
+        "SELECT COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS items_total
+         FROM order_items oi WHERE oi.order_id = ?"
+    );
+    $iStmt->bind_param('s', $file['order_id']);
+    $iStmt->execute();
+    $itemsSubtotal = (float)$iStmt->get_result()->fetch_assoc()['items_total'];
+    $iStmt->close();
+
+    // Other print files on the same order (excluding this one, already updated above)
+    $pfStmt = $conn->prepare(
+        "SELECT COALESCE(SUM(estimated_price), 0) AS print_total
+         FROM print_files WHERE order_id = ? AND file_id != ?"
+    );
+    $pfStmt->bind_param('ss', $file['order_id'], $fileId);
+    $pfStmt->execute();
+    $otherPrintTotal = (float)$pfStmt->get_result()->fetch_assoc()['print_total'];
+    $pfStmt->close();
+
+    $newTotal = $itemsSubtotal + $otherPrintTotal + (float)$finalPrice;
+
+    $stmt = $conn->prepare("UPDATE orders SET estimated_total = ? WHERE order_id = ?");
+    $stmt->bind_param('ds', $newTotal, $file['order_id']);
+    $stmt->execute();
+    $stmt->close();
+}
+
 // ── Check if order should move to PROCESSING ─────────────────
 // All five conditions must be true:
 //   1. File was just marked REVIEWED (not rejected)
