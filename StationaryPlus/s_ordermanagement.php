@@ -135,12 +135,84 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
             }
 
             // ── Update the order status ───────────────────────────────────
-            $stmt = $conn->prepare(
-                "UPDATE orders SET order_status = ? WHERE order_id = ?"
-            );
-            $stmt->bind_param('ss', $newStatus, $orderId);
+            // Save cancellation reason when cancelling
+            $cancellationReason = null;
+            if ($newStatus === 'CANCELLED') {
+                $cancellationReason = trim($_POST['cancellation_reason'] ?? '') ?: null;
+            }
+
+            if ($cancellationReason !== null) {
+                $stmt = $conn->prepare(
+                    "UPDATE orders SET order_status = ?, cancellation_reason = ? WHERE order_id = ?"
+                );
+                $stmt->bind_param('sss', $newStatus, $cancellationReason, $orderId);
+            } else {
+                $stmt = $conn->prepare(
+                    "UPDATE orders SET order_status = ? WHERE order_id = ?"
+                );
+                $stmt->bind_param('ss', $newStatus, $orderId);
+            }
             $stmt->execute();
             $stmt->close();
+
+            // ── Notify customer when order moves to READY ─────────────────
+            // Only fires on the NEW → READY transition, never on repeat saves.
+            // Skipped for walk-in orders (NULL user_id = no customer account).
+            if ($newStatus === 'READY' && $prevStatus !== 'READY') {
+                $nStmt = $conn->prepare(
+                    "SELECT u.email, u.name, o.order_type, o.estimated_total,
+                            b.branch_name, b.address, b.phone_number
+                     FROM orders o
+                     LEFT JOIN users u   ON o.user_id   = u.user_id
+                     LEFT JOIN branches b ON o.branch_id = b.branch_id
+                     WHERE o.order_id = ? LIMIT 1"
+                );
+                $nStmt->bind_param('s', $orderId);
+                $nStmt->execute();
+                $notif = $nStmt->get_result()->fetch_assoc();
+                $nStmt->close();
+
+                if ($notif && !empty($notif['email'])) {
+                    $custName   = $notif['name'];
+                    $orderLabel = $notif['order_type'] === 'PREORDER' ? 'Reservation' : 'Order';
+                    $branchName = $notif['branch_name'] ?? 'our store';
+                    $branchAddr = $notif['address']      ?? '';
+                    $branchTel  = $notif['phone_number'] ?? '';
+                    $totalStr   = $notif['estimated_total']
+                                  ? 'RM ' . number_format((float)$notif['estimated_total'], 2)
+                                  : 'To be confirmed at counter';
+
+                    $proto   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+                    $siteUrl = $proto . '://' . $_SERVER['HTTP_HOST'];
+                    $host    = $_SERVER['HTTP_HOST'];
+                    $subject = "StationaryPlus — Your $orderLabel is Ready for Collection!";
+
+                    $body =
+                        "Hi $custName,\n\n"
+                      . "Great news! Your $orderLabel ($orderId) is now ready for collection.\n\n"
+                      . "─────────────────────────────\n"
+                      . " Collection Details\n"
+                      . "─────────────────────────────\n"
+                      . "Order ID  : $orderId\n"
+                      . "Branch    : $branchName\n"
+                      . ($branchAddr ? "Address   : $branchAddr\n" : '')
+                      . ($branchTel  ? "Contact   : $branchTel\n"  : '')
+                      . "Amount Due: $totalStr\n"
+                      . "─────────────────────────────\n\n"
+                      . "Please bring your Order ID when collecting.\n\n"
+                      . "Track your order: $siteUrl/c_orderstatus.php\n\n"
+                      . "— StationaryPlus Team";
+
+                    $headers = implode("\r\n", [
+                        "From: noreply@$host",
+                        "Reply-To: noreply@$host",
+                        "X-Mailer: PHP/" . PHP_VERSION,
+                        "Content-Type: text/plain; charset=UTF-8",
+                    ]);
+
+                    mail($notif['email'], $subject, $body, $headers);
+                }
+            }
         }
     }
 
@@ -566,32 +638,82 @@ function renderDetail(d, id, type) {
                 <input type="hidden" name="order_id"   value="${escHtml(id)}">
                 <input type="hidden" name="order_type" value="${type}">
                 <select name="new_status" class="status-select-form" id="statusSelectForm"
-                        onchange="toggleInvNotice(this.value, '${type}', '${escHtml(d.status)}')">
+                        onchange="toggleStatusNotices(this.value, '${type}', '${escHtml(d.status)}')">
                     ${optionsHTML}
                 </select>
+
                 <div class="inv-notice" id="invNotice">
                     <i class="fas fa-boxes"></i>
                     Stock will be deducted automatically when you save.
                 </div>
+
+                <div id="readyNotice" style="display:none;margin-top:10px;padding:9px 13px;
+                     background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;
+                     font-size:12px;color:#1d4ed8;align-items:center;gap:8px;">
+                    <i class="fas fa-envelope"></i>
+                    A collection notification email will be sent to the customer.
+                </div>
+
+                <div id="cancelReasonWrap" style="display:none;margin-top:10px;">
+                    <label style="font-size:12px;font-weight:600;color:#dc2626;
+                                  margin-bottom:6px;display:block;">
+                        <i class="fas fa-times-circle"></i> Cancellation reason
+                        <span style="font-weight:400;">(shown to customer)</span>
+                    </label>
+                    <textarea name="cancellation_reason"
+                              placeholder="e.g. Item out of stock, customer requested cancellation…"
+                              style="width:100%;padding:9px 12px;border:1.5px solid #fca5a5;
+                                     border-radius:7px;font-size:13px;resize:none;min-height:70px;
+                                     font-family:inherit;background:#fef2f2;color:#991b1b;
+                                     outline:none;"></textarea>
+                </div>
+
                 <button type="submit" name="update_status" class="update-btn">
                     <i class="fas fa-check-circle"></i> Update Status
                 </button>
             </form>
         </div>
+
+        <div style="margin-top:14px;text-align:center;">
+            <a href="receipt.php?id=${escHtml(id)}" target="_blank"
+               style="display:inline-flex;align-items:center;gap:8px;padding:9px 20px;
+                      background:#f3f4f6;color:#374151;border:1.5px solid #e5e7eb;
+                      border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;
+                      transition:all 0.2s;"
+               onmouseover="this.style.borderColor='var(--primary)';this.style.color='var(--primary)'"
+               onmouseout="this.style.borderColor='#e5e7eb';this.style.color='#374151'">
+                <i class="fas fa-print"></i> Print Receipt
+            </a>
+        </div>
     `;
 
-    // Show notice if COLLECTED is already selected on render
-    toggleInvNotice(d.status, type, d.status);
+    // Trigger notices for the currently selected status on initial render
+    toggleStatusNotices(d.status, type, d.status);
 }
 
-// Show the inventory deduction notice when COLLECTED is chosen for a reservation
-function toggleInvNotice(newStatus, type, currentStatus) {
-    const notice = document.getElementById('invNotice');
-    if (!notice) return;
-    const willDeduct = newStatus === 'COLLECTED'
-                    && currentStatus !== 'COLLECTED'
-                    && type === 'preorder';
-    notice.classList.toggle('show', willDeduct);
+// Handle all status-change notices in one place
+function toggleStatusNotices(newStatus, type, currentStatus) {
+    // Inventory deduction notice (COLLECTED on a preorder)
+    const invNotice = document.getElementById('invNotice');
+    if (invNotice) {
+        const willDeduct = newStatus === 'COLLECTED'
+                        && currentStatus !== 'COLLECTED'
+                        && type === 'preorder';
+        invNotice.classList.toggle('show', willDeduct);
+    }
+
+    // Email notification notice (READY transition)
+    const readyNotice = document.getElementById('readyNotice');
+    if (readyNotice) {
+        const willEmail = newStatus === 'READY' && currentStatus !== 'READY';
+        readyNotice.style.display = willEmail ? 'flex' : 'none';
+    }
+
+    // Cancellation reason textarea (CANCELLED)
+    const cancelWrap = document.getElementById('cancelReasonWrap');
+    if (cancelWrap) {
+        cancelWrap.style.display = newStatus === 'CANCELLED' ? 'block' : 'none';
+    }
 }
 
 function escHtml(str) {

@@ -18,19 +18,34 @@ function generate_payment_id(): string {
 }
 
 // ── Load unpaid orders for dropdown ───────────────────────────
-// Excludes orders that already have a PENDING or VALID payment —
-// customer must wait for rejection before re-submitting.
+// Excludes:
+//   • Orders with a PENDING or VALID payment already
+//   • Orders with any print file still RECEIVED (price not confirmed)
+// Amount is computed from source tables (items + print files) so it
+// always reflects the true combined total, not just estimated_total.
 $stmt = $conn->prepare(
     "SELECT
-         o.order_id        AS id,
-         o.estimated_total AS amount,
-         o.order_type      AS rec_type
+         o.order_id   AS id,
+         o.order_type AS rec_type,
+         COALESCE(
+             (SELECT SUM(oi.quantity * oi.unit_price)
+              FROM order_items oi WHERE oi.order_id = o.order_id), 0
+         ) +
+         COALESCE(
+             (SELECT SUM(pf.estimated_price)
+              FROM print_files pf WHERE pf.order_id = o.order_id), 0
+         ) AS amount
      FROM orders o
      WHERE o.user_id = ?
        AND o.order_status NOT IN ('CANCELLED','COLLECTED')
        AND o.order_id NOT IN (
            SELECT p.order_id FROM payments p
            WHERE p.verification_status IN ('VALID','PENDING')
+       )
+       AND o.order_id NOT IN (
+           SELECT DISTINCT pf.order_id FROM print_files pf
+           WHERE pf.file_status = 'RECEIVED'
+             AND pf.order_id IS NOT NULL
        )
      ORDER BY o.order_type, o.order_date DESC"
 );
@@ -331,13 +346,13 @@ function methodLabel(string $method): string {
                                 <?php if (!empty($unpaidOrders)): ?>
                                 <optgroup label="Orders">
                                     <?php foreach ($unpaidOrders as $r):
-                                        $amt = isset($r['amount']) && $r['amount'] !== null ? (float)$r['amount'] : null;
+                                        $amt = isset($r['amount']) ? (float)$r['amount'] : null;
                                     ?>
                                     <option value="<?= htmlspecialchars($r['id']) ?>"
                                             data-type="order"
-                                            data-amount="<?= $amt !== null ? $amt : '' ?>">
+                                            data-amount="<?= $amt > 0 ? $amt : '' ?>">
                                         <?= htmlspecialchars($r['id']) ?>
-                                        <?= $amt !== null ? '— RM ' . number_format($amt, 2) : '(amount pending)' ?>
+                                        <?= $amt > 0 ? '— RM ' . number_format($amt, 2) : '(amount pending)' ?>
                                     </option>
                                     <?php endforeach; ?>
                                 </optgroup>
@@ -345,13 +360,13 @@ function methodLabel(string $method): string {
                                 <?php if (!empty($unpaidPreorders)): ?>
                                 <optgroup label="Pre-orders / Reservations">
                                     <?php foreach ($unpaidPreorders as $r):
-                                        $amt = isset($r['amount']) && $r['amount'] !== null ? (float)$r['amount'] : null;
+                                        $amt = isset($r['amount']) ? (float)$r['amount'] : null;
                                     ?>
                                     <option value="<?= htmlspecialchars($r['id']) ?>"
                                             data-type="preorder"
-                                            data-amount="<?= $amt !== null ? $amt : '' ?>">
+                                            data-amount="<?= $amt > 0 ? $amt : '' ?>">
                                         <?= htmlspecialchars($r['id']) ?>
-                                        <?= $amt !== null ? '— RM ' . number_format($amt, 2) : '(amount TBC by staff)' ?>
+                                        <?= $amt > 0 ? '— RM ' . number_format($amt, 2) : '(amount TBC by staff)' ?>
                                     </option>
                                     <?php endforeach; ?>
                                 </optgroup>
@@ -360,6 +375,18 @@ function methodLabel(string $method): string {
                                 <option disabled>No pending orders found</option>
                                 <?php endif; ?>
                             </select>
+                            <div style="margin-top:8px;padding:8px 12px;background:#fffbeb;
+                                        border:1px solid #fde68a;border-radius:7px;
+                                        font-size:12px;color:#92400e;display:flex;gap:7px;align-items:flex-start;">
+                                <i class="fas fa-info-circle" style="flex-shrink:0;margin-top:1px;"></i>
+                                <span>
+                                    Orders with print files awaiting staff review won't appear here until
+                                    the file is approved and the price is confirmed.
+                                    <a href="c_orderstatus.php" style="color:#92400e;font-weight:700;">
+                                        Check order status &rarr;
+                                    </a>
+                                </span>
+                            </div>
                         </div>
 
                         <!-- Payment method -->

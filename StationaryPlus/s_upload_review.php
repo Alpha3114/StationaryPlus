@@ -27,8 +27,18 @@ $activeFilterCount = (int)($sortOrder!=='newest') + (int)($printType!=='all')
                    + (int)($copiesFilter!=='all');
 
 // ── Status counts ─────────────────────────────────────────────
+$branchId = $_SESSION['branch_id'] ?? null;
+
 $counts = ['ALL' => 0, 'RECEIVED' => 0, 'REVIEWED' => 0, 'REJECTED' => 0];
-$res    = $conn->query("SELECT file_status, COUNT(*) AS cnt FROM print_files GROUP BY file_status");
+$countSQL = "SELECT pf.file_status, COUNT(*) AS cnt FROM print_files pf LEFT JOIN orders o ON pf.order_id = o.order_id";
+if ($branchId) {
+    $cStmt = $conn->prepare($countSQL . " WHERE o.branch_id = ? GROUP BY pf.file_status");
+    $cStmt->bind_param('s', $branchId);
+    $cStmt->execute();
+    $res = $cStmt->get_result();
+} else {
+    $res = $conn->query($countSQL . " GROUP BY pf.file_status");
+}
 while ($r = $res->fetch_assoc()) {
     if (isset($counts[$r['file_status']])) $counts[$r['file_status']] = (int)$r['cnt'];
     $counts['ALL'] += (int)$r['cnt'];
@@ -39,6 +49,11 @@ $where  = ['1=1'];
 $params = [];
 $types  = '';
 
+if ($branchId) {
+    $where[]  = 'o.branch_id = ?';
+    $params[] = $branchId;
+    $types   .= 's';
+}
 if ($filterStatus !== 'ALL') {
     $where[]  = 'pf.file_status = ?';
     $params[] = $filterStatus;
@@ -70,6 +85,7 @@ $stmt = $conn->prepare(
             u.user_id AS customer_id
      FROM print_files pf
      LEFT JOIN users u ON pf.user_id = u.user_id
+     LEFT JOIN orders o ON pf.order_id = o.order_id
      WHERE " . implode(' AND ', $where) . "
      ORDER BY $orderBy
      LIMIT 150"

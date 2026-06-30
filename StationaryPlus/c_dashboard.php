@@ -18,50 +18,32 @@ $branchList = $conn->query(
     "SELECT branch_id, branch_name FROM branches WHERE status = 'ACTIVE' ORDER BY branch_name"
 )->fetch_all(MYSQLI_ASSOC);
 
-// ── Is current branch the preferred one? ─────────────────────
-$isPreferred = false;
-if ($activeBranchId) {
-    $stmt = $conn->prepare(
-        "SELECT preferred_branch_id FROM users WHERE user_id = ? LIMIT 1"
-    );
-    $stmt->bind_param('s', $userId);
-    $stmt->execute();
-    $savedPref   = $stmt->get_result()->fetch_assoc()['preferred_branch_id'] ?? null;
-    $stmt->close();
-    $isPreferred = ($savedPref === $activeBranchId);
-}
-
 // ── Handle branch switch ──────────────────────────────────────
+// Dashboard always saves the selected branch as the customer's
+// permanent preferred branch AND updates the session.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['switch_branch'])) {
     $newBranch = trim($_POST['branch_id'] ?? '');
-    $remember  = isset($_POST['remember_branch']);
 
-    $chk = $conn->prepare(
-        "SELECT branch_id FROM branches WHERE branch_id = ? AND status = 'ACTIVE' LIMIT 1"
-    );
-    $chk->bind_param('s', $newBranch);
-    $chk->execute();
-    $chk->store_result();
-
-    if ($chk->num_rows > 0) {
-        $_SESSION['branch_id'] = $newBranch;
-    }
-    $chk->close();
-
-    if ($remember && !$isPreferred) {
-        $stmt = $conn->prepare(
-            "UPDATE users SET preferred_branch_id = ? WHERE user_id = ?"
+    if ($newBranch !== '') {
+        $chk = $conn->prepare(
+            "SELECT branch_id FROM branches WHERE branch_id = ? AND status = 'ACTIVE' LIMIT 1"
         );
-        $stmt->bind_param('ss', $_SESSION['branch_id'], $userId);
-        $stmt->execute();
-        $stmt->close();
-    } elseif (!$remember && $isPreferred) {
-        $stmt = $conn->prepare(
-            "UPDATE users SET preferred_branch_id = NULL WHERE user_id = ?"
-        );
-        $stmt->bind_param('s', $userId);
-        $stmt->execute();
-        $stmt->close();
+        $chk->bind_param('s', $newBranch);
+        $chk->execute();
+        $chk->store_result();
+
+        if ($chk->num_rows > 0) {
+            // Update session
+            $_SESSION['branch_id'] = $newBranch;
+            // Save permanently to DB
+            $stmt = $conn->prepare(
+                "UPDATE users SET preferred_branch_id = ? WHERE user_id = ?"
+            );
+            $stmt->bind_param('ss', $newBranch, $userId);
+            $stmt->execute();
+            $stmt->close();
+        }
+        $chk->close();
     }
 
     header('Location: c_dashboard.php');
@@ -82,11 +64,13 @@ if (!empty($_SESSION['branch_id'])) {
     $stmt->close();
 }
 
-// ── 1. Active orders ──────────────────────────────────────────
+// ── 1. Active reservations ────────────────────────────────────
+// Customers only ever create PREORDERs (walk-in ORDERs come
+// from staff via POS). Count all active pre-orders.
 $stmt = $conn->prepare(
     "SELECT COUNT(*) AS cnt FROM orders
      WHERE user_id = ?
-       AND order_type = 'ORDER'
+       AND order_type = 'PREORDER'
        AND order_status NOT IN ('CANCELLED','COLLECTED')"
 );
 $stmt->bind_param('s', $userId);
@@ -128,28 +112,14 @@ $stmt->execute();
 $pendingPayment = $stmt->get_result()->fetch_assoc()['total'] ?? 0;
 $stmt->close();
 
-// ── 5. Recent orders (last 5) ─────────────────────────────────
-$stmt = $conn->prepare(
-    "SELECT order_id, order_date, order_status, estimated_total
-     FROM orders
-     WHERE user_id = ?
-       AND order_type = 'ORDER'
-     ORDER BY order_date DESC
-     LIMIT 5"
-);
-$stmt->bind_param('s', $userId);
-$stmt->execute();
-$recentOrders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-$stmt->close();
-
-// ── 6. Recent pre-orders (last 3) ────────────────────────────
+// ── 5. Recent pre-orders (last 5) ────────────────────────────
 $stmt = $conn->prepare(
     "SELECT order_id AS preorder_id, order_date, order_status, notes, estimated_total
      FROM orders
      WHERE user_id = ?
        AND order_type = 'PREORDER'
      ORDER BY order_date DESC
-     LIMIT 3"
+     LIMIT 5"
 );
 $stmt->bind_param('s', $userId);
 $stmt->execute();
@@ -341,22 +311,28 @@ function orderStatusBadge(string $status): string {
                        cursor:pointer;outline:none;transition:background 0.2s;">
                 <i class="fas fa-store"></i>
                 <span><?= htmlspecialchars($currentBranch ?? 'Select Branch') ?></span>
-                <?php if ($isPreferred): ?>
-                    <i class="fas fa-star" style="color:#f59e0b;font-size:11px;"></i>
-                <?php endif; ?>
                 <i class="fas fa-chevron-down" style="font-size:11px;opacity:0.6;"></i>
             </button>
 
             <div id="branchPanel"
                  style="display:none;position:absolute;top:calc(100% + 8px);right:0;
                         background:white;border:1.5px solid var(--border);border-radius:12px;
-                        box-shadow:0 8px 24px rgba(0,0,0,0.1);padding:16px;min-width:240px;z-index:100;">
+                        box-shadow:0 8px 24px rgba(0,0,0,0.1);padding:18px;min-width:260px;z-index:100;">
                 <form method="POST" action="c_dashboard.php">
                     <input type="hidden" name="switch_branch" value="1">
-                    <p style="font-size:11px;font-weight:600;color:var(--text-secondary);
-                              text-transform:uppercase;letter-spacing:0.6px;margin-bottom:10px;">
-                        Select Branch
+
+                    <p style="font-size:11px;font-weight:700;color:var(--text-secondary);
+                              text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">
+                        <i class="fas fa-star" style="color:#f59e0b;"></i>
+                        Your Preferred Branch
                     </p>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.5;">
+                        Saved permanently to your account.<br>
+                        To browse a different branch without changing your preference,
+                        use the selector on the <a href="c_viewproducts.php"
+                        style="color:var(--primary);font-weight:600;">products page</a>.
+                    </p>
+
                     <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;">
                         <?php foreach ($branchList as $b): ?>
                         <label style="display:flex;align-items:center;gap:10px;padding:9px 12px;
@@ -368,20 +344,19 @@ function orderStatusBadge(string $status): string {
                             <input type="radio" name="branch_id"
                                    value="<?= htmlspecialchars($b['branch_id']) ?>"
                                    <?= ($activeBranchId === $b['branch_id']) ? 'checked' : '' ?>
-                                   onchange="this.form.submit()"
                                    style="accent-color:var(--primary);">
                             <?= htmlspecialchars($b['branch_name']) ?>
                         </label>
                         <?php endforeach; ?>
                     </div>
-                    <hr style="border:none;border-top:1px solid var(--border);margin-bottom:12px;">
-                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text-secondary);">
-                        <input type="checkbox" name="remember_branch" value="1"
-                               <?= $isPreferred ? 'checked' : '' ?>
-                               style="accent-color:#f59e0b;width:15px;height:15px;">
-                        <i class="fas fa-star" style="color:#f59e0b;font-size:13px;"></i>
-                        Remember as preferred branch
-                    </label>
+
+                    <button type="submit"
+                            style="width:100%;padding:10px;background:var(--primary);color:white;
+                                   border:none;border-radius:8px;font-size:13px;font-weight:700;
+                                   cursor:pointer;display:flex;align-items:center;justify-content:center;
+                                   gap:8px;transition:background 0.2s;">
+                        <i class="fas fa-star"></i> Save as My Branch
+                    </button>
                 </form>
             </div>
         </div>
@@ -393,8 +368,8 @@ function orderStatusBadge(string $status): string {
         <div class="welcome-card">
             <h2 class="welcome-title">Welcome back, <?= htmlspecialchars($userName) ?>!</h2>
             <p class="welcome-subtitle">
-                You have <strong><?= $activeOrders ?></strong> active order(s) and
-                <strong><?= $pendingPreorders ?></strong> pending pre-order(s).
+                You have <strong><?= $activeOrders ?></strong> active reservation<?= $activeOrders !== 1 ? 's' : '' ?> and
+                <strong><?= $pendingPreorders ?></strong> awaiting processing.
                 Use the sidebar or quick actions below to manage your stationery needs.
             </p>
         </div>
@@ -402,9 +377,9 @@ function orderStatusBadge(string $status): string {
         <!-- Stats -->
         <div class="dashboard-stats">
             <div class="stat-card">
-                <div class="stat-title"><i class="fas fa-clipboard-list"></i> Active Orders</div>
+                <div class="stat-title"><i class="fas fa-clipboard-list"></i> Active Reservations</div>
                 <div class="stat-value"><?= $activeOrders ?></div>
-                <div class="stat-detail">Orders in progress</div>
+                <div class="stat-detail">Pre-orders in progress</div>
             </div>
             <div class="stat-card">
                 <div class="stat-title"><i class="fas fa-clock"></i> Pending Pre-orders</div>
@@ -511,38 +486,6 @@ function orderStatusBadge(string $status): string {
             </div>
         </div>
 
-        <!-- Recent Orders -->
-        <div class="content-section">
-            <h3 class="section-title"><i class="fas fa-shopping-bag"></i> Recent Orders</h3>
-            <div class="table-card">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Order ID</th><th>Date</th><th>Total (RM)</th><th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if (empty($recentOrders)): ?>
-                            <tr class="empty-row">
-                                <td colspan="4">No orders yet.
-                                    <a href="c_viewproducts.php" style="color:var(--primary);">Browse products</a> to get started.
-                                </td>
-                            </tr>
-                        <?php else: ?>
-                            <?php foreach ($recentOrders as $o): ?>
-                            <tr>
-                                <td><span class="order-id"><?= htmlspecialchars($o['order_id']) ?></span></td>
-                                <td><?= date('d M Y', strtotime($o['order_date'])) ?></td>
-                                <td>RM <?= number_format($o['estimated_total'] ?? 0, 2) ?></td>
-                                <td><?= orderStatusBadge($o['order_status']) ?></td>
-                            </tr>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
         <!-- Recent Pre-orders -->
         <div class="content-section">
             <h3 class="section-title"><i class="fas fa-clock"></i> Recent Pre-orders</h3>
@@ -587,7 +530,7 @@ function orderStatusBadge(string $status): string {
 
 </main>
 
-<!-- Branch popup (first visit) -->
+<!-- Branch popup (first login — no preferred branch set yet) -->
 <?php if ($showBranchPopup): ?>
 <div id="branchPopup"
      style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:999;
@@ -599,9 +542,15 @@ function orderStatusBadge(string $status): string {
                     font-size:24px;color:var(--primary);">
             <i class="fas fa-store"></i>
         </div>
-        <h2 style="font-size:20px;font-weight:700;margin-bottom:8px;">Select Your Branch</h2>
-        <p style="font-size:14px;color:var(--text-secondary);margin-bottom:24px;">
-            Choose the branch you'd like to shop from. You can change this anytime.
+        <h2 style="font-size:20px;font-weight:700;margin-bottom:8px;">Welcome! Choose Your Branch</h2>
+        <p style="font-size:14px;color:var(--text-secondary);margin-bottom:6px;">
+            Which branch will you be collecting from?
+        </p>
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:24px;
+                  background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;">
+            <i class="fas fa-star" style="color:#f59e0b;"></i>
+            This will be saved as your <strong>preferred branch</strong>.
+            You can change it anytime from your dashboard.
         </p>
         <form method="POST" action="c_dashboard.php">
             <input type="hidden" name="switch_branch" value="1">

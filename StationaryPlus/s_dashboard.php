@@ -16,21 +16,18 @@ $userName = $_SESSION['user_name'];
 $branchId = $_SESSION['branch_id'] ?? null;
  
 // ── Stat 1: Confirmed orders to process (NEW or PROCESSING) ───
-$stmt = $conn->prepare(
-    "SELECT COUNT(*) AS cnt FROM orders
-     WHERE order_type = 'ORDER'
-       AND order_status IN ('NEW','PROCESSING')"
-);
+$stmt = $branchId
+    ? $conn->prepare("SELECT COUNT(*) AS cnt FROM orders WHERE order_type = 'ORDER' AND order_status IN ('NEW','PROCESSING') AND branch_id = ?")
+    : $conn->prepare("SELECT COUNT(*) AS cnt FROM orders WHERE order_type = 'ORDER' AND order_status IN ('NEW','PROCESSING')");
+if ($branchId) $stmt->bind_param('s', $branchId);
 $stmt->execute();
 $ordersToProcess = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
 $stmt->close();
- 
-$stmt = $conn->prepare(
-    "SELECT COUNT(*) AS cnt FROM orders
-     WHERE order_type = 'ORDER'
-       AND order_status = 'NEW'
-       AND DATE(order_date) = CURDATE()"
-);
+
+$stmt = $branchId
+    ? $conn->prepare("SELECT COUNT(*) AS cnt FROM orders WHERE order_type = 'ORDER' AND order_status = 'NEW' AND DATE(order_date) = CURDATE() AND branch_id = ?")
+    : $conn->prepare("SELECT COUNT(*) AS cnt FROM orders WHERE order_type = 'ORDER' AND order_status = 'NEW' AND DATE(order_date) = CURDATE()");
+if ($branchId) $stmt->bind_param('s', $branchId);
 $stmt->execute();
 $newToday = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
 $stmt->close();
@@ -55,9 +52,10 @@ $criticalCount = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
 $stmt->close();
  
 // ── Stat 3: Pending payments to verify (unchanged) ────────────
-$stmt = $conn->prepare(
-    "SELECT COUNT(*) AS cnt FROM payments WHERE verification_status = 'PENDING'"
-);
+$stmt = $branchId
+    ? $conn->prepare("SELECT COUNT(*) AS cnt FROM payments p JOIN orders o ON p.order_id = o.order_id WHERE p.verification_status = 'PENDING' AND o.branch_id = ?")
+    : $conn->prepare("SELECT COUNT(*) AS cnt FROM payments WHERE verification_status = 'PENDING'");
+if ($branchId) $stmt->bind_param('s', $branchId);
 $stmt->execute();
 $pendingPayments = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
 $stmt->close();
@@ -65,11 +63,10 @@ $stmt->close();
 // ── Stat 4: Pre-orders awaiting staff action ──────────────────
 //  Was: SELECT COUNT(*) FROM preorders WHERE order_status='SUBMITTED'
 //  Now: unified table, order_type='PREORDER', initial status is 'NEW'
-$stmt = $conn->prepare(
-    "SELECT COUNT(*) AS cnt FROM orders
-     WHERE order_type = 'PREORDER'
-       AND order_status = 'NEW'"
-);
+$stmt = $branchId
+    ? $conn->prepare("SELECT COUNT(*) AS cnt FROM orders WHERE order_type = 'PREORDER' AND order_status = 'NEW' AND branch_id = ?")
+    : $conn->prepare("SELECT COUNT(*) AS cnt FROM orders WHERE order_type = 'PREORDER' AND order_status = 'NEW'");
+if ($branchId) $stmt->bind_param('s', $branchId);
 $stmt->execute();
 $pendingPreorders = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
 $stmt->close();
@@ -87,10 +84,12 @@ $stmt = $conn->prepare(
      JOIN users u ON o.user_id = u.user_id
      LEFT JOIN order_items oi ON o.order_id = oi.order_id
      WHERE o.order_type = 'ORDER'
+       " . ($branchId ? "AND o.branch_id = ?" : "") . "
      GROUP BY o.order_id
      ORDER BY o.order_date DESC
      LIMIT 8"
 );
+if ($branchId) $stmt->bind_param('s', $branchId);
 $stmt->execute();
 $recentOrders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();

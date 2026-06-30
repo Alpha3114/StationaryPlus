@@ -23,7 +23,8 @@ if (!$id) {
 
 // Verify order belongs to this customer
 $stmt = $conn->prepare(
-    "SELECT order_id, order_type, order_date, order_status, estimated_total, notes
+    "SELECT order_id, order_type, order_date, order_status,
+            estimated_total, notes, cancellation_reason
      FROM orders WHERE order_id = ? AND user_id = ? LIMIT 1"
 );
 $stmt->bind_param('ss', $id, $userId);
@@ -80,13 +81,14 @@ $printTotal = array_reduce($printFiles, fn($s, $f) => $s + (float)$f['estimated_
 $total      = $itemsTotal + $printTotal;
 
 echo json_encode([
-    'id'          => $order['order_id'],
-    'type'        => $order['order_type'],
-    'date'        => date('d M Y, H:i', strtotime($order['order_date'])),
-    'status'      => $order['order_status'],
-    'total'       => $total,
-    'notes'       => $order['notes'],
-    'items'       => $items,
-    'print_files' => $printFiles,
-    'pay_status'  => $payStatus,
+    'id'                  => $order['order_id'],
+    'type'                => $order['order_type'],
+    'date'                => date('d M Y, H:i', strtotime($order['order_date'])),
+    'status'              => $order['order_status'],
+    'total'               => $total,
+    'notes'               => $order['notes'],
+    'cancellation_reason' => $order['cancellation_reason'],
+    'items'               => $items,
+    'print_files'         => $printFiles,
+    'pay_status'          => $payStatus,
 ]);

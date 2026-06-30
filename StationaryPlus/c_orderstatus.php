@@ -10,6 +10,47 @@ require_once 'db.php';
 
 $userId = $_SESSION['user_id'];
 
+// ── Handle customer order cancellation ────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancel_order'])) {
+    $cancelId = trim($_POST['order_id']     ?? '');
+    $reason   = trim($_POST['cancel_reason'] ?? '') ?: null;
+
+    if ($cancelId) {
+        // Verify: belongs to customer, is a PREORDER, is still NEW,
+        // and has no PENDING or VALID payment
+        $stmt = $conn->prepare(
+            "SELECT o.order_id FROM orders o
+             WHERE o.order_id   = ?
+               AND o.user_id    = ?
+               AND o.order_type = 'PREORDER'
+               AND o.order_status = 'NEW'
+               AND o.order_id NOT IN (
+                   SELECT p.order_id FROM payments p
+                   WHERE p.verification_status IN ('VALID','PENDING')
+               )
+             LIMIT 1"
+        );
+        $stmt->bind_param('ss', $cancelId, $userId);
+        $stmt->execute();
+        $ok = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if ($ok) {
+            $stmt = $conn->prepare(
+                "UPDATE orders
+                 SET order_status = 'CANCELLED', cancellation_reason = ?
+                 WHERE order_id = ?"
+            );
+            $stmt->bind_param('ss', $reason, $cancelId);
+            $stmt->execute();
+            $stmt->close();
+        }
+    }
+
+    header('Location: c_orderstatus.php');
+    exit;
+}
+
 $filterType   = $_GET['type']   ?? 'all';
 $filterStatus = $_GET['status'] ?? 'all';
 $filterPeriod = $_GET['period'] ?? '30';
@@ -45,6 +86,7 @@ $sql = "SELECT
             o.estimated_total     AS amount,
             o.order_type          AS type,
             o.notes,
+            o.cancellation_reason AS cancellation_reason,
             pf.file_id            AS pf_file_id,
             pf.file_name          AS pf_file_name,
             pf.file_status        AS pf_file_status,
@@ -166,6 +208,8 @@ function paymentBadge(?string $status): string {
         .order-date { color:var(--text-secondary);font-size:13px; }
         .detail-btn { padding:7px 14px;background-color:rgba(168,53,53,0.08);color:var(--primary);border:1px solid rgba(168,53,53,0.3);border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;white-space:nowrap; }
         .detail-btn:hover { background-color:rgba(168,53,53,0.16); }
+        .cancel-order-btn { padding:7px 14px;background:rgba(239,68,68,0.08);color:#dc2626;border:1px solid rgba(239,68,68,0.3);border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;white-space:nowrap;margin-left:6px; }
+        .cancel-order-btn:hover { background:#dc2626;color:white;border-color:#dc2626; }
         .resubmit-link { display:inline-flex;align-items:center;gap:5px;margin-top:5px;font-size:11px;font-weight:600;color:#dc2626;text-decoration:none;padding:3px 8px;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;transition:all 0.15s; }
         .resubmit-link:hover { background:#dc2626;color:white; }
         .empty-state { padding:60px 20px;text-align:center;color:var(--text-secondary); }
@@ -267,7 +311,20 @@ function paymentBadge(?string $status): string {
                         <td><?= typeBadge($row['type']) ?></td>
                         <td class="order-date"><?= date('d M Y', strtotime($row['order_date'])) ?></td>
                         <td><?= $row['amount'] !== null ? 'RM '.number_format($row['amount'],2) : '—' ?></td>
-                        <td><?= statusBadge($row['status']) ?></td>
+                        <td><?= statusBadge($row['status']) ?>
+                            <?php if ($row['status'] === 'CANCELLED' && !empty($row['cancellation_reason'])): ?>
+                            <div style="margin-top:6px;padding:7px 11px;
+                                        background:#fef2f2;border:1px solid #fca5a5;
+                                        border-radius:7px;font-size:12px;color:#991b1b;
+                                        display:flex;align-items:flex-start;gap:6px;">
+                                <i class="fas fa-times-circle" style="flex-shrink:0;margin-top:2px;"></i>
+                                <div>
+                                    <strong>Reason:</strong>
+                                    <?= htmlspecialchars($row['cancellation_reason']) ?>
+                                </div>
+                            </div>
+                            <?php endif; ?>
+                        </td>
 
                         <!-- Payment status column -->
                         <td style="padding:10px 16px;">
@@ -362,6 +419,17 @@ function paymentBadge(?string $status): string {
                                     onclick="openModal('<?= htmlspecialchars($row['id'], ENT_QUOTES) ?>')">
                                 <i class="fas fa-eye"></i> Details
                             </button>
+                            <?php
+                            $isCancellable = $row['type'] === 'PREORDER'
+                                          && $row['status'] === 'NEW'
+                                          && ($row['pay_status'] ?? null) === null;
+                            ?>
+                            <?php if ($isCancellable): ?>
+                            <button class="cancel-order-btn"
+                                    onclick="openCancelModal('<?= htmlspecialchars($row['id'], ENT_QUOTES) ?>')">
+                                <i class="fas fa-times"></i> Cancel
+                            </button>
+                            <?php endif; ?>
                         </td>
                     </tr>
                     <?php endforeach; ?>
@@ -388,6 +456,57 @@ function paymentBadge(?string $status): string {
             <button class="modal-close" onclick="closeModal()"><i class="fas fa-times"></i></button>
         </div>
         <div class="modal-body" id="modalBody"></div>
+    </div>
+</div>
+
+<!-- Cancel order confirmation modal -->
+<div class="modal-overlay" id="cancelModalOverlay" onclick="if(event.target===this)closeCancelModal()">
+    <div class="modal" style="max-width:420px;">
+        <div class="modal-header">
+            <div class="modal-title" style="color:#dc2626;">
+                <i class="fas fa-times-circle"></i> Cancel Order
+            </div>
+            <button class="modal-close" onclick="closeCancelModal()"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <p style="font-size:14px;color:var(--text-secondary);margin-bottom:16px;line-height:1.6;">
+                Are you sure you want to cancel order
+                <strong id="cancelOrderLabel" style="color:var(--text-primary);font-family:monospace;"></strong>?
+                This cannot be undone.
+            </p>
+            <form method="POST" action="c_orderstatus.php">
+                <input type="hidden" name="cancel_order" value="1">
+                <input type="hidden" name="order_id" id="cancelOrderInput" value="">
+                <label style="display:block;font-size:13px;font-weight:600;
+                              color:var(--text-primary);margin-bottom:7px;">
+                    Reason <span style="font-weight:400;color:var(--text-secondary);">(optional — helps us improve)</span>
+                </label>
+                <textarea name="cancel_reason"
+                          placeholder="e.g. Changed my mind, ordered by mistake…"
+                          style="width:100%;padding:10px 12px;border:1.5px solid var(--border);
+                                 border-radius:8px;font-size:13px;resize:none;min-height:80px;
+                                 font-family:inherit;background:var(--accent);outline:none;
+                                 transition:border-color 0.2s;color:var(--text-primary);"
+                          onfocus="this.style.borderColor='var(--primary)'"
+                          onblur="this.style.borderColor='var(--border)'"></textarea>
+                <div style="display:flex;gap:10px;margin-top:16px;">
+                    <button type="button" onclick="closeCancelModal()"
+                            style="flex:1;padding:11px;background:var(--accent);
+                                   color:var(--text-primary);border:1.5px solid var(--border);
+                                   border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;">
+                        Keep Order
+                    </button>
+                    <button type="submit"
+                            style="flex:1;padding:11px;background:#dc2626;color:white;
+                                   border:none;border-radius:8px;font-size:14px;font-weight:600;
+                                   cursor:pointer;transition:background 0.2s;"
+                            onmouseover="this.style.background='#b91c1c'"
+                            onmouseout="this.style.background='#dc2626'">
+                        <i class="fas fa-times-circle"></i> Yes, Cancel Order
+                    </button>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
 
@@ -484,6 +603,11 @@ function renderReceipt(d) {
         <div class="detail-row"><span class="detail-label">Date</span><span class="detail-value">${esc(d.date)}</span></div>
         <div class="detail-row"><span class="detail-label">Order Status</span><span class="detail-value">${esc(d.status)}</span></div>
         <div class="detail-row"><span class="detail-label">Payment</span><span class="detail-value">${payBadge}</span></div>
+        ${d.status === 'CANCELLED' && d.cancellation_reason ? `
+        <div class="detail-row" style="background:#fef2f2;border-radius:7px;padding:10px 12px;margin-top:4px;">
+            <span class="detail-label" style="color:#dc2626;"><i class="fas fa-times-circle"></i> Cancellation Reason</span>
+            <span class="detail-value" style="color:#991b1b;">${esc(d.cancellation_reason)}</span>
+        </div>` : ''}
         ${d.notes ? `<div class="detail-row"><span class="detail-label">Notes</span><span class="detail-value">${esc(d.notes)}</span></div>` : ''}
 
         ${itemsHtml}
@@ -506,6 +630,17 @@ function renderReceipt(d) {
                 <i class="fas fa-paper-plane"></i> Submit Payment
             </a>
         </div>` : ''}
+        <div style="margin-top:14px;text-align:center;">
+            <a href="receipt.php?id=${esc(d.id)}" target="_blank"
+               style="display:inline-flex;align-items:center;gap:8px;padding:9px 20px;
+                      background:#f3f4f6;color:#374151;border:1.5px solid #e5e7eb;
+                      border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;
+                      transition:all 0.2s;"
+               onmouseover="this.style.borderColor='var(--primary)';this.style.color='var(--primary)'"
+               onmouseout="this.style.borderColor='#e5e7eb';this.style.color='#374151'">
+                <i class="fas fa-print"></i> Print Receipt
+            </a>
+        </div>
     `;
 }
 
@@ -514,7 +649,19 @@ function closeModal() {
     document.getElementById('modalBody').innerHTML = '';
 }
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+function openCancelModal(orderId) {
+    document.getElementById('cancelOrderLabel').textContent = orderId;
+    document.getElementById('cancelOrderInput').value       = orderId;
+    document.getElementById('cancelModalOverlay').classList.add('open');
+}
+
+function closeCancelModal() {
+    document.getElementById('cancelModalOverlay').classList.remove('open');
+}
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closeModal(); closeCancelModal(); }
+});
 
 function esc(s) {
     if (!s) return '';

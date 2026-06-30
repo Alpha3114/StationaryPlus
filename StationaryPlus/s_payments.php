@@ -31,7 +31,15 @@ $activeFilterCount = (int)($sortOrder!=='newest') + (int)($methodFilter!=='all')
 
 // ── Status counts ─────────────────────────────────────────────
 $counts = ['ALL' => 0, 'PENDING' => 0, 'VALID' => 0, 'INVALID' => 0];
-$res = $conn->query("SELECT p.verification_status, COUNT(*) AS cnt FROM payments p JOIN orders o ON p.order_id = o.order_id GROUP BY p.verification_status");
+$countSQL = "SELECT p.verification_status, COUNT(*) AS cnt FROM payments p JOIN orders o ON p.order_id = o.order_id";
+if ($branchId) {
+    $cStmt = $conn->prepare($countSQL . " WHERE o.branch_id = ? GROUP BY p.verification_status");
+    $cStmt->bind_param('s', $branchId);
+    $cStmt->execute();
+    $res = $cStmt->get_result();
+} else {
+    $res = $conn->query($countSQL . " GROUP BY p.verification_status");
+}
 while ($r = $res->fetch_assoc()) {
     if (isset($counts[$r['verification_status']])) $counts[$r['verification_status']] = (int)$r['cnt'];
     $counts['ALL'] += (int)$r['cnt'];
@@ -42,6 +50,11 @@ $where  = ['1=1'];
 $params = [];
 $types  = '';
 
+if ($branchId) {
+    $where[]  = 'o.branch_id = ?';
+    $params[] = $branchId;
+    $types   .= 's';
+}
 if ($filterStatus !== 'ALL') {
     $where[]  = 'p.verification_status = ?';
     $params[] = $filterStatus;

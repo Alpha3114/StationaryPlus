@@ -522,6 +522,10 @@ function pageUrl(int $p): string {
                 </option>
             <?php endforeach; ?>
         </select>
+        <p style="font-size:11px;color:var(--text-secondary);margin-top:5px;white-space:nowrap;">
+            Browsing only —
+            <a href="c_dashboard.php" style="color:var(--primary);font-weight:600;">set preferred branch</a>
+        </p>
     </form>
 
     <!-- Cart link -->
