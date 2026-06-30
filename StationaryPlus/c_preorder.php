@@ -331,6 +331,25 @@ if (!empty($_SESSION['cart'])) {
         @media(max-width:1024px){:root{--sidebar-width:70px;}.logo-text,.nav-text,.user-details,.nav-title,.logout-link span{display:none;}.logo-area,.nav-section,.user-section{padding:18px 12px;}.nav-link{justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent;}.nav-link:hover,.nav-link.active{border-left:none;border-right-color:var(--primary);}.nav-icon{margin-right:0;font-size:20px;}.logout-link{justify-content:center;padding:10px;}}
         @media(max-width:900px){.content-container{grid-template-columns:1fr;}.summary-panel{position:static;}}
         @media(max-width:600px){.cart-table-head,.cart-row{grid-template-columns:1fr 80px 30px;}.cart-table-head .col-price,.item-price{display:none;}}
+        /* ── Custom Dialog (replaces native alert/confirm) ── */
+        .custom-dialog-overlay { display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center; }
+        .custom-dialog-overlay.show { display:flex; }
+        .custom-dialog-box { background:white;border-radius:12px;width:90%;max-width:400px;padding:28px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,0.2);text-align:center;animation:dialogPop 0.15s ease; }
+        @keyframes dialogPop { from{transform:scale(0.95);opacity:0;} to{transform:scale(1);opacity:1;} }
+        .custom-dialog-icon { width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:22px; }
+        .custom-dialog-icon.dialog-info { background:#eff6ff;color:#1d4ed8; }
+        .custom-dialog-icon.dialog-success { background:#ecfdf5;color:#059669; }
+        .custom-dialog-icon.dialog-error { background:#fef2f2;color:#dc2626; }
+        .custom-dialog-icon.dialog-warning { background:#fffbeb;color:#d97706; }
+        .custom-dialog-message { font-size:14px;color:#2E2E2E;line-height:1.6;margin-bottom:22px;white-space:pre-line; }
+        .custom-dialog-actions { display:flex;gap:10px; }
+        .custom-dialog-btn { flex:1;padding:11px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:background 0.2s ease; }
+        .custom-dialog-cancel { background:#F1EDE8;color:#2E2E2E;border:1.5px solid #E0E0E0; }
+        .custom-dialog-cancel:hover { background:#e8e2da; }
+        .custom-dialog-confirm { background:#A83535;color:white; }
+        .custom-dialog-confirm:hover { background:#8b2a2a; }
+        .custom-dialog-danger { background:#dc2626;color:white; }
+        .custom-dialog-danger:hover { background:#b91c1c; }
     </style>
 </head>
 <body>
@@ -365,7 +384,7 @@ if (!empty($_SESSION['cart'])) {
                 </div>
                 <?php if (!empty($cartItems)): ?>
                 <a href="c_preorder.php?action=clear" class="clear-link"
-                   onclick="return confirm('Clear all items from your cart?')">
+                   onclick="return confirmClearCart(event, this)">
                     <i class="fas fa-trash"></i> Clear all
                 </a>
                 <?php endif; ?>
@@ -471,7 +490,7 @@ if (!empty($_SESSION['cart'])) {
 
                     <button type="submit" name="submit_preorder" class="submit-btn"
                             <?= empty($cartItems) ? 'disabled' : '' ?>
-                            <?= !empty($cartItems) ? 'onclick="return confirm(\'Submit this pre-order?\')"' : '' ?>>
+                            <?= !empty($cartItems) ? 'onclick="return confirmSubmitPreorder(event, this)"' : '' ?>>
                         <i class="fas fa-paper-plane"></i> Submit Pre-order
                     </button>
                 </form>
@@ -490,7 +509,90 @@ if (!empty($_SESSION['cart'])) {
     </footer>
 </main>
 
+<!-- Custom Dialog -->
+<div id="customDialogOverlay" class="custom-dialog-overlay">
+    <div class="custom-dialog-box">
+        <div class="custom-dialog-icon" id="customDialogIcon"><i class="fas fa-info-circle"></i></div>
+        <p class="custom-dialog-message" id="customDialogMessage"></p>
+        <div class="custom-dialog-actions">
+            <button class="custom-dialog-btn custom-dialog-cancel" id="customDialogCancelBtn" style="display:none;">Cancel</button>
+            <button class="custom-dialog-btn custom-dialog-confirm" id="customDialogConfirmBtn">OK</button>
+        </div>
+    </div>
+</div>
+
 <script>
+// ── Custom Dialog System (replaces native alert()/confirm()) ──
+const ICONS = {
+    info:    '<i class="fas fa-info-circle"></i>',
+    success: '<i class="fas fa-check-circle"></i>',
+    error:   '<i class="fas fa-exclamation-circle"></i>',
+    warning: '<i class="fas fa-exclamation-triangle"></i>',
+};
+function customAlert(message, type = 'info') {
+    return new Promise(resolve => {
+        const overlay = document.getElementById('customDialogOverlay');
+        const icon = document.getElementById('customDialogIcon');
+        const msgEl = document.getElementById('customDialogMessage');
+        const cancelBtn = document.getElementById('customDialogCancelBtn');
+        const confirmBtn = document.getElementById('customDialogConfirmBtn');
+        msgEl.textContent = message;
+        icon.className = 'custom-dialog-icon dialog-' + type;
+        icon.innerHTML = ICONS[type] || ICONS.info;
+        cancelBtn.style.display = 'none';
+        confirmBtn.textContent = 'OK';
+        confirmBtn.className = 'custom-dialog-btn custom-dialog-confirm';
+        overlay.classList.add('show');
+        const onOk = () => { overlay.classList.remove('show'); confirmBtn.removeEventListener('click', onOk); resolve(); };
+        confirmBtn.addEventListener('click', onOk);
+    });
+}
+function customConfirm(message, options = {}) {
+    return new Promise(resolve => {
+        const overlay = document.getElementById('customDialogOverlay');
+        const icon = document.getElementById('customDialogIcon');
+        const msgEl = document.getElementById('customDialogMessage');
+        const cancelBtn = document.getElementById('customDialogCancelBtn');
+        const confirmBtn = document.getElementById('customDialogConfirmBtn');
+        const type = options.danger ? 'warning' : 'info';
+        msgEl.textContent = message;
+        icon.className = 'custom-dialog-icon dialog-' + type;
+        icon.innerHTML = options.danger ? ICONS.warning : '<i class="fas fa-question-circle"></i>';
+        cancelBtn.style.display = 'inline-flex';
+        cancelBtn.textContent = options.cancelText || 'Cancel';
+        confirmBtn.textContent = options.confirmText || 'Confirm';
+        confirmBtn.className = 'custom-dialog-btn ' + (options.danger ? 'custom-dialog-danger' : 'custom-dialog-confirm');
+        overlay.classList.add('show');
+        const cleanup = (result) => {
+            overlay.classList.remove('show');
+            confirmBtn.removeEventListener('click', onYes);
+            cancelBtn.removeEventListener('click', onNo);
+            resolve(result);
+        };
+        const onYes = () => cleanup(true);
+        const onNo  = () => cleanup(false);
+        confirmBtn.addEventListener('click', onYes);
+        cancelBtn.addEventListener('click', onNo);
+    });
+}
+
+// ── Page-specific confirm helpers ──────────────────────────────
+// confirm() is synchronous and can return false inline; our custom
+// dialog is async, so these intercept the default action, await the
+// dialog, then manually proceed (navigate / submit) if confirmed.
+function confirmClearCart(e, link) {
+    e.preventDefault();
+    customConfirm('Clear all items from your cart?', { danger: true, confirmText: 'Clear Cart' })
+        .then(ok => { if (ok) window.location.href = link.href; });
+    return false;
+}
+function confirmSubmitPreorder(e, btn) {
+    e.preventDefault();
+    customConfirm('Submit this pre-order?', { confirmText: 'Submit' })
+        .then(ok => { if (ok) btn.closest('form').submit(); });
+    return false;
+}
+
 // +/- buttons update both the visible input AND the hidden mirror in the form
 document.querySelectorAll('.qty-btn').forEach(btn => {
     btn.addEventListener('click', function () {

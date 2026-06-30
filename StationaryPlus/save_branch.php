@@ -11,7 +11,13 @@ $branch_id = trim($_POST['branch_id'] ?? '');
 $branch_name = trim($_POST['branch_name'] ?? '');
 $address = trim($_POST['address'] ?? '');
 $phone_number = trim($_POST['phone_number'] ?? '');
-$status = trim($_POST['status'] ?? 'Active');
+$status = trim($_POST['status'] ?? 'ACTIVE');
+
+// Normalize to the DB's uppercase enum convention regardless of what's posted
+$status = strtoupper($status);
+if (!in_array($status, ['ACTIVE', 'INACTIVE', 'RENOVATION'])) {
+    $status = 'ACTIVE';
+}
 
 if ($branch_name === '') {
     echo json_encode(['success' => false, 'error' => 'Branch name is required']);

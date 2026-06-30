@@ -93,6 +93,127 @@ if (isset($_GET['updated'])) {
     }
 }
 
+// ── Handle restock request submission ──────────────────────────
+$rrMsg     = '';
+$rrMsgType = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_restock'])) {
+    $productId = trim($_POST['product_id'] ?? '');
+    $reqQty    = (int)($_POST['requested_qty'] ?? 0);
+    $staffNote = trim($_POST['staff_note'] ?? '') ?: null;
+    $reqBranch = $branchId; // staff can only request for their own branch
+
+    if (!$reqBranch) {
+        $rrMsg = "You must be assigned to a branch to request a restock.";
+        $rrMsgType = 'error';
+    } elseif (!$productId || $reqQty < 1) {
+        $rrMsg = "Please select a product and enter a valid quantity.";
+        $rrMsgType = 'error';
+    } else {
+        // Duplicate check — block if a PENDING or ORDERED request already
+        // exists for the same product + branch combo.
+        $dupStmt = $conn->prepare(
+            "SELECT request_id FROM restock_requests
+             WHERE product_id = ? AND branch_id = ? AND status IN ('PENDING','ORDERED')
+             LIMIT 1"
+        );
+        $dupStmt->bind_param('ss', $productId, $reqBranch);
+        $dupStmt->execute();
+        $dupStmt->store_result();
+        $isDuplicate = $dupStmt->num_rows > 0;
+        $dupStmt->close();
+
+        if ($isDuplicate) {
+            $rrMsg = "A restock request for this item is already in progress for your branch.";
+            $rrMsgType = 'error';
+        } else {
+            $requestId = 'RR-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6));
+            $stmt = $conn->prepare(
+                "INSERT INTO restock_requests
+                    (request_id, product_id, branch_id, requested_qty, source, status, requested_by, staff_note)
+                 VALUES (?, ?, ?, ?, 'MANUAL', 'PENDING', ?, ?)"
+            );
+            $stmt->bind_param('sssiss', $requestId, $productId, $reqBranch, $reqQty, $userId, $staffNote);
+            $stmt->execute();
+            $stmt->close();
+
+            $rrMsg = "Restock request submitted. An admin will review it shortly.";
+            $rrMsgType = 'success';
+        }
+    }
+}
+
+// ── Handle marking a restock request as RECEIVED ───────────────
+// This is the ONLY point in the restock workflow where stock_quantity
+// actually increases — Accept/Reject by admin never touches stock.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_received'])) {
+    $requestId = trim($_POST['request_id'] ?? '');
+
+    if ($requestId) {
+        $stmt = $conn->prepare(
+            "SELECT product_id, branch_id, requested_qty FROM restock_requests
+             WHERE request_id = ? AND status = 'ORDERED' LIMIT 1"
+        );
+        $stmt->bind_param('s', $requestId);
+        $stmt->execute();
+        $rrRow = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if ($rrRow) {
+            // Find the inventory row for this product+branch
+            $invStmt = $conn->prepare(
+                "SELECT inventory_id, stock_quantity FROM inventory
+                 WHERE product_id = ? AND branch_id = ? LIMIT 1"
+            );
+            $invStmt->bind_param('ss', $rrRow['product_id'], $rrRow['branch_id']);
+            $invStmt->execute();
+            $invRow = $invStmt->get_result()->fetch_assoc();
+            $invStmt->close();
+
+            if ($invRow) {
+                $oldQty = (int)$invRow['stock_quantity'];
+                $newQty = $oldQty + (int)$rrRow['requested_qty'];
+
+                $upd = $conn->prepare(
+                    "UPDATE inventory SET stock_quantity = ?, last_updated = NOW() WHERE inventory_id = ?"
+                );
+                $upd->bind_param('is', $newQty, $invRow['inventory_id']);
+                $upd->execute();
+                $upd->close();
+
+                // Log the movement
+                $log = $conn->prepare(
+                    "INSERT INTO inventory_log
+                        (inventory_id, product_id, branch_id, change_qty, old_qty, new_qty,
+                         reason, reference_id, changed_by)
+                     VALUES (?, ?, ?, ?, ?, ?, 'RESTOCK_RECEIVED', ?, ?)"
+                );
+                $changeQty = (int)$rrRow['requested_qty'];
+                $log->bind_param(
+                    'sssiiiss',
+                    $invRow['inventory_id'], $rrRow['product_id'], $rrRow['branch_id'],
+                    $changeQty, $oldQty, $newQty,
+                    $requestId, $userId
+                );
+                $log->execute();
+                $log->close();
+            }
+
+            // Mark the request as RECEIVED
+            $stmt = $conn->prepare(
+                "UPDATE restock_requests
+                 SET status = 'RECEIVED', received_by = ?, received_at = NOW()
+                 WHERE request_id = ?"
+            );
+            $stmt->bind_param('ss', $userId, $requestId);
+            $stmt->execute();
+            $stmt->close();
+
+            $rrMsg = "Stock received and updated successfully.";
+            $rrMsgType = 'success';
+        }
+    }
+}
+
 // ── Filters ───────────────────────────────────────────────────
 $search       = trim($_GET['search'] ?? '');
 $filterView   = $_GET['filter']      ?? 'all';
@@ -123,6 +244,42 @@ $stmt->close();
 $branches = $conn->query(
     "SELECT branch_id, branch_name FROM branches WHERE status = 'ACTIVE' ORDER BY branch_name"
 )->fetch_all(MYSQLI_ASSOC);
+
+// ── Product list for the Request Restock form dropdown ─────────
+$allProducts = $conn->query(
+    "SELECT product_id, product_name FROM products WHERE product_status = 'ACTIVE' ORDER BY product_name"
+)->fetch_all(MYSQLI_ASSOC);
+
+// ── Restock requests for this branch (visible to any staff there) ──
+$myRestockRequests = [];
+if ($branchId) {
+    $stmt = $conn->prepare(
+        "SELECT rr.request_id, rr.requested_qty, rr.source, rr.status,
+                rr.admin_note, rr.requested_at, rr.reviewed_at,
+                p.product_name,
+                ureq.name AS requested_by_name
+         FROM restock_requests rr
+         JOIN products p ON rr.product_id = p.product_id
+         LEFT JOIN users ureq ON rr.requested_by = ureq.user_id
+         WHERE rr.branch_id = ?
+           AND rr.status IN ('PENDING','ORDERED')
+         ORDER BY rr.requested_at DESC
+         LIMIT 30"
+    );
+    $stmt->bind_param('s', $branchId);
+    $stmt->execute();
+    $myRestockRequests = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+}
+
+function rrStatusBadge(string $status): string {
+    $map = [
+        'PENDING' => ['#d97706', '#fffbeb', 'Pending Review'],
+        'ORDERED' => ['#1d4ed8', '#eff6ff', 'Ordered — awaiting delivery'],
+    ];
+    [$color, $bg, $label] = $map[$status] ?? ['#6b7280', '#f3f4f6', $status];
+    return "<span style='background:$bg;color:$color;border:1px solid {$color}44;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'>$label</span>";
+}
 
 // ── Main inventory query ──────────────────────────────────────
 $where  = ["p.product_status = 'ACTIVE'"];
@@ -183,7 +340,7 @@ $alertWhereSQL = 'WHERE ' . implode(' AND ', $alertWhere);
 
 $stmt = $conn->prepare(
     "SELECT i.inventory_id, i.stock_quantity, i.minimum_level,
-            p.product_name, p.category, b.branch_name
+            p.product_id, p.product_name, p.category, b.branch_name
      FROM inventory i
      JOIN products p ON i.product_id = p.product_id
      JOIN branches b ON i.branch_id  = b.branch_id
@@ -252,9 +409,10 @@ function categoryIcon(string $cat): array {
 
 function reasonBadge(string $reason): string {
     $map = [
-        'MANUAL_UPDATE'   => ['#6b7280','#f3f4f6','Manual Update'],
-        'POS_SALE'        => ['#A83535','#fdf2f2','POS Sale'],
-        'ORDER_COLLECTED' => ['#d97706','#fffbeb','Order Collected'],
+        'MANUAL_UPDATE'    => ['#6b7280','#f3f4f6','Manual Update'],
+        'POS_SALE'         => ['#A83535','#fdf2f2','POS Sale'],
+        'ORDER_COLLECTED'  => ['#d97706','#fffbeb','Order Collected'],
+        'RESTOCK_RECEIVED' => ['#10b981','#ecfdf5','Restock Received'],
     ];
     [$color, $bg, $label] = $map[$reason] ?? ['#6b7280','#f3f4f6', $reason];
     return "<span style='background:$bg;color:$color;border:1px solid {$color}44;
@@ -331,6 +489,19 @@ function reasonBadge(string $reason): string {
         /* Success banner */
         .success-banner { margin:16px 28px 0;padding:12px 18px;background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;border-radius:8px;font-size:14px;display:flex;align-items:center;gap:10px; }
         .success-banner.warn { background:#fffbeb;color:#92400e;border-color:#fde68a; }
+
+        /* Tab bar */
+        .inv-tab-bar { display:flex;gap:4px;padding:0 28px;background:var(--white);border-bottom:1px solid var(--border); }
+        .inv-tab-btn { display:flex;align-items:center;gap:8px;padding:13px 20px;background:none;border:none;
+                       border-bottom:3px solid transparent;font-size:13px;font-weight:600;color:var(--text-secondary);
+                       cursor:pointer;transition:all 0.2s ease;white-space:nowrap; }
+        .inv-tab-btn:hover { color:var(--primary);background:rgba(168,53,53,0.03); }
+        .inv-tab-btn.active { color:var(--primary);border-bottom-color:var(--primary); }
+        .inv-tab-badge { background:#A83535;color:white;font-size:10px;font-weight:700;padding:1px 7px;
+                         border-radius:10px;min-width:16px;text-align:center; }
+        .inv-tab-badge.blue { background:#1d4ed8; }
+        .inv-tab-panel { display:none; }
+        .inv-tab-panel.active { display:flex;flex-direction:column;gap:24px; }
 
         /* Content */
         .inv-content { padding:24px 28px;flex-grow:1;display:flex;flex-direction:column;gap:24px; }
@@ -505,35 +676,35 @@ function reasonBadge(string $reason): string {
     </div>
     <?php endif; ?>
 
+    <?php if ($rrMsg): ?>
+    <div class="success-banner<?= $rrMsgType === 'error' ? ' warn' : '' ?>">
+        <i class="fas <?= $rrMsgType === 'error' ? 'fa-exclamation-circle' : 'fa-check-circle' ?>"></i> <?= htmlspecialchars($rrMsg) ?>
+    </div>
+    <?php endif; ?>
+
+    <!-- Tab bar -->
+    <div class="inv-tab-bar">
+        <button type="button" class="inv-tab-btn" id="invTabBtnOverview" onclick="switchInvTab('overview')">
+            <i class="fas fa-boxes"></i> Overview
+        </button>
+        <button type="button" class="inv-tab-btn" id="invTabBtnAlerts" onclick="switchInvTab('alerts')">
+            <i class="fas fa-exclamation-triangle"></i> Alerts &amp; Restock
+            <?php
+            $alertsTabCount = $lowStockCount + count($myRestockRequests);
+            if ($alertsTabCount > 0):
+            ?>
+            <span class="inv-tab-badge"><?= $alertsTabCount ?></span>
+            <?php endif; ?>
+        </button>
+        <button type="button" class="inv-tab-btn" id="invTabBtnHistory" onclick="switchInvTab('history')">
+            <i class="fas fa-history"></i> Movement History
+        </button>
+    </div>
+
     <div class="inv-content">
 
-        <!-- ── AI Restock Recommendations ── -->
-        <?php if ($lowStockCount > 0): ?>
-        <div class="ai-restock-card">
-            <div class="ai-restock-head">
-                <div>
-                    <div class="ai-restock-title">
-                        <i class="fas fa-robot"></i> AI Restock Recommendations
-                        <span style="font-size:11px;font-weight:400;color:#6b7280;margin-left:4px;">Powered by Gemini</span>
-                    </div>
-                    <div class="ai-restock-sub">
-                        <?= $lowStockCount ?> item<?= $lowStockCount > 1 ? 's' : '' ?> below minimum level — click to get AI-suggested reorder quantities
-                    </div>
-                </div>
-                <button class="ai-restock-btn" id="restockBtn" onclick="getRestockRecs()">
-                    <i class="fas fa-magic"></i> Get Recommendations
-                </button>
-            </div>
-            <div class="ai-restock-body" id="restockBody">
-                <div class="ai-loading-r" id="restockLoading" style="display:none;">
-                    <div class="ai-spinner-r"></div>
-                    <div>Analysing stock levels and sales velocity…</div>
-                </div>
-                <div id="restockResults"></div>
-                <div class="ai-err-r" id="restockErr" style="display:none;"></div>
-            </div>
-        </div>
-        <?php endif; ?>
+        <!-- ════ TAB: Overview ════ -->
+        <div class="inv-tab-panel" id="invTabOverview">
 
         <!-- Stats -->
         <div class="stats-row">
@@ -659,6 +830,39 @@ function reasonBadge(string $reason): string {
             </div>
         </div>
 
+        </div><!-- /#invTabOverview -->
+
+        <!-- ════ TAB: Alerts & Restock ════ -->
+        <div class="inv-tab-panel" id="invTabAlerts">
+
+        <!-- ── AI Restock Recommendations ── -->
+        <?php if ($lowStockCount > 0): ?>
+        <div class="ai-restock-card">
+            <div class="ai-restock-head">
+                <div>
+                    <div class="ai-restock-title">
+                        <i class="fas fa-robot"></i> AI Restock Recommendations
+                        <span style="font-size:11px;font-weight:400;color:#6b7280;margin-left:4px;">Powered by Gemini</span>
+                    </div>
+                    <div class="ai-restock-sub">
+                        <?= $lowStockCount ?> item<?= $lowStockCount > 1 ? 's' : '' ?> below minimum level — click to get AI-suggested reorder quantities
+                    </div>
+                </div>
+                <button class="ai-restock-btn" id="restockBtn" onclick="getRestockRecs()">
+                    <i class="fas fa-magic"></i> Get Recommendations
+                </button>
+            </div>
+            <div class="ai-restock-body" id="restockBody">
+                <div class="ai-loading-r" id="restockLoading" style="display:none;">
+                    <div class="ai-spinner-r"></div>
+                    <div>Analysing stock levels and sales velocity…</div>
+                </div>
+                <div id="restockResults"></div>
+                <div class="ai-err-r" id="restockErr" style="display:none;"></div>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <!-- ── Low Stock Alerts ── -->
         <div class="section-card alert-card">
             <div class="card-header">
@@ -669,6 +873,13 @@ function reasonBadge(string $reason): string {
                     <?= count($lowStockItems) ?> alert<?= count($lowStockItems)!==1?'s':'' ?>
                 </span>
             </div>
+            <?php if (!$branchId): ?>
+            <div style="margin:14px 18px 0;padding:9px 14px;background:#eff6ff;border:1px solid #bfdbfe;
+                        border-radius:8px;font-size:12px;color:#1d4ed8;display:flex;align-items:center;gap:8px;">
+                <i class="fas fa-info-circle"></i>
+                Viewing as admin (no branch assigned) — restock requests can only be submitted by branch-assigned staff.
+            </div>
+            <?php endif; ?>
             <div class="table-wrap">
                 <?php if (empty($lowStockItems)): ?>
                     <div class="empty-state">
@@ -685,6 +896,7 @@ function reasonBadge(string $reason): string {
                             <th>Min. Required</th>
                             <th>Shortage</th>
                             <th>Level</th>
+                            <?php if ($branchId): ?><th>Action</th><?php endif; ?>
                         </tr>
                     </thead>
                     <tbody>
@@ -694,6 +906,7 @@ function reasonBadge(string $reason): string {
                             $min        = (int)$item['minimum_level'];
                             $shortage   = $min - $qty;
                             $isCritical = ($qty === 0 || $shortage >= (int)($min * 0.5));
+                            $suggestedQty = max(5, (int)ceil(($min * 1.5 - $qty) / 5) * 5);
                         ?>
                         <tr>
                             <td>
@@ -721,6 +934,15 @@ function reasonBadge(string $reason): string {
                                     <span class="level-warning">Warning</span>
                                 <?php endif; ?>
                             </td>
+                            <?php if ($branchId): ?>
+                            <td>
+                                <button type="button" class="save-btn"
+                                        style="background:#1d4ed8;"
+                                        onclick="openRestockModal('<?= htmlspecialchars($item['product_id'], ENT_QUOTES) ?>','<?= htmlspecialchars(addslashes($item['product_name'])) ?>',<?= $suggestedQty ?>)">
+                                    <i class="fas fa-truck-loading"></i> Request
+                                </button>
+                            </td>
+                            <?php endif; ?>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -728,6 +950,83 @@ function reasonBadge(string $reason): string {
                 <?php endif; ?>
             </div>
         </div>
+
+        <!-- ── Restock Requests (this branch) ── -->
+        <?php if ($branchId): ?>
+        <div class="section-card">
+            <div class="card-header">
+                <div class="card-title">
+                    <i class="fas fa-truck-loading"></i> Restock Requests
+                </div>
+                <span style="font-size:13px;color:var(--text-secondary);">
+                    <?= count($myRestockRequests) ?> in progress
+                </span>
+            </div>
+            <div class="table-wrap">
+                <?php if (empty($myRestockRequests)): ?>
+                    <div class="empty-state">
+                        <i class="fas fa-truck-loading"></i>
+                        <p>No restock requests in progress for this branch.</p>
+                    </div>
+                <?php else: ?>
+                <table class="inv-table">
+                    <thead>
+                        <tr>
+                            <th>Product</th>
+                            <th>Qty</th>
+                            <th>Requested By</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($myRestockRequests as $req): ?>
+                        <tr>
+                            <td class="prod-name"><?= htmlspecialchars($req['product_name']) ?></td>
+                            <td style="font-weight:700;"><?= (int)$req['requested_qty'] ?></td>
+                            <td style="font-size:12px;color:var(--text-secondary);">
+                                <?= htmlspecialchars($req['requested_by_name'] ?? '—') ?>
+                            </td>
+                            <td><?= rrStatusBadge($req['status']) ?></td>
+                            <td>
+                                <?php if ($req['status'] === 'ORDERED'): ?>
+                                <form method="POST" action="s_inv.php" style="display:inline;"
+                                      onsubmit="return confirm('Confirm that this stock has physically arrived? This will update inventory immediately.')">
+                                    <input type="hidden" name="request_id" value="<?= htmlspecialchars($req['request_id']) ?>">
+                                    <button type="submit" name="mark_received" class="save-btn" style="background:#10b981;">
+                                        <i class="fas fa-check"></i> Mark as Received
+                                    </button>
+                                </form>
+                                <?php else: ?>
+                                    <span style="font-size:12px;color:var(--text-secondary);">Awaiting admin review</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php else: ?>
+        <div class="section-card">
+            <div class="card-header">
+                <div class="card-title">
+                    <i class="fas fa-truck-loading"></i> Restock Requests
+                </div>
+            </div>
+            <div class="empty-state">
+                <i class="fas fa-store-slash"></i>
+                <p>Restock requests are tied to a specific branch.<br>
+                   Assign yourself to a branch, or view this page as branch-assigned staff, to see and manage requests here.</p>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        </div><!-- /#invTabAlerts -->
+
+        <!-- ════ TAB: Movement History ════ -->
+        <div class="inv-tab-panel" id="invTabHistory">
 
         <!-- ── Movement History ── -->
         <div class="section-card">
@@ -805,11 +1104,36 @@ function reasonBadge(string $reason): string {
             </div>
         </div>
 
+        </div><!-- /#invTabHistory -->
+
     </div><!-- /.inv-content -->
 
 </main>
 
 <script>
+// ── Tab switching ────────────────────────────────────────────
+function switchInvTab(name) {
+    document.querySelectorAll('.inv-tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.inv-tab-btn').forEach(b => b.classList.remove('active'));
+
+    const panelId = 'invTab' + name.charAt(0).toUpperCase() + name.slice(1);
+    const btnId   = 'invTabBtn' + name.charAt(0).toUpperCase() + name.slice(1);
+
+    document.getElementById(panelId).classList.add('active');
+    document.getElementById(btnId).classList.add('active');
+
+    const url = new URL(window.location);
+    url.searchParams.set('itab', name);
+    window.history.replaceState({}, '', url);
+}
+
+// Initialize tab from ?itab= or default to overview
+(function() {
+    const params = new URLSearchParams(window.location.search);
+    const initial = ['overview', 'alerts', 'history'].includes(params.get('itab')) ? params.get('itab') : 'overview';
+    switchInvTab(initial);
+})();
+
 function highlightQty(input, min) {
     const val = parseInt(input.value) || 0;
     input.classList.toggle('below', val <= min);
@@ -888,7 +1212,61 @@ function priorityIcon(p) {
 function esc(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+// ── Request Restock modal ──────────────────────────────────────
+function openRestockModal(productId, productName, suggestedQty) {
+    document.getElementById('restockProductId').value = productId;
+    document.getElementById('restockProductLabel').textContent = productName;
+    document.getElementById('restockQtyInput').value = suggestedQty;
+    document.getElementById('restockNoteInput').value = '';
+    document.getElementById('restockModalOverlay').style.display = 'flex';
+}
+function closeRestockModal() {
+    document.getElementById('restockModalOverlay').style.display = 'none';
+}
 </script>
+
+<!-- Request Restock modal -->
+<div id="restockModalOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:300;align-items:center;justify-content:center;">
+    <div style="background:white;border-radius:12px;width:90%;max-width:420px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+        <h3 style="font-size:16px;color:#1d4ed8;margin-bottom:6px;display:flex;align-items:center;gap:8px;">
+            <i class="fas fa-truck-loading"></i> Request Restock
+        </h3>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:18px;" id="restockProductLabel"></p>
+
+        <form method="POST" action="s_inv.php">
+            <input type="hidden" name="product_id" id="restockProductId">
+
+            <label style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:6px;display:block;">
+                Quantity to request
+            </label>
+            <input type="number" name="requested_qty" id="restockQtyInput" min="1" required
+                   style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;
+                          font-size:14px;margin-bottom:14px;">
+
+            <label style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:6px;display:block;">
+                Note <span style="font-weight:400;color:var(--text-secondary);">(optional)</span>
+            </label>
+            <textarea name="staff_note" id="restockNoteInput" rows="2"
+                      placeholder="e.g. Selling faster than usual this week"
+                      style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;
+                             font-size:13px;font-family:inherit;resize:none;margin-bottom:18px;"></textarea>
+
+            <div style="display:flex;gap:10px;">
+                <button type="button" onclick="closeRestockModal()"
+                        style="flex:1;padding:10px;background:var(--background);border:1.5px solid var(--border);
+                               border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">
+                    Cancel
+                </button>
+                <button type="submit" name="submit_restock"
+                        style="flex:1;padding:10px;background:#1d4ed8;color:white;border:none;
+                               border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">
+                    <i class="fas fa-paper-plane"></i> Submit Request
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
 
 </body>
 </html>

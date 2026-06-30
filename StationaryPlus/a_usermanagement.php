@@ -27,12 +27,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $role       = trim($_POST['user_role']      ?? 'CUSTOMER');
     $status     = trim($_POST['account_status'] ?? 'ACTIVE');
     $password   = $_POST['password']            ?? '';
+    $branchId   = trim($_POST['branch_id']      ?? '') ?: null;
 
     $validRoles    = ['ADMIN', 'STAFF', 'CUSTOMER'];
     $validStatuses = ['ACTIVE', 'INACTIVE', 'PENDING'];
 
     if (!in_array($role,   $validRoles))    $role   = 'CUSTOMER';
     if (!in_array($status, $validStatuses)) $status = 'ACTIVE';
+
+    // Branch only applies to STAFF — clear it for any other role
+    if ($role !== 'STAFF') $branchId = null;
 
     // ── Add new user ──────────────────────────────────────────
     if ($action === 'add') {
@@ -41,6 +45,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msgType = 'error';
         } elseif (strlen($password) < 8) {
             $message = 'Password must be at least 8 characters for new users.';
+            $msgType = 'error';
+        } elseif ($role === 'STAFF' && !$branchId) {
+            $message = 'Please assign a branch for staff accounts.';
             $msgType = 'error';
         } else {
             // Check duplicate email
@@ -55,10 +62,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $newId = generate_user_id();
                 $hash  = password_hash($password, PASSWORD_DEFAULT);
                 $stmt  = $conn->prepare(
-                    "INSERT INTO users (user_id, name, email, password_hash, phone_number, user_role, account_status)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)"
+                    "INSERT INTO users (user_id, name, email, password_hash, phone_number, user_role, account_status, branch_id)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
                 );
-                $stmt->bind_param('sssssss', $newId, $name, $email, $hash, $phone, $role, $status);
+                $stmt->bind_param('ssssssss', $newId, $name, $email, $hash, $phone, $role, $status, $branchId);
                 $stmt->execute();
                 $stmt->close();
                 $message = "User <strong>$name</strong> added successfully (ID: $newId).";
@@ -71,6 +78,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'update' && $userId !== '') {
         if ($name === '' || $email === '') {
             $message = 'Name and email are required.';
+            $msgType = 'error';
+        } elseif ($role === 'STAFF' && !$branchId) {
+            $message = 'Please assign a branch for staff accounts.';
             $msgType = 'error';
         } else {
             // Check duplicate email (exclude current user)
@@ -86,17 +96,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Update with new password
                     $hash = password_hash($password, PASSWORD_DEFAULT);
                     $stmt = $conn->prepare(
-                        "UPDATE users SET name=?, email=?, phone_number=?, user_role=?, account_status=?, password_hash=?
+                        "UPDATE users SET name=?, email=?, phone_number=?, user_role=?, account_status=?, password_hash=?, branch_id=?
                          WHERE user_id=?"
                     );
-                    $stmt->bind_param('sssssss', $name, $email, $phone, $role, $status, $hash, $userId);
+                    $stmt->bind_param('ssssssss', $name, $email, $phone, $role, $status, $hash, $branchId, $userId);
                 } else {
                     // Update without touching password
                     $stmt = $conn->prepare(
-                        "UPDATE users SET name=?, email=?, phone_number=?, user_role=?, account_status=?
+                        "UPDATE users SET name=?, email=?, phone_number=?, user_role=?, account_status=?, branch_id=?
                          WHERE user_id=?"
                     );
-                    $stmt->bind_param('ssssss', $name, $email, $phone, $role, $status, $userId);
+                    $stmt->bind_param('sssssss', $name, $email, $phone, $role, $status, $branchId, $userId);
                 }
                 $stmt->execute();
                 $stmt->close();
@@ -150,14 +160,22 @@ if ($filterStatus !== 'all') {
 }
 
 $whereSQL = implode(' AND ', $where);
-$sql = "SELECT user_id, name, email, phone_number, user_role, account_status
-        FROM users WHERE $whereSQL ORDER BY name ASC LIMIT 200";
+$sql = "SELECT u.user_id, u.name, u.email, u.phone_number, u.user_role, u.account_status,
+               u.branch_id, b.branch_name
+        FROM users u
+        LEFT JOIN branches b ON u.branch_id = b.branch_id
+        WHERE $whereSQL ORDER BY u.name ASC LIMIT 200";
 
 $stmt = $conn->prepare($sql);
 if ($types) $stmt->bind_param($types, ...$params);
 $stmt->execute();
 $users = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
+
+// ── Branch list for the assignment dropdown ────────────────────
+$branchList = $conn->query(
+    "SELECT branch_id, branch_name FROM branches WHERE status = 'ACTIVE' ORDER BY branch_name"
+)->fetch_all(MYSQLI_ASSOC);
 
 // ── Counts for header ─────────────────────────────────────────
 $totalUsers  = $conn->query("SELECT COUNT(*) AS c FROM users")->fetch_assoc()['c'] ?? 0;
@@ -341,6 +359,25 @@ $pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_statu
             .user-info { justify-content: center; }
             .user-avatar { margin-right: 0; }
         }
+        /* ── Custom Dialog (replaces native alert/confirm) ── */
+        .custom-dialog-overlay { display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center; }
+        .custom-dialog-overlay.show { display:flex; }
+        .custom-dialog-box { background:white;border-radius:12px;width:90%;max-width:400px;padding:28px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,0.2);text-align:center;animation:dialogPop 0.15s ease; }
+        @keyframes dialogPop { from{transform:scale(0.95);opacity:0;} to{transform:scale(1);opacity:1;} }
+        .custom-dialog-icon { width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:22px; }
+        .custom-dialog-icon.dialog-info { background:#eff6ff;color:#1d4ed8; }
+        .custom-dialog-icon.dialog-success { background:#ecfdf5;color:#059669; }
+        .custom-dialog-icon.dialog-error { background:#fef2f2;color:#dc2626; }
+        .custom-dialog-icon.dialog-warning { background:#fffbeb;color:#d97706; }
+        .custom-dialog-message { font-size:14px;color:#2E2E2E;line-height:1.6;margin-bottom:22px;white-space:pre-line; }
+        .custom-dialog-actions { display:flex;gap:10px; }
+        .custom-dialog-btn { flex:1;padding:11px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:background 0.2s ease; }
+        .custom-dialog-cancel { background:#F1EDE8;color:#2E2E2E;border:1.5px solid #E0E0E0; }
+        .custom-dialog-cancel:hover { background:#e8e2da; }
+        .custom-dialog-confirm { background:#A83535;color:white; }
+        .custom-dialog-confirm:hover { background:#8b2a2a; }
+        .custom-dialog-danger { background:#dc2626;color:white; }
+        .custom-dialog-danger:hover { background:#b91c1c; }
     </style>
 </head>
 <body>
@@ -422,6 +459,7 @@ $pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_statu
                             <th>Name</th>
                             <th>Email</th>
                             <th>Role</th>
+                            <th>Branch</th>
                             <th>Status</th>
                             <th>Phone</th>
                         </tr>
@@ -441,6 +479,13 @@ $pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_statu
                             </td>
                             <td class="user-email"><?= htmlspecialchars($u['email']) ?></td>
                             <td><span class="role-badge role-<?= $u['user_role'] ?>"><?= ucfirst(strtolower($u['user_role'])) ?></span></td>
+                            <td style="font-size:12px;color:var(--light-text);">
+                                <?php if ($u['user_role'] === 'STAFF'): ?>
+                                    <?= $u['branch_name'] ? '<i class="fas fa-store" style="color:var(--primary);margin-right:4px;"></i>' . htmlspecialchars($u['branch_name']) : '<span style="color:#d97706;">Unassigned</span>' ?>
+                                <?php else: ?>
+                                    —
+                                <?php endif; ?>
+                            </td>
                             <td><span class="status-badge status-<?= $u['account_status'] ?>"><?= ucfirst(strtolower($u['account_status'])) ?></span></td>
                             <td style="color:var(--light-text);font-size:12px;"><?= htmlspecialchars($u['phone_number'] ?? '—') ?></td>
                         </tr>
@@ -500,11 +545,27 @@ $pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_statu
 
                     <div class="form-group">
                         <label class="form-label">User Role</label>
-                        <select name="user_role" id="fieldRole" class="form-select">
+                        <select name="user_role" id="fieldRole" class="form-select" onchange="toggleBranchField()">
                             <option value="CUSTOMER">Customer</option>
                             <option value="STAFF">Staff</option>
                             <option value="ADMIN">Admin</option>
                         </select>
+                    </div>
+
+                    <div class="form-group" id="branchFieldWrap" style="display:none;">
+                        <label class="form-label">
+                            Assigned Branch
+                            <span class="optional">(required for staff)</span>
+                        </label>
+                        <select name="branch_id" id="fieldBranch" class="form-select">
+                            <option value="">— Select branch —</option>
+                            <?php foreach ($branchList as $b): ?>
+                            <option value="<?= htmlspecialchars($b['branch_id']) ?>">
+                                <?= htmlspecialchars($b['branch_name']) ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <div class="form-hint">Staff only see and manage data for their assigned branch.</div>
                     </div>
 
                     <div class="form-group">
@@ -554,6 +615,74 @@ $pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_statu
 
 </main>
 
+<!-- Custom Dialog -->
+<div id="customDialogOverlay" class="custom-dialog-overlay">
+    <div class="custom-dialog-box">
+        <div class="custom-dialog-icon" id="customDialogIcon"><i class="fas fa-info-circle"></i></div>
+        <p class="custom-dialog-message" id="customDialogMessage"></p>
+        <div class="custom-dialog-actions">
+            <button class="custom-dialog-btn custom-dialog-cancel" id="customDialogCancelBtn" style="display:none;">Cancel</button>
+            <button class="custom-dialog-btn custom-dialog-confirm" id="customDialogConfirmBtn">OK</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ── Custom Dialog System (replaces native alert()/confirm()) ──
+const ICONS = {
+    info:    '<i class="fas fa-info-circle"></i>',
+    success: '<i class="fas fa-check-circle"></i>',
+    error:   '<i class="fas fa-exclamation-circle"></i>',
+    warning: '<i class="fas fa-exclamation-triangle"></i>',
+};
+function customAlert(message, type = 'info') {
+    return new Promise(resolve => {
+        const overlay = document.getElementById('customDialogOverlay');
+        const icon = document.getElementById('customDialogIcon');
+        const msgEl = document.getElementById('customDialogMessage');
+        const cancelBtn = document.getElementById('customDialogCancelBtn');
+        const confirmBtn = document.getElementById('customDialogConfirmBtn');
+        msgEl.textContent = message;
+        icon.className = 'custom-dialog-icon dialog-' + type;
+        icon.innerHTML = ICONS[type] || ICONS.info;
+        cancelBtn.style.display = 'none';
+        confirmBtn.textContent = 'OK';
+        confirmBtn.className = 'custom-dialog-btn custom-dialog-confirm';
+        overlay.classList.add('show');
+        const onOk = () => { overlay.classList.remove('show'); confirmBtn.removeEventListener('click', onOk); resolve(); };
+        confirmBtn.addEventListener('click', onOk);
+    });
+}
+function customConfirm(message, options = {}) {
+    return new Promise(resolve => {
+        const overlay = document.getElementById('customDialogOverlay');
+        const icon = document.getElementById('customDialogIcon');
+        const msgEl = document.getElementById('customDialogMessage');
+        const cancelBtn = document.getElementById('customDialogCancelBtn');
+        const confirmBtn = document.getElementById('customDialogConfirmBtn');
+        const type = options.danger ? 'warning' : 'info';
+        msgEl.textContent = message;
+        icon.className = 'custom-dialog-icon dialog-' + type;
+        icon.innerHTML = options.danger ? ICONS.warning : '<i class="fas fa-question-circle"></i>';
+        cancelBtn.style.display = 'inline-flex';
+        cancelBtn.textContent = options.cancelText || 'Cancel';
+        confirmBtn.textContent = options.confirmText || 'Confirm';
+        confirmBtn.className = 'custom-dialog-btn ' + (options.danger ? 'custom-dialog-danger' : 'custom-dialog-confirm');
+        overlay.classList.add('show');
+        const cleanup = (result) => {
+            overlay.classList.remove('show');
+            confirmBtn.removeEventListener('click', onYes);
+            cancelBtn.removeEventListener('click', onNo);
+            resolve(result);
+        };
+        const onYes = () => cleanup(true);
+        const onNo  = () => cleanup(false);
+        confirmBtn.addEventListener('click', onYes);
+        cancelBtn.addEventListener('click', onNo);
+    });
+}
+</script>
+
 <script>
 // Populate form from clicked row
 function loadUser(u) {
@@ -566,6 +695,8 @@ function loadUser(u) {
     document.getElementById('fieldPhone').value   = u.phone_number || '';
     document.getElementById('fieldPassword').value = '';
     document.getElementById('fieldRole').value    = u.user_role;
+    document.getElementById('fieldBranch').value  = u.branch_id || '';
+    toggleBranchField();
 
     // Set status radio
     document.querySelectorAll('input[name="account_status"]').forEach(r => {
@@ -599,6 +730,8 @@ function clearForm() {
     document.getElementById('fieldPhone').value   = '';
     document.getElementById('fieldPassword').value = '';
     document.getElementById('fieldRole').value    = 'CUSTOMER';
+    document.getElementById('fieldBranch').value  = '';
+    toggleBranchField();
     document.getElementById('statusActive').checked = true;
 
     document.getElementById('formTitle').textContent = 'Add New User';
@@ -617,11 +750,34 @@ function showForm(show) {
     document.getElementById('userForm').style.display        = show ? 'flex' : 'none';
 }
 
+// Show/hide the branch dropdown based on selected role
+function toggleBranchField() {
+    const role = document.getElementById('fieldRole').value;
+    const wrap = document.getElementById('branchFieldWrap');
+    wrap.style.display = (role === 'STAFF') ? 'block' : 'none';
+    if (role !== 'STAFF') {
+        document.getElementById('fieldBranch').value = '';
+    }
+}
+
+// Require a branch when saving a STAFF account
+document.getElementById('userForm').addEventListener('submit', function(e) {
+    const role   = document.getElementById('fieldRole').value;
+    const branch = document.getElementById('fieldBranch').value;
+    if (role === 'STAFF' && !branch) {
+        e.preventDefault();
+        customAlert('Please assign a branch for this staff member before saving.', 'warning');
+        document.getElementById('fieldBranch').focus();
+    }
+});
+
 function deactivateUser() {
     const name = document.getElementById('fieldName').value;
-    if (confirm(`Deactivate "${name}"? Their account will be set to INACTIVE.`)) {
-        document.getElementById('deactivateForm').submit();
-    }
+    customConfirm(`Deactivate "${name}"? Their account will be set to INACTIVE.`, {
+        danger: true, confirmText: 'Deactivate'
+    }).then(ok => {
+        if (ok) document.getElementById('deactivateForm').submit();
+    });
 }
 
 // If a message was shown after POST (meaning the form was submitted), stay in the right mode

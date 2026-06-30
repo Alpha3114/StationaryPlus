@@ -30,11 +30,14 @@ $isOpsPage   = str_starts_with($activePage, 'ops_');
 // ── Live counts for ops badges ────────────────────────────────
 $pendingPayments  = 0;
 $pendingPrintFiles = 0;
+$pendingRestock    = 0;
 if (isset($conn)) {
     $r = $conn->query("SELECT COUNT(*) AS cnt FROM payments WHERE verification_status = 'PENDING'");
     if ($r) $pendingPayments = (int)$r->fetch_assoc()['cnt'];
     $r = $conn->query("SELECT COUNT(*) AS cnt FROM print_files WHERE file_status = 'RECEIVED'");
     if ($r) $pendingPrintFiles = (int)$r->fetch_assoc()['cnt'];
+    $r = $conn->query("SELECT COUNT(*) AS cnt FROM restock_requests WHERE status = 'PENDING'");
+    if ($r) $pendingRestock = (int)$r->fetch_assoc()['cnt'];
 }
 ?>
 
@@ -112,7 +115,12 @@ if (isset($conn)) {
             <li class="nav-item">
                 <a href="a_productmanagement.php" class="nav-link <?= $activePage==='products'?'active':'' ?>">
                     <div class="nav-icon"><i class="fas fa-boxes"></i></div>
-                    <div class="nav-text">Product Management</div>
+                    <div class="nav-text">
+                        Product Management
+                        <?php if ($pendingRestock > 0): ?>
+                        <span class="ops-alert"><?= $pendingRestock ?></span>
+                        <?php endif; ?>
+                    </div>
                 </a>
             </li>
             <li class="nav-item">

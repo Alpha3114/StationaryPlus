@@ -5,6 +5,42 @@ require_role(['STAFF', 'ADMIN']);
 require_once 'db.php';
 
 $userName = $_SESSION['user_name'];
+$userId   = $_SESSION['user_id'];
+$userRole = $_SESSION['user_role'];
+$isAdmin  = ($userRole === 'ADMIN');
+
+// ── Handle restock request review (Accept / Reject) — ADMIN only ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['review_request']) && $isAdmin) {
+    $requestId = trim($_POST['request_id'] ?? '');
+    $action    = trim($_POST['action']     ?? ''); // 'accept' | 'reject'
+    $adminNote = trim($_POST['admin_note'] ?? '') ?: null;
+
+    if ($requestId && in_array($action, ['accept', 'reject'])) {
+        $check = $conn->prepare(
+            "SELECT request_id FROM restock_requests WHERE request_id = ? AND status = 'PENDING' LIMIT 1"
+        );
+        $check->bind_param('s', $requestId);
+        $check->execute();
+        $check->store_result();
+
+        if ($check->num_rows > 0) {
+            $newStatus = $action === 'accept' ? 'ORDERED' : 'REJECTED';
+            $stmt = $conn->prepare(
+                "UPDATE restock_requests
+                 SET status = ?, reviewed_by = ?, admin_note = ?, reviewed_at = NOW()
+                 WHERE request_id = ?"
+            );
+            $stmt->bind_param('ssss', $newStatus, $userId, $adminNote, $requestId);
+            $stmt->execute();
+            $stmt->close();
+        }
+        $check->close();
+    }
+
+    $tabParam = '?tab=restock' . (!empty($_GET['rstatus']) ? '&rstatus=' . urlencode($_GET['rstatus']) : '');
+    header('Location: a_productmanagement.php' . $tabParam);
+    exit;
+}
 
 $products = [];
 if ($conn) {
@@ -16,6 +52,72 @@ if ($conn) {
         }
     }
 }
+
+$totalProductsCount = count($products);
+
+$pendingCountRes = $conn->query("SELECT COUNT(*) AS cnt FROM restock_requests WHERE status = 'PENDING'");
+$pendingRequestCount = $pendingCountRes ? (int)$pendingCountRes->fetch_assoc()['cnt'] : 0;
+
+$totalRequestsRes = $conn->query("SELECT COUNT(*) AS cnt FROM restock_requests");
+$totalRequestCount = $totalRequestsRes ? (int)$totalRequestsRes->fetch_assoc()['cnt'] : 0;
+
+// ── Restock requests list — filterable by status ──────────────
+$requestFilter = $_GET['rstatus'] ?? 'PENDING';
+$validRStatus  = ['PENDING', 'ORDERED', 'RECEIVED', 'REJECTED', 'ALL'];
+if (!in_array($requestFilter, $validRStatus)) $requestFilter = 'PENDING';
+
+$rWhere = [];
+$rParams = [];
+$rTypes = '';
+if ($requestFilter !== 'ALL') {
+    $rWhere[] = 'rr.status = ?';
+    $rParams[] = $requestFilter;
+    $rTypes .= 's';
+}
+$rWhereSQL = $rWhere ? 'WHERE ' . implode(' AND ', $rWhere) : '';
+
+$rStmt = $conn->prepare(
+    "SELECT rr.request_id, rr.requested_qty, rr.source, rr.status,
+            rr.staff_note, rr.admin_note, rr.requested_at, rr.reviewed_at, rr.received_at,
+            p.product_id, p.product_name,
+            b.branch_name,
+            ureq.name AS requested_by_name,
+            urev.name AS reviewed_by_name,
+            urec.name AS received_by_name
+     FROM restock_requests rr
+     JOIN products p ON rr.product_id = p.product_id
+     JOIN branches b ON rr.branch_id  = b.branch_id
+     LEFT JOIN users ureq ON rr.requested_by = ureq.user_id
+     LEFT JOIN users urev ON rr.reviewed_by  = urev.user_id
+     LEFT JOIN users urec ON rr.received_by  = urec.user_id
+     $rWhereSQL
+     ORDER BY rr.requested_at DESC
+     LIMIT 100"
+);
+if ($rTypes) $rStmt->bind_param($rTypes, ...$rParams);
+$rStmt->execute();
+$restockRequests = $rStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$rStmt->close();
+
+function requestStatusBadge(string $status): string {
+    $map = [
+        'PENDING'  => ['#d97706', 'rgba(244,162,97,0.15)', 'Pending'],
+        'ORDERED'  => ['#1d4ed8', 'rgba(37,99,235,0.1)',   'Ordered'],
+        'RECEIVED' => ['#4CAF50', 'rgba(76,175,80,0.1)',   'Received'],
+        'REJECTED' => ['#A83535', 'rgba(168,53,53,0.1)',   'Rejected'],
+    ];
+    [$color, $bg, $label] = $map[$status] ?? ['#6b7280', '#f3f4f6', $status];
+    return "<span class='request-status' style='color:$color;background:$bg;'>$label</span>";
+}
+
+function sourceBadge(string $source): string {
+    return $source === 'AI'
+        ? "<span style='font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;'><i class='fas fa-robot'></i> AI</span>"
+        : "<span style='font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;'><i class='fas fa-pen'></i> Manual</span>";
+}
+
+// Initial tab — defaults to catalog unless ?tab=restock is passed (e.g. from sidebar badge)
+$initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
 ?>
 
 <!DOCTYPE html>
@@ -221,9 +323,10 @@ if ($conn) {
         .main-content {
             flex-grow: 1;
             margin-left: var(--sidebar-width);
-            height: auto;
+            min-height: 100vh;
             display: flex;
             flex-direction: column;
+            overflow: hidden;
         }
         
         .top-header {
@@ -254,7 +357,50 @@ if ($conn) {
             padding: 8px 15px;
             border-radius: 20px;
         }
-        
+
+        /* Tab bar */
+        .tab-bar {
+            display: flex;
+            gap: 4px;
+            padding: 14px 28px 0;
+            background-color: var(--white);
+            border-bottom: 1px solid var(--border);
+        }
+        .tab-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 11px 20px;
+            background: none;
+            border: none;
+            border-bottom: 3px solid transparent;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--light-text);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .tab-btn:hover {
+            color: var(--primary);
+            background: rgba(168, 53, 53, 0.03);
+        }
+        .tab-btn.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+        .tab-badge {
+            background: #A83535;
+            color: white;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 1px 7px;
+            border-radius: 10px;
+            min-width: 16px;
+            text-align: center;
+        }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: flex; flex-direction: column; }
+
         /* Product Management Content - Two Column Layout */
         .product-management {
             flex-grow: 1;
@@ -262,8 +408,8 @@ if ($conn) {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 25px;
-            height: auto;
-            overflow: auto;
+            height: calc(100vh - 130px);
+            overflow: hidden;
         }
         
         /* Left Section: Product Catalog + Low Stock Requests */
@@ -846,6 +992,25 @@ if ($conn) {
             background: rgba(168, 53, 53, 0.3);
             border-radius: 3px;
         }
+        /* ── Custom Dialog (replaces native alert/confirm) ── */
+        .custom-dialog-overlay { display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center; }
+        .custom-dialog-overlay.show { display:flex; }
+        .custom-dialog-box { background:white;border-radius:12px;width:90%;max-width:400px;padding:28px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,0.2);text-align:center;animation:dialogPop 0.15s ease; }
+        @keyframes dialogPop { from{transform:scale(0.95);opacity:0;} to{transform:scale(1);opacity:1;} }
+        .custom-dialog-icon { width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:22px; }
+        .custom-dialog-icon.dialog-info { background:#eff6ff;color:#1d4ed8; }
+        .custom-dialog-icon.dialog-success { background:#ecfdf5;color:#059669; }
+        .custom-dialog-icon.dialog-error { background:#fef2f2;color:#dc2626; }
+        .custom-dialog-icon.dialog-warning { background:#fffbeb;color:#d97706; }
+        .custom-dialog-message { font-size:14px;color:#2E2E2E;line-height:1.6;margin-bottom:22px;white-space:pre-line; }
+        .custom-dialog-actions { display:flex;gap:10px; }
+        .custom-dialog-btn { flex:1;padding:11px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:background 0.2s ease; }
+        .custom-dialog-cancel { background:#F1EDE8;color:#2E2E2E;border:1.5px solid #E0E0E0; }
+        .custom-dialog-cancel:hover { background:#e8e2da; }
+        .custom-dialog-confirm { background:#A83535;color:white; }
+        .custom-dialog-confirm:hover { background:#8b2a2a; }
+        .custom-dialog-danger { background:#dc2626;color:white; }
+        .custom-dialog-danger:hover { background:#b91c1c; }
     </style>
 </head>
 <body>
@@ -857,128 +1022,77 @@ if ($conn) {
         <header class="top-header">
             <div class="header-left">
                 <h1>Product Management</h1>
-                <p>Manage product catalog details and low stock requests</p>
+                <p>Manage product catalog details and restock requests</p>
             </div>
-            <div class="header-right">
-                Total Products: 142 | Pending Requests: 3
+            <div class="header-right" style="display:flex;align-items:center;gap:12px;">
+                <span>Total Products: <?= $totalProductsCount ?></span>
             </div>
         </header>
+
+        <!-- Tab bar -->
+        <div class="tab-bar">
+            <button type="button" class="tab-btn" id="tabBtnCatalog" onclick="switchTab('catalog')">
+                <i class="fas fa-boxes"></i> Product Catalog
+            </button>
+            <button type="button" class="tab-btn" id="tabBtnRestock" onclick="switchTab('restock')">
+                <i class="fas fa-truck-loading"></i> Restock Requests
+                <?php if ($pendingRequestCount > 0): ?>
+                <span class="tab-badge"><?= $pendingRequestCount ?></span>
+                <?php endif; ?>
+            </button>
+        </div>
         
         <!-- Product Management Content -->
+        <div class="tab-panel active" id="tabCatalog">
         <div class="product-management">
-            <!-- Left Section: Product Catalog + Low Stock Requests -->
-            <div class="left-section">
-                <!-- Product Catalog -->
-                <section class="table-section">
-                    <div class="section-header">
-                        <h2><i class="fas fa-boxes"></i> Product Catalog</h2>
-                    </div>
-                    
-                    <div class="table-container">
-                        <table class="product-table">
-                            <thead>
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Product Name</th>
-                                    <th>Category</th>
-                                    <th>Price</th>
-                                    <th>Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php if (empty($products)): ?>
-                                    <tr><td colspan="5" style="color:var(--light-text); padding:18px;">No products found in the database.</td></tr>
-                                <?php else: ?>
-                                    <?php foreach ($products as $p): ?>
-                                        <tr>
-                                            <td><?php echo htmlspecialchars($p['product_id']); ?></td>
-                                            <td>
-                                                <div class="product-info">
-                                                    <div class="product-icon icon-paper">
-                                                        <i class="fas fa-boxes"></i>
-                                                    </div>
-                                                    <div>
-                                                        <div class="product-name"><?php echo htmlspecialchars($p['product_name']); ?></div>
-                                                        <div class="product-sku">Last updated: <?php echo htmlspecialchars($p['last_updated']); ?></div>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td class="product-category"><?php echo htmlspecialchars($p['category']); ?></td>
-                                            <td class="product-price">RM <?php echo number_format((float)$p['price'], 2); ?></td>
-                                            <td><span class="product-status <?php echo (strtolower($p['product_status']) === 'active') ? 'status-active' : 'status-inactive'; ?>"><?php echo htmlspecialchars($p['product_status']); ?></span></td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                <?php endif; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                </section>
+            <!-- Product Catalog -->
+            <section class="table-section">
+                <div class="section-header">
+                    <h2><i class="fas fa-boxes"></i> Product Catalog</h2>
+                </div>
                 
-                <!-- Low Stock Requests -->
-                <section class="requests-section">
-                    <div class="requests-header">
-                        <h2><i class="fas fa-exclamation-triangle"></i> Low Stock Requests</h2>
-                    </div>
-                    
-                    <div class="requests-container">
-                        <table class="requests-table">
-                            <thead>
-                                <tr>
-                                    <th>Product</th>
-                                    <th>Branch</th>
-                                    <th>Status</th>
-                                    <th>Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td>
-                                        <div class="product-info">
-                                            <div class="product-icon icon-pen" style="width: 28px; height: 28px; font-size: 14px;">
-                                                <i class="fas fa-pen"></i>
+                <div class="table-container">
+                    <table class="product-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Product Name</th>
+                                <th>Category</th>
+                                <th>Price</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($products)): ?>
+                                <tr><td colspan="5" style="color:var(--light-text); padding:18px;">No products found in the database.</td></tr>
+                            <?php else: ?>
+                                <?php foreach ($products as $p): ?>
+                                    <tr>
+                                        <td><?php echo htmlspecialchars($p['product_id']); ?></td>
+                                        <td>
+                                            <div class="product-info">
+                                                <div class="product-icon icon-paper">
+                                                    <i class="fas fa-boxes"></i>
+                                                </div>
+                                                <div>
+                                                    <div class="product-name"><?php echo htmlspecialchars($p['product_name']); ?></div>
+                                                    <div class="product-sku">Last updated: <?php echo htmlspecialchars($p['last_updated']); ?></div>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <div class="product-name">Premium Ballpoint Pens</div>
-                                                <div class="product-sku">ID: PRD-002</div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td>Main Branch</td>
-                                    <td><span class="request-status status-pending">Pending</span></td>
-                                    <td>
-                                        <div class="request-action">
-                                            <button class="action-btn approve-btn">Approve</button>
-                                            <button class="action-btn reject-btn">Reject</button>
-                                        </div>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <div class="product-info">
-                                            <div class="product-icon icon-binding" style="width: 28px; height: 28px; font-size: 14px;">
-                                                <i class="fas fa-book"></i>
-                                            </div>
-                                            <div>
-                                                <div class="product-name">Spiral Binding (30mm)</div>
-                                                <div class="product-sku">ID: PRD-004</div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td>Downtown Branch</td>
-                                    <td><span class="request-status status-pending">Pending</span></td>
-                                    <td>
-                                        <div class="request-action">
-                                            <button class="action-btn approve-btn">Approve</button>
-                                            <button class="action-btn reject-btn">Reject</button>
-                                        </div>
-                                    </td>
-                                </tr>
-
-                            </tbody>
-                        </table>
-                    </div>
-                </section>
-            </div>
+                                        </td>
+                                        <td class="product-category"><?php echo htmlspecialchars($p['category']); ?></td>
+                                        <td class="product-price">RM <?php echo number_format((float)$p['price'], 2); ?></td>
+                                        <td><?php
+                                            $pStatusVal = strtoupper(trim($p['product_status']));
+                                            $pStatusClass = ($pStatusVal === 'ACTIVE') ? 'status-active' : 'status-inactive';
+                                        ?><span class="product-status <?php echo $pStatusClass; ?>"><?php echo htmlspecialchars($p['product_status']); ?></span></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
             
             <!-- Right Section: Product Form -->
             <section class="form-section">
@@ -1041,9 +1155,287 @@ if ($conn) {
                 </div>
             </section>
         </div>
+        </div><!-- /#tabCatalog -->
+
+        <!-- Restock Requests Tab Panel -->
+        <div class="tab-panel" id="tabRestock" style="padding:25px;">
+
+            <div class="stats-row" style="display:grid;grid-template-columns:repeat(2,1fr);gap:18px;margin-bottom:20px;">
+                <div class="stat-card" style="background-color:var(--white);border-radius:10px;padding:20px;box-shadow:var(--card-shadow);border:1px solid var(--border);display:flex;align-items:center;gap:14px;">
+                    <div class="stat-icon" style="width:42px;height:42px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;background:rgba(244,162,97,0.15);color:#d97706;">
+                        <i class="fas fa-clock"></i>
+                    </div>
+                    <div>
+                        <div style="font-size:24px;font-weight:700;color:var(--primary);"><?= $pendingRequestCount ?></div>
+                        <div style="font-size:12px;color:var(--light-text);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;">Pending Review</div>
+                    </div>
+                </div>
+                <div class="stat-card" style="background-color:var(--white);border-radius:10px;padding:20px;box-shadow:var(--card-shadow);border:1px solid var(--border);display:flex;align-items:center;gap:14px;">
+                    <div class="stat-icon" style="width:42px;height:42px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;background:rgba(168,53,53,0.1);color:var(--primary);">
+                        <i class="fas fa-list"></i>
+                    </div>
+                    <div>
+                        <div style="font-size:24px;font-weight:700;color:var(--primary);"><?= $totalRequestCount ?></div>
+                        <div style="font-size:12px;color:var(--light-text);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;">Total Requests</div>
+                    </div>
+                </div>
+            </div>
+
+            <section class="requests-section">
+                <div class="requests-header" style="display:flex;justify-content:space-between;align-items:center;">
+                    <h2><i class="fas fa-truck-loading"></i> Restock Requests</h2>
+                    <form method="GET" action="a_productmanagement.php" style="margin:0;">
+                        <input type="hidden" name="tab" value="restock">
+                        <select name="rstatus" onchange="this.form.submit()"
+                                style="padding:7px 12px;border:1.5px solid var(--border);border-radius:6px;
+                                       font-size:13px;font-weight:600;color:var(--text);background:var(--white);cursor:pointer;">
+                            <option value="PENDING"  <?= $requestFilter==='PENDING'  ? 'selected':'' ?>>Pending</option>
+                            <option value="ORDERED"  <?= $requestFilter==='ORDERED'  ? 'selected':'' ?>>Ordered</option>
+                            <option value="RECEIVED" <?= $requestFilter==='RECEIVED' ? 'selected':'' ?>>Received</option>
+                            <option value="REJECTED" <?= $requestFilter==='REJECTED' ? 'selected':'' ?>>Rejected</option>
+                            <option value="ALL"      <?= $requestFilter==='ALL'      ? 'selected':'' ?>>All</option>
+                        </select>
+                    </form>
+                </div>
+
+                <div class="requests-container">
+                    <?php if (empty($restockRequests)): ?>
+                        <div style="padding:48px 20px;text-align:center;color:var(--light-text);">
+                            <i class="fas fa-truck-loading" style="font-size:38px;opacity:0.2;margin-bottom:12px;display:block;"></i>
+                            <p>No <?= strtolower($requestFilter) === 'all' ? '' : strtolower($requestFilter) . ' ' ?>restock requests found.</p>
+                        </div>
+                    <?php else: ?>
+                    <table class="requests-table">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th>Branch</th>
+                                <th>Qty</th>
+                                <th>Source</th>
+                                <th>Status</th>
+                                <?php if ($isAdmin): ?><th>Action</th><?php endif; ?>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($restockRequests as $req): ?>
+                            <tr>
+                                <td>
+                                    <div class="product-info">
+                                        <div class="product-icon icon-paper" style="width: 28px; height: 28px; font-size: 14px;">
+                                            <i class="fas fa-box"></i>
+                                        </div>
+                                        <div>
+                                            <div class="product-name"><?= htmlspecialchars($req['product_name']) ?></div>
+                                            <div class="product-sku">
+                                                by <?= htmlspecialchars($req['requested_by_name'] ?? '—') ?>
+                                                · <?= date('d M, H:i', strtotime($req['requested_at'])) ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td><?= htmlspecialchars($req['branch_name']) ?></td>
+                                <td style="font-weight:700;"><?= (int)$req['requested_qty'] ?></td>
+                                <td><?= sourceBadge($req['source']) ?></td>
+                                <td>
+                                    <?= requestStatusBadge($req['status']) ?>
+                                    <?php if ($req['status'] === 'REJECTED' && !empty($req['admin_note'])): ?>
+                                    <div style="font-size:10px;color:var(--light-text);margin-top:3px;max-width:160px;">
+                                        <?= htmlspecialchars($req['admin_note']) ?>
+                                    </div>
+                                    <?php endif; ?>
+                                    <?php if ($req['status'] === 'RECEIVED'): ?>
+                                    <div style="font-size:10px;color:var(--light-text);margin-top:3px;">
+                                        by <?= htmlspecialchars($req['received_by_name'] ?? '—') ?>
+                                    </div>
+                                    <?php endif; ?>
+                                </td>
+                                <?php if ($isAdmin): ?>
+                                <td>
+                                    <?php if ($req['status'] === 'PENDING'): ?>
+                                    <div class="request-action">
+                                        <button type="button" class="action-btn approve-btn"
+                                                onclick="reviewRequest('<?= htmlspecialchars($req['request_id'], ENT_QUOTES) ?>','accept','<?= htmlspecialchars(addslashes($req['product_name'])) ?>')">
+                                            Accept
+                                        </button>
+                                        <button type="button" class="action-btn reject-btn"
+                                                onclick="reviewRequest('<?= htmlspecialchars($req['request_id'], ENT_QUOTES) ?>','reject','<?= htmlspecialchars(addslashes($req['product_name'])) ?>')">
+                                            Reject
+                                        </button>
+                                    </div>
+                                    <?php else: ?>
+                                    <span style="font-size:11px;color:var(--light-text);">—</span>
+                                    <?php endif; ?>
+                                </td>
+                                <?php endif; ?>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                    <?php endif; ?>
+                </div>
+            </section>
+        </div><!-- /#tabRestock -->
     </main>
     
+    <!-- Hidden form used by reviewRequest() to submit accept/reject -->
+    <form method="POST" action="a_productmanagement.php?tab=restock<?= !empty($_GET['rstatus']) ? '&rstatus=' . urlencode($_GET['rstatus']) : '' ?>" id="reviewForm" style="display:none;">
+        <input type="hidden" name="review_request" value="1">
+        <input type="hidden" name="request_id" id="reviewRequestId">
+        <input type="hidden" name="action" id="reviewAction">
+        <input type="hidden" name="admin_note" id="reviewNote">
+    </form>
+
+    <!-- Reject reason modal -->
+    <div id="rejectModalOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:300;align-items:center;justify-content:center;">
+        <div style="background:white;border-radius:12px;width:90%;max-width:420px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+            <h3 style="font-size:16px;color:var(--primary);margin-bottom:14px;display:flex;align-items:center;gap:8px;">
+                <i class="fas fa-times-circle"></i> Reject Restock Request
+            </h3>
+            <p style="font-size:13px;color:var(--light-text);margin-bottom:14px;" id="rejectProductLabel"></p>
+            <label style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:6px;display:block;">
+                Reason <span style="font-weight:400;color:var(--light-text);">(shown to staff)</span>
+            </label>
+            <textarea id="rejectReasonInput" rows="3"
+                      style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;
+                             font-size:13px;font-family:inherit;resize:none;margin-bottom:16px;"
+                      placeholder="e.g. Stock already on the way from another order"></textarea>
+            <div style="display:flex;gap:10px;">
+                <button type="button" onclick="closeRejectModal()"
+                        style="flex:1;padding:10px;background:var(--background);border:1.5px solid var(--border);
+                               border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">
+                    Cancel
+                </button>
+                <button type="button" onclick="confirmReject()"
+                        style="flex:1;padding:10px;background:var(--primary);color:white;border:none;
+                               border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">
+                    Confirm Reject
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Custom Dialog -->
+    <div id="customDialogOverlay" class="custom-dialog-overlay">
+        <div class="custom-dialog-box">
+            <div class="custom-dialog-icon" id="customDialogIcon"><i class="fas fa-info-circle"></i></div>
+            <p class="custom-dialog-message" id="customDialogMessage"></p>
+            <div class="custom-dialog-actions">
+                <button class="custom-dialog-btn custom-dialog-cancel" id="customDialogCancelBtn" style="display:none;">Cancel</button>
+                <button class="custom-dialog-btn custom-dialog-confirm" id="customDialogConfirmBtn">OK</button>
+            </div>
+        </div>
+    </div>
+
     <script>
+        // ── Custom Dialog System (replaces native alert()/confirm()) ──
+        const ICONS = {
+            info:    '<i class="fas fa-info-circle"></i>',
+            success: '<i class="fas fa-check-circle"></i>',
+            error:   '<i class="fas fa-exclamation-circle"></i>',
+            warning: '<i class="fas fa-exclamation-triangle"></i>',
+        };
+        function customAlert(message, type = 'info') {
+            return new Promise(resolve => {
+                const overlay = document.getElementById('customDialogOverlay');
+                const icon = document.getElementById('customDialogIcon');
+                const msgEl = document.getElementById('customDialogMessage');
+                const cancelBtn = document.getElementById('customDialogCancelBtn');
+                const confirmBtn = document.getElementById('customDialogConfirmBtn');
+                msgEl.textContent = message;
+                icon.className = 'custom-dialog-icon dialog-' + type;
+                icon.innerHTML = ICONS[type] || ICONS.info;
+                cancelBtn.style.display = 'none';
+                confirmBtn.textContent = 'OK';
+                confirmBtn.className = 'custom-dialog-btn custom-dialog-confirm';
+                overlay.classList.add('show');
+                const onOk = () => { overlay.classList.remove('show'); confirmBtn.removeEventListener('click', onOk); resolve(); };
+                confirmBtn.addEventListener('click', onOk);
+            });
+        }
+        function customConfirm(message, options = {}) {
+            return new Promise(resolve => {
+                const overlay = document.getElementById('customDialogOverlay');
+                const icon = document.getElementById('customDialogIcon');
+                const msgEl = document.getElementById('customDialogMessage');
+                const cancelBtn = document.getElementById('customDialogCancelBtn');
+                const confirmBtn = document.getElementById('customDialogConfirmBtn');
+                const type = options.danger ? 'warning' : 'info';
+                msgEl.textContent = message;
+                icon.className = 'custom-dialog-icon dialog-' + type;
+                icon.innerHTML = options.danger ? ICONS.warning : '<i class="fas fa-question-circle"></i>';
+                cancelBtn.style.display = 'inline-flex';
+                cancelBtn.textContent = options.cancelText || 'Cancel';
+                confirmBtn.textContent = options.confirmText || 'Confirm';
+                confirmBtn.className = 'custom-dialog-btn ' + (options.danger ? 'custom-dialog-danger' : 'custom-dialog-confirm');
+                overlay.classList.add('show');
+                const cleanup = (result) => {
+                    overlay.classList.remove('show');
+                    confirmBtn.removeEventListener('click', onYes);
+                    cancelBtn.removeEventListener('click', onNo);
+                    resolve(result);
+                };
+                const onYes = () => cleanup(true);
+                const onNo  = () => cleanup(false);
+                confirmBtn.addEventListener('click', onYes);
+                cancelBtn.addEventListener('click', onNo);
+            });
+        }
+    </script>
+
+    <script>
+        // ── Tab switching ──────────────────────────────────────────────
+        function switchTab(name) {
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+
+            document.getElementById(name === 'restock' ? 'tabRestock' : 'tabCatalog').classList.add('active');
+            document.getElementById(name === 'restock' ? 'tabBtnRestock' : 'tabBtnCatalog').classList.add('active');
+
+            // Reflect in URL without a full reload, so refresh/back keeps the tab
+            const url = new URL(window.location);
+            url.searchParams.set('tab', name);
+            window.history.replaceState({}, '', url);
+        }
+
+        // Initialize the correct tab on page load (from ?tab= or PHP default)
+        switchTab('<?= $initialTab ?>');
+
+        // ── Restock request review (Accept / Reject) ────────────────────
+        let pendingRejectId = null;
+
+        function reviewRequest(requestId, action, productName) {
+            if (action === 'accept') {
+                customConfirm(
+                    `Mark "${productName}" as ORDERED?\n\nThis means you've contacted the supplier and placed the order. Stock will only update once the branch confirms it has been received.`,
+                    { confirmText: 'Mark as Ordered' }
+                ).then(ok => {
+                    if (!ok) return;
+                    document.getElementById('reviewRequestId').value = requestId;
+                    document.getElementById('reviewAction').value    = 'accept';
+                    document.getElementById('reviewNote').value      = '';
+                    document.getElementById('reviewForm').submit();
+                });
+            } else {
+                pendingRejectId = requestId;
+                document.getElementById('rejectProductLabel').textContent = `Rejecting request for: ${productName}`;
+                document.getElementById('rejectReasonInput').value = '';
+                document.getElementById('rejectModalOverlay').style.display = 'flex';
+            }
+        }
+
+        function closeRejectModal() {
+            document.getElementById('rejectModalOverlay').style.display = 'none';
+            pendingRejectId = null;
+        }
+
+        function confirmReject() {
+            if (!pendingRejectId) return;
+            document.getElementById('reviewRequestId').value = pendingRejectId;
+            document.getElementById('reviewAction').value    = 'reject';
+            document.getElementById('reviewNote').value      = document.getElementById('rejectReasonInput').value.trim();
+            document.getElementById('reviewForm').submit();
+        }
+
         // Navigation interactions
         document.querySelectorAll('.nav-link').forEach(link => {
             link.addEventListener('click', function(e) {
@@ -1090,11 +1482,11 @@ if ($conn) {
                 // Set price
                 document.querySelector('.price-input').value = productPrice.trim();
                 
-                // Set status (with trim to handle whitespace)
-                const statusTrim = productStatus.trim();
+                // Set status (case-insensitive match — DB may store ACTIVE/INACTIVE uppercase)
+                const statusTrim = productStatus.trim().toUpperCase();
                 document.querySelectorAll('input[name="status"]').forEach(radio => {
                     radio.checked = false;
-                    if (radio.nextElementSibling.textContent.trim() === statusTrim) {
+                    if (radio.nextElementSibling.textContent.trim().toUpperCase() === statusTrim) {
                         radio.checked = true;
                     }
                 });
@@ -1102,7 +1494,7 @@ if ($conn) {
         });
         
         // Save product button (sends to save_product.php)
-        document.getElementById('saveBtn').addEventListener('click', function() {
+        document.getElementById('saveBtn').addEventListener('click', async function() {
             const id = document.querySelector('.form-input[placeholder="Auto-generated or enter ID"]').value.trim();
             const name = document.querySelector('.form-input[placeholder="Enter product name"]').value.trim();
             const category = document.querySelector('.form-select').value;
@@ -1116,19 +1508,18 @@ if ($conn) {
             formData.append('price', price);
             formData.append('product_status', status);
 
-            fetch('save_product.php', { method: 'POST', body: formData })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        alert('Product saved successfully (' + (data.action || 'saved') + ').');
-                        window.location.reload();
-                    } else {
-                        alert('Save failed: ' + (data.error || 'unknown error'));
-                    }
-                })
-                .catch(err => {
-                    alert('Request error: ' + err.message);
-                });
+            try {
+                const res = await fetch('save_product.php', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (data.success) {
+                    await customAlert('Product saved successfully (' + (data.action || 'saved') + ').', 'success');
+                    window.location.reload();
+                } else {
+                    await customAlert('Save failed: ' + (data.error || 'unknown error'), 'error');
+                }
+            } catch (err) {
+                await customAlert('Request error: ' + err.message, 'error');
+            }
         });
         
         // Add New button
@@ -1148,49 +1539,7 @@ if ($conn) {
             });
         });
         
-        // Approve/Reject buttons in Low Stock Requests
-        document.querySelectorAll('.approve-btn').forEach(button => {
-            button.addEventListener('click', function() {
-                const row = this.closest('tr');
-                const productName = row.querySelector('.product-name').textContent;
-                const branch = row.querySelector('td:nth-child(2)').textContent;
-                
-                // Update status in table
-                const statusCell = row.querySelector('.request-status');
-                statusCell.textContent = 'Approved';
-                statusCell.className = 'request-status status-approved';
-                
-                // Update action cell
-                const actionCell = row.querySelector('.request-action');
-                actionCell.innerHTML = '<span style="font-size: 11px; color: var(--light-text);">Completed</span>';
-                
-                alert(`Low stock request APPROVED for:\nProduct: ${productName}\nBranch: ${branch}\n\n(UI mockup only)`);
-            });
-        });
-        
-        document.querySelectorAll('.reject-btn').forEach(button => {
-            button.addEventListener('click', function() {
-                const row = this.closest('tr');
-                const productName = row.querySelector('.product-name').textContent;
-                const branch = row.querySelector('td:nth-child(2)').textContent;
-                
-                // Update status in table
-                const statusCell = row.querySelector('.request-status');
-                statusCell.textContent = 'Rejected';
-                statusCell.className = 'request-status status-rejected';
-                
-                // Update action cell
-                const actionCell = row.querySelector('.request-action');
-                actionCell.innerHTML = '<span style="font-size: 11px; color: var(--light-text);">Completed</span>';
-                
-                alert(`Low stock request REJECTED for:\nProduct: ${productName}\nBranch: ${branch}\n\n(UI mockup only)`);
-            });
-        });
-        
-        // Logout button
-        document.querySelector('.logout-link').addEventListener('click', function() {
-            alert('Logout functionality would be implemented here (UI mockup only)');
-        });
+        // Logout button (real link — no JS interception needed)
         
         // Price input validation (numbers only with decimal)
         document.querySelector('.price-input').addEventListener('input', function() {

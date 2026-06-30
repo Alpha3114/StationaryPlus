@@ -299,7 +299,7 @@ if ($conn) {
         
         .table-container {
             flex-grow: 1;
-            overflow: hidden;
+            overflow-y: auto;
         }
         
         .branch-table {
@@ -374,12 +374,8 @@ if ($conn) {
             font-size: 13px;
             color: var(--text);
             line-height: 1.4;
-            max-height: 40px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
+            white-space: normal;
+            word-wrap: break-word;
         }
         
         .branch-contact {
@@ -636,6 +632,25 @@ if ($conn) {
                 padding: 9px;
             }
         }
+        /* ── Custom Dialog (replaces native alert/confirm) ── */
+        .custom-dialog-overlay { display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center; }
+        .custom-dialog-overlay.show { display:flex; }
+        .custom-dialog-box { background:white;border-radius:12px;width:90%;max-width:400px;padding:28px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,0.2);text-align:center;animation:dialogPop 0.15s ease; }
+        @keyframes dialogPop { from{transform:scale(0.95);opacity:0;} to{transform:scale(1);opacity:1;} }
+        .custom-dialog-icon { width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:22px; }
+        .custom-dialog-icon.dialog-info { background:#eff6ff;color:#1d4ed8; }
+        .custom-dialog-icon.dialog-success { background:#ecfdf5;color:#059669; }
+        .custom-dialog-icon.dialog-error { background:#fef2f2;color:#dc2626; }
+        .custom-dialog-icon.dialog-warning { background:#fffbeb;color:#d97706; }
+        .custom-dialog-message { font-size:14px;color:#2E2E2E;line-height:1.6;margin-bottom:22px;white-space:pre-line; }
+        .custom-dialog-actions { display:flex;gap:10px; }
+        .custom-dialog-btn { flex:1;padding:11px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:background 0.2s ease; }
+        .custom-dialog-cancel { background:#F1EDE8;color:#2E2E2E;border:1.5px solid #E0E0E0; }
+        .custom-dialog-cancel:hover { background:#e8e2da; }
+        .custom-dialog-confirm { background:#A83535;color:white; }
+        .custom-dialog-confirm:hover { background:#8b2a2a; }
+        .custom-dialog-danger { background:#dc2626;color:white; }
+        .custom-dialog-danger:hover { background:#b91c1c; }
     </style>
 </head>
 <body>
@@ -691,7 +706,14 @@ if ($conn) {
                                         </td>
                                         <td class="branch-address"><?php echo htmlspecialchars($branch['address']); ?></td>
                                         <td class="branch-contact"><?php echo htmlspecialchars($branch['phone_number']); ?></td>
-                                        <td><span class="branch-status <?php echo (strtolower($branch['status']) === 'active') ? 'status-active' : 'status-inactive'; ?>"><?php echo htmlspecialchars($branch['status']); ?></span></td>
+                                        <td><?php
+                                            $statusVal = strtoupper(trim($branch['status']));
+                                            $statusClass = match($statusVal) {
+                                                'ACTIVE'     => 'status-active',
+                                                'RENOVATION' => 'status-renovation',
+                                                default      => 'status-inactive',
+                                            };
+                                        ?><span class="branch-status <?php echo $statusClass; ?>"><?php echo htmlspecialchars($branch['status']); ?></span></td>
                                     </tr>
                                 <?php endforeach; ?>
                             <?php endif; ?>
@@ -729,20 +751,11 @@ if ($conn) {
                     
                     <div class="form-group">
                         <label class="form-label">Status</label>
-                        <div class="radio-group">
-                            <div class="radio-option">
-                                <input type="radio" id="active" name="status" checked>
-                                <label class="radio-label" for="active">Active</label>
-                            </div>
-                            <div class="radio-option">
-                                <input type="radio" id="inactive" name="status">
-                                <label class="radio-label" for="inactive">Inactive</label>
-                            </div>
-                            <div class="radio-option">
-                                <input type="radio" id="renovation" name="status">
-                                <label class="radio-label" for="renovation">Renovation</label>
-                            </div>
-                        </div>
+                        <select class="form-input" id="statusSelect" name="status">
+                            <option value="ACTIVE">Active</option>
+                            <option value="INACTIVE">Inactive</option>
+                            <option value="RENOVATION">Renovation</option>
+                        </select>
                     </div>
                     
                     <div class="form-actions">
@@ -758,6 +771,74 @@ if ($conn) {
         </div>
     </main>
     
+    <!-- Custom Dialog -->
+    <div id="customDialogOverlay" class="custom-dialog-overlay">
+        <div class="custom-dialog-box">
+            <div class="custom-dialog-icon" id="customDialogIcon"><i class="fas fa-info-circle"></i></div>
+            <p class="custom-dialog-message" id="customDialogMessage"></p>
+            <div class="custom-dialog-actions">
+                <button class="custom-dialog-btn custom-dialog-cancel" id="customDialogCancelBtn" style="display:none;">Cancel</button>
+                <button class="custom-dialog-btn custom-dialog-confirm" id="customDialogConfirmBtn">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ── Custom Dialog System (replaces native alert()/confirm()) ──
+        const ICONS = {
+            info:    '<i class="fas fa-info-circle"></i>',
+            success: '<i class="fas fa-check-circle"></i>',
+            error:   '<i class="fas fa-exclamation-circle"></i>',
+            warning: '<i class="fas fa-exclamation-triangle"></i>',
+        };
+        function customAlert(message, type = 'info') {
+            return new Promise(resolve => {
+                const overlay = document.getElementById('customDialogOverlay');
+                const icon = document.getElementById('customDialogIcon');
+                const msgEl = document.getElementById('customDialogMessage');
+                const cancelBtn = document.getElementById('customDialogCancelBtn');
+                const confirmBtn = document.getElementById('customDialogConfirmBtn');
+                msgEl.textContent = message;
+                icon.className = 'custom-dialog-icon dialog-' + type;
+                icon.innerHTML = ICONS[type] || ICONS.info;
+                cancelBtn.style.display = 'none';
+                confirmBtn.textContent = 'OK';
+                confirmBtn.className = 'custom-dialog-btn custom-dialog-confirm';
+                overlay.classList.add('show');
+                const onOk = () => { overlay.classList.remove('show'); confirmBtn.removeEventListener('click', onOk); resolve(); };
+                confirmBtn.addEventListener('click', onOk);
+            });
+        }
+        function customConfirm(message, options = {}) {
+            return new Promise(resolve => {
+                const overlay = document.getElementById('customDialogOverlay');
+                const icon = document.getElementById('customDialogIcon');
+                const msgEl = document.getElementById('customDialogMessage');
+                const cancelBtn = document.getElementById('customDialogCancelBtn');
+                const confirmBtn = document.getElementById('customDialogConfirmBtn');
+                const type = options.danger ? 'warning' : 'info';
+                msgEl.textContent = message;
+                icon.className = 'custom-dialog-icon dialog-' + type;
+                icon.innerHTML = options.danger ? ICONS.warning : '<i class="fas fa-question-circle"></i>';
+                cancelBtn.style.display = 'inline-flex';
+                cancelBtn.textContent = options.cancelText || 'Cancel';
+                confirmBtn.textContent = options.confirmText || 'Confirm';
+                confirmBtn.className = 'custom-dialog-btn ' + (options.danger ? 'custom-dialog-danger' : 'custom-dialog-confirm');
+                overlay.classList.add('show');
+                const cleanup = (result) => {
+                    overlay.classList.remove('show');
+                    confirmBtn.removeEventListener('click', onYes);
+                    cancelBtn.removeEventListener('click', onNo);
+                    resolve(result);
+                };
+                const onYes = () => cleanup(true);
+                const onNo  = () => cleanup(false);
+                confirmBtn.addEventListener('click', onYes);
+                cancelBtn.addEventListener('click', onNo);
+            });
+        }
+    </script>
+
     <script>
         // Navigation is handled dynamically - links work normally
         
@@ -787,23 +868,24 @@ if ($conn) {
                 document.querySelector('.form-textarea[placeholder="Enter branch address"]').value = branchAddress;
                 document.querySelector('.form-input[placeholder="Enter phone number"]').value = branchPhone;
                 
-                // Set status
-                document.querySelectorAll('input[name="status"]').forEach(radio => {
-                    radio.checked = false;
-                    if (radio.nextElementSibling.textContent.trim() === branchStatus) {
-                        radio.checked = true;
-                    }
-                });
+                // Set status — match case-insensitively, dropdown values are UPPERCASE
+                const statusSelect = document.getElementById('statusSelect');
+                const normalizedStatus = branchStatus.toUpperCase();
+                if ([...statusSelect.options].some(o => o.value === normalizedStatus)) {
+                    statusSelect.value = normalizedStatus;
+                } else {
+                    statusSelect.value = 'ACTIVE'; // fallback if status doesn't match known options
+                }
             });
         });
         
         // Save branch button (sends to save_branch.php)
-        document.getElementById('saveBtn').addEventListener('click', function() {
+        document.getElementById('saveBtn').addEventListener('click', async function() {
             const id = document.querySelector('input[name="branch_id"]').value.trim();
             const name = document.querySelector('.form-input[placeholder="Enter branch name"]').value.trim();
             const address = document.querySelector('.form-textarea[placeholder="Enter branch address"]').value.trim();
             const phone = document.querySelector('.form-input[placeholder="Enter phone number"]').value.trim();
-            const status = document.querySelector('input[name="status"]:checked').nextElementSibling.textContent.trim();
+            const status = document.getElementById('statusSelect').value;
 
             const formData = new FormData();
             formData.append('branch_id', id);
@@ -812,19 +894,18 @@ if ($conn) {
             formData.append('phone_number', phone);
             formData.append('status', status);
 
-            fetch('save_branch.php', { method: 'POST', body: formData })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        alert('Branch saved successfully (' + (data.action || 'saved') + ').');
-                        window.location.reload();
-                    } else {
-                        alert('Save failed: ' + (data.error || 'unknown error'));
-                    }
-                })
-                .catch(err => {
-                    alert('Request error: ' + err.message);
-                });
+            try {
+                const res = await fetch('save_branch.php', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (data.success) {
+                    await customAlert('Branch saved successfully (' + (data.action || 'saved') + ').', 'success');
+                    window.location.reload();
+                } else {
+                    await customAlert('Save failed: ' + (data.error || 'unknown error'), 'error');
+                }
+            } catch (err) {
+                await customAlert('Request error: ' + err.message, 'error');
+            }
         });
         
         // New branch button
@@ -835,18 +916,15 @@ if ($conn) {
             document.querySelector('.form-input[placeholder="Enter branch name"]').value = '';
             document.querySelector('.form-textarea[placeholder="Enter branch address"]').value = '';
             document.querySelector('.form-input[placeholder="Enter phone number"]').value = '';
-            document.querySelector('input[name="status"][id="active"]').checked = true;
-            
+            document.getElementById('statusSelect').value = 'ACTIVE';
+
             // Deselect all table rows
             document.querySelectorAll('.branch-table tbody tr').forEach(r => {
                 r.classList.remove('selected');
             });
         });
         
-        // Logout button
-        document.querySelector('.logout-link').addEventListener('click', function() {
-            alert('Logout functionality would be implemented here (UI mockup only)');
-        });
+        // Logout button (real link via a_sidebar.php — no JS interception needed)
         
         // Phone number input validation (optional formatting)
         const contactInput = document.querySelector('.form-input[placeholder="Enter phone number"]');
@@ -865,7 +943,7 @@ if ($conn) {
             document.querySelector('.form-input[placeholder="Enter branch name"]').value = '';
             document.querySelector('.form-textarea[placeholder="Enter branch address"]').value = '';
             document.querySelector('.form-input[placeholder="Enter phone number"]').value = '';
-            document.querySelector('input[name="status"][id="active"]').checked = true;
+            document.getElementById('statusSelect').value = 'ACTIVE';
             document.querySelectorAll('.branch-table tbody tr').forEach(r => {
                 r.classList.remove('selected');
             });
