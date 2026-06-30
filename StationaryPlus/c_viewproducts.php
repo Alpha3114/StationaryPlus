@@ -108,12 +108,13 @@ $totalPages = max(1, (int)ceil($totalRows / $perPage));
 $countStmt->close();
 
 // ── Fetch products with stock info ────────────────────────────
-// If branch selected: only products with stock > 0 at that branch
-// If no branch: all active products across all branches
+// total_stock now reflects AVAILABLE stock (physical - reserved),
+// so customers only see/order what isn't already promised to
+// another pending pre-order.
 if ($activeBranchId) {
     $dataSQL = "
         SELECT p.product_id, p.product_name, p.category, p.price,
-               COALESCE(i.stock_quantity, 0) AS total_stock
+               GREATEST(0, COALESCE(i.stock_quantity, 0) - COALESCE(i.reserved_quantity, 0)) AS total_stock
         FROM products p
         LEFT JOIN inventory i ON p.product_id = i.product_id AND i.branch_id = ?
         $whereSQL
@@ -126,7 +127,7 @@ if ($activeBranchId) {
 } else {
     $dataSQL = "
         SELECT p.product_id, p.product_name, p.category, p.price,
-               COALESCE(SUM(i.stock_quantity), 0) AS total_stock
+               GREATEST(0, COALESCE(SUM(i.stock_quantity), 0) - COALESCE(SUM(i.reserved_quantity), 0)) AS total_stock
         FROM products p
         LEFT JOIN inventory i ON p.product_id = i.product_id
         $whereSQL

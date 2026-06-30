@@ -19,7 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancel_order'])) {
         // Verify: belongs to customer, is a PREORDER, is still NEW,
         // and has no PENDING or VALID payment
         $stmt = $conn->prepare(
-            "SELECT o.order_id FROM orders o
+            "SELECT o.order_id, o.branch_id FROM orders o
              WHERE o.order_id   = ?
                AND o.user_id    = ?
                AND o.order_type = 'PREORDER'
@@ -44,6 +44,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancel_order'])) {
             $stmt->bind_param('ss', $reason, $cancelId);
             $stmt->execute();
             $stmt->close();
+
+            // Release reserved stock for every item on this order —
+            // physical stock is untouched, only the hold is removed.
+            $orderBranch = $ok['branch_id'];
+            $iStmt = $conn->prepare(
+                "SELECT product_id, quantity FROM order_items WHERE order_id = ?"
+            );
+            $iStmt->bind_param('s', $cancelId);
+            $iStmt->execute();
+            $cancelItems = $iStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $iStmt->close();
+
+            foreach ($cancelItems as $item) {
+                if ($orderBranch) {
+                    $relStmt = $conn->prepare(
+                        "UPDATE inventory
+                         SET reserved_quantity = GREATEST(0, reserved_quantity - ?)
+                         WHERE product_id = ? AND branch_id = ?"
+                    );
+                    $relStmt->bind_param('iss', $item['quantity'], $item['product_id'], $orderBranch);
+                } else {
+                    $relStmt = $conn->prepare(
+                        "UPDATE inventory
+                         SET reserved_quantity = GREATEST(0, reserved_quantity - ?)
+                         WHERE product_id = ?
+                         ORDER BY reserved_quantity DESC LIMIT 1"
+                    );
+                    $relStmt->bind_param('is', $item['quantity'], $item['product_id']);
+                }
+                $relStmt->execute();
+                $relStmt->close();
+            }
         }
     }
 

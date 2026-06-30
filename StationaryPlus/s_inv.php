@@ -14,6 +14,7 @@ $branchId = $_SESSION['branch_id'] ?? null;
 
 // ── Handle stock update (POST) ────────────────────────────────
 $successMsg = '';
+$isWarning  = false;
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_stock'])) {
     $inventoryId = trim($_POST['inventory_id'] ?? '');
     $newQty      = (int)($_POST['new_qty'] ?? -1);
@@ -22,7 +23,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_stock'])) {
 
         // Fetch current state before changing anything
         $stmt = $conn->prepare(
-            "SELECT stock_quantity, product_id, branch_id FROM inventory WHERE inventory_id = ? LIMIT 1"
+            "SELECT stock_quantity, reserved_quantity, product_id, branch_id
+             FROM inventory WHERE inventory_id = ? LIMIT 1"
         );
         $stmt->bind_param('s', $inventoryId);
         $stmt->execute();
@@ -31,6 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_stock'])) {
 
         if ($current) {
             $oldQty    = (int)$current['stock_quantity'];
+            $reserved  = (int)$current['reserved_quantity'];
             $productId = $current['product_id'];
             $invBranch = $current['branch_id'];
             $changeQty = $newQty - $oldQty;
@@ -60,7 +63,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_stock'])) {
                 $stmt->close();
             }
 
-            $successMsg = "Stock updated successfully.";
+            // Warn (don't block) if the new stock level is now below what's reserved
+            // for pending pre-orders — staff may be writing off damaged stock, but
+            // should be aware some reservations may no longer be fulfillable.
+            // Passed via query string since the redirect below loses in-memory state.
+            $reservedWarning = ($reserved > 0 && $newQty < $reserved) ? "$reserved:$newQty" : '';
         }
     }
 
@@ -68,13 +75,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_stock'])) {
         'search' => $_GET['search'] ?? '',
         'filter' => $_GET['filter'] ?? '',
         'branch' => $_GET['branch'] ?? '',
+        'warn'   => $reservedWarning ?? '',
     ]));
     header('Location: s_inv.php' . ($qs ? "?$qs&updated=1" : '?updated=1'));
     exit;
 }
 
 if (isset($_GET['updated'])) {
-    $successMsg = "Stock updated successfully.";
+    if (!empty($_GET['warn']) && str_contains($_GET['warn'], ':')) {
+        [$resv, $nq] = explode(':', $_GET['warn']);
+        $resv = (int)$resv; $nq = (int)$nq;
+        $successMsg = "Stock updated, but note: $resv unit(s) are reserved for pending pre-orders "
+                    . "and only $nq are now in stock. Some reservations may not be fulfillable.";
+        $isWarning = true;
+    } else {
+        $successMsg = "Stock updated successfully.";
+    }
 }
 
 // ── Filters ───────────────────────────────────────────────────
@@ -138,7 +154,7 @@ if ($filterView === 'low') {
 $whereSQL = 'WHERE ' . implode(' AND ', $where);
 
 $stmt = $conn->prepare(
-    "SELECT i.inventory_id, i.stock_quantity, i.minimum_level,
+    "SELECT i.inventory_id, i.stock_quantity, i.reserved_quantity, i.minimum_level,
             p.product_name, p.category, b.branch_name
      FROM inventory i
      JOIN products p ON i.product_id = p.product_id
@@ -314,6 +330,7 @@ function reasonBadge(string $reason): string {
 
         /* Success banner */
         .success-banner { margin:16px 28px 0;padding:12px 18px;background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;border-radius:8px;font-size:14px;display:flex;align-items:center;gap:10px; }
+        .success-banner.warn { background:#fffbeb;color:#92400e;border-color:#fde68a; }
 
         /* Content */
         .inv-content { padding:24px 28px;flex-grow:1;display:flex;flex-direction:column;gap:24px; }
@@ -483,8 +500,8 @@ function reasonBadge(string $reason): string {
     </header>
 
     <?php if ($successMsg): ?>
-    <div class="success-banner">
-        <i class="fas fa-check-circle"></i> <?= htmlspecialchars($successMsg) ?>
+    <div class="success-banner<?= $isWarning ? ' warn' : '' ?>">
+        <i class="fas <?= $isWarning ? 'fa-exclamation-triangle' : 'fa-check-circle' ?>"></i> <?= htmlspecialchars($successMsg) ?>
     </div>
     <?php endif; ?>
 
@@ -570,6 +587,7 @@ function reasonBadge(string $reason): string {
                             <th>Product</th>
                             <th>Branch</th>
                             <th>Stock Level</th>
+                            <th>Reserved</th>
                             <th>Min. Level</th>
                             <th>Update Qty</th>
                         </tr>
@@ -608,6 +626,17 @@ function reasonBadge(string $reason): string {
                                     </div>
                                     <span class="stock-num <?= $numClass ?>"><?= $qty ?></span>
                                 </div>
+                            </td>
+                            <td>
+                                <?php $reserved = (int)($item['reserved_quantity'] ?? 0); ?>
+                                <?php if ($reserved > 0): ?>
+                                    <span style="background:#fffbeb;color:#d97706;border:1px solid #fde68a;
+                                                 padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600;">
+                                        <i class="fas fa-lock" style="font-size:10px;"></i> <?= $reserved ?>
+                                    </span>
+                                <?php else: ?>
+                                    <span style="color:#9ca3af;font-size:12px;">—</span>
+                                <?php endif; ?>
                             </td>
                             <td><?= $min ?></td>
                             <td>

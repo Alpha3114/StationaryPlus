@@ -65,6 +65,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
             // ── Deduct inventory when a PREORDER is marked COLLECTED ──────
             // Guard: only fires once — skipped if order was already COLLECTED.
             // Walk-in ORDERs are excluded; their inventory is deducted at POS.
+            // This converts the RESERVATION into a real deduction: both
+            // stock_quantity (physical) and reserved_quantity (hold) drop.
             if ($newStatus  === 'COLLECTED'
                 && $prevStatus !== 'COLLECTED'
                 && $orderType  === 'PREORDER') {
@@ -83,13 +85,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
                     // Fetch current inventory state before deducting (needed for log)
                     if ($orderBranch) {
                         $selStmt = $conn->prepare(
-                            "SELECT inventory_id, stock_quantity FROM inventory
+                            "SELECT inventory_id, stock_quantity, reserved_quantity FROM inventory
                              WHERE product_id = ? AND branch_id = ? LIMIT 1"
                         );
                         $selStmt->bind_param('ss', $item['product_id'], $orderBranch);
                     } else {
                         $selStmt = $conn->prepare(
-                            "SELECT inventory_id, stock_quantity FROM inventory
+                            "SELECT inventory_id, stock_quantity, reserved_quantity FROM inventory
                              WHERE product_id = ? ORDER BY stock_quantity DESC LIMIT 1"
                         );
                         $selStmt->bind_param('s', $item['product_id']);
@@ -104,15 +106,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
                     $oldQty      = (int)$invRow['stock_quantity'];
                     $newQty      = $oldQty - (int)$item['quantity'];
                     $changeQty   = -(int)$item['quantity'];
+                    // Reservation release amount is capped at 0 so it never goes negative
+                    // even if the reservation total drifted (e.g. partial collection edge cases)
+                    $newReserved = max(0, (int)$invRow['reserved_quantity'] - (int)$item['quantity']);
 
-                    // Deduct inventory
+                    // Deduct physical stock AND release the reservation in one update
                     $dStmt = $conn->prepare(
                         "UPDATE inventory
-                         SET stock_quantity = ?,
-                             last_updated   = NOW()
+                         SET stock_quantity    = ?,
+                             reserved_quantity = ?,
+                             last_updated      = NOW()
                          WHERE inventory_id = ?"
                     );
-                    $dStmt->bind_param('is', $newQty, $inventoryId);
+                    $dStmt->bind_param('iis', $newQty, $newReserved, $inventoryId);
                     $dStmt->execute();
                     $dStmt->close();
 
@@ -131,6 +137,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
                     );
                     $logStmt->execute();
                     $logStmt->close();
+                }
+            }
+
+            // ── Release reservation when a PREORDER is CANCELLED ──────────
+            // Physical stock is untouched — only the hold is released so
+            // the units become available to other customers again.
+            // Guard: skip if already CANCELLED, and skip walk-in ORDERs
+            // (they were never reserved in the first place).
+            if ($newStatus  === 'CANCELLED'
+                && $prevStatus !== 'CANCELLED'
+                && $orderType  === 'PREORDER') {
+
+                $iStmt = $conn->prepare(
+                    "SELECT product_id, quantity FROM order_items WHERE order_id = ?"
+                );
+                $iStmt->bind_param('s', $orderId);
+                $iStmt->execute();
+                $cancelItems = $iStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+                $iStmt->close();
+
+                foreach ($cancelItems as $item) {
+                    if ($orderBranch) {
+                        $relStmt = $conn->prepare(
+                            "UPDATE inventory
+                             SET reserved_quantity = GREATEST(0, reserved_quantity - ?)
+                             WHERE product_id = ? AND branch_id = ?"
+                        );
+                        $relStmt->bind_param('iss', $item['quantity'], $item['product_id'], $orderBranch);
+                    } else {
+                        $relStmt = $conn->prepare(
+                            "UPDATE inventory
+                             SET reserved_quantity = GREATEST(0, reserved_quantity - ?)
+                             WHERE product_id = ?
+                             ORDER BY reserved_quantity DESC LIMIT 1"
+                        );
+                        $relStmt->bind_param('is', $item['quantity'], $item['product_id']);
+                    }
+                    $relStmt->execute();
+                    $relStmt->close();
                 }
             }
 

@@ -82,7 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_preorder'])) {
         $types        = str_repeat('s', count($pids));
 
         $stmt = $conn->prepare(
-            "SELECT product_id, price FROM products
+            "SELECT product_id, price, product_name FROM products
              WHERE product_id IN ($placeholders) AND product_status = 'ACTIVE'"
         );
         $stmt->bind_param($types, ...$pids);
@@ -91,8 +91,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_preorder'])) {
         $stmt->close();
 
         $priceMap = [];
+        $nameMap  = [];
         foreach ($priceRows as $row) {
             $priceMap[$row['product_id']] = (float)$row['price'];
+            $nameMap[$row['product_id']]  = $row['product_name'];
         }
 
         $estimatedTotal = 0.0;
@@ -102,40 +104,112 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_preorder'])) {
             }
         }
 
-        // FIX #2: stamp branch_id on the order
-        $orderId    = generate_preorder_id();
-        $notesVal   = $notes !== '' ? $notes : null;
-        $branchId   = $_SESSION['branch_id'] ?? null;
+        $branchId = $_SESSION['branch_id'] ?? null;
 
-        $stmt = $conn->prepare(
-            "INSERT INTO orders
-                (order_id, user_id, order_type, order_status, estimated_total, notes, branch_id)
-             VALUES (?, ?, 'PREORDER', 'NEW', ?, ?, ?)"
-        );
-        $stmt->bind_param('ssdss', $orderId, $userId, $estimatedTotal, $notesVal, $branchId);
-        $stmt->execute();
-        $stmt->close();
+        // ── Stock reservation check ────────────────────────────────
+        // Available stock = stock_quantity - reserved_quantity.
+        // Validate every cart item has enough AVAILABLE stock before
+        // creating the order, then reserve it inside the same transaction
+        // so no other customer can claim the same units in the meantime.
+        $stockErrors  = [];
+        $invRowsToUse = []; // pid => [inventory_id, available]
 
-        $stmt = $conn->prepare(
-            "INSERT INTO order_items (order_item_id, order_id, product_id, quantity, unit_price)
-             VALUES (?, ?, ?, ?, ?)"
-        );
         foreach ($_SESSION['cart'] as $pid => $qty) {
             if (!isset($priceMap[$pid])) continue;
-            $itemId    = 'OI-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
-            $unitPrice = $priceMap[$pid];
-            $stmt->bind_param('sssid', $itemId, $orderId, $pid, $qty, $unitPrice);
-            $stmt->execute();
+
+            if ($branchId) {
+                $iStmt = $conn->prepare(
+                    "SELECT inventory_id, stock_quantity, reserved_quantity
+                     FROM inventory WHERE product_id = ? AND branch_id = ? LIMIT 1"
+                );
+                $iStmt->bind_param('ss', $pid, $branchId);
+            } else {
+                // No branch context — pick the branch with the most available stock
+                $iStmt = $conn->prepare(
+                    "SELECT inventory_id, stock_quantity, reserved_quantity
+                     FROM inventory WHERE product_id = ?
+                     ORDER BY (stock_quantity - reserved_quantity) DESC LIMIT 1"
+                );
+                $iStmt->bind_param('s', $pid);
+            }
+            $iStmt->execute();
+            $invRow = $iStmt->get_result()->fetch_assoc();
+            $iStmt->close();
+
+            $available  = $invRow ? ((int)$invRow['stock_quantity'] - (int)$invRow['reserved_quantity']) : 0;
+            $productName = $nameMap[$pid] ?? $pid;
+
+            if (!$invRow || $available < $qty) {
+                $stockErrors[] = $productName . " — only $available available (requested $qty)";
+            } else {
+                $invRowsToUse[$pid] = $invRow['inventory_id'];
+            }
         }
-        $stmt->close();
 
-        $_SESSION['cart'] = [];
+        if (!empty($stockErrors)) {
+            $message = "Some items don't have enough stock available:<br>• " . implode('<br>• ', array_map('htmlspecialchars', $stockErrors))
+                      . "<br>Please adjust the quantities and try again.";
+            $msgType = 'error';
+        } else {
 
-        // FIX #3: remove the "We'll notify you" lie — link to order status instead
-        $message = "Pre-order <strong>$orderId</strong> submitted! "
-                 . "<a href='c_orderstatus.php' style='color:#2e7d32;font-weight:700;'>"
-                 . "Track your order status &rarr;</a>";
-        $msgType = 'success';
+        // FIX #2: stamp branch_id on the order
+        $orderId  = generate_preorder_id();
+        $notesVal = $notes !== '' ? $notes : null;
+
+        $conn->begin_transaction();
+        try {
+            $stmt = $conn->prepare(
+                "INSERT INTO orders
+                    (order_id, user_id, order_type, order_status, estimated_total, notes, branch_id)
+                 VALUES (?, ?, 'PREORDER', 'NEW', ?, ?, ?)"
+            );
+            $stmt->bind_param('ssdss', $orderId, $userId, $estimatedTotal, $notesVal, $branchId);
+            $stmt->execute();
+            $stmt->close();
+
+            $stmt = $conn->prepare(
+                "INSERT INTO order_items (order_item_id, order_id, product_id, quantity, unit_price)
+                 VALUES (?, ?, ?, ?, ?)"
+            );
+            foreach ($_SESSION['cart'] as $pid => $qty) {
+                if (!isset($priceMap[$pid])) continue;
+                $itemId    = 'OI-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
+                $unitPrice = $priceMap[$pid];
+                $stmt->bind_param('sssid', $itemId, $orderId, $pid, $qty, $unitPrice);
+                $stmt->execute();
+            }
+            $stmt->close();
+
+            // Reserve stock for every item — physical stock is untouched
+            // until the order is actually COLLECTED.
+            $rStmt = $conn->prepare(
+                "UPDATE inventory SET reserved_quantity = reserved_quantity + ? WHERE inventory_id = ?"
+            );
+            foreach ($_SESSION['cart'] as $pid => $qty) {
+                if (!isset($invRowsToUse[$pid])) continue;
+                $rStmt->bind_param('is', $qty, $invRowsToUse[$pid]);
+                $rStmt->execute();
+            }
+            $rStmt->close();
+
+            $conn->commit();
+        } catch (Throwable $e) {
+            $conn->rollback();
+            $message = 'Something went wrong submitting your pre-order. Please try again.';
+            $msgType = 'error';
+        }
+
+        if ($msgType !== 'error') {
+            $_SESSION['cart'] = [];
+
+            // FIX #3: remove the "We'll notify you" lie — link to order status instead
+            $message = "Pre-order <strong>$orderId</strong> submitted! "
+                     . "<a href='c_orderstatus.php' style='color:#2e7d32;font-weight:700;'>"
+                     . "Track your order status &rarr;</a>";
+            $msgType = 'success';
+        }
+
+        } // close: stock availability else-block
     }
 }
 

@@ -57,6 +57,11 @@ if (in_array($method, ['TRANSFER', 'OTHER'])
 }
 
 // ── 4. Fetch & validate products from DB ─────────────────────
+// Raw stock_quantity and reserved_quantity are fetched separately.
+// Availability check uses (stock - reserved) so walk-in counter
+// sales never take units already promised to an online pre-order
+// customer, but the actual deduction always operates on the
+// real physical stock_quantity.
 $productIds   = array_unique(array_column($items, 'product_id'));
 $placeholders = implode(',', array_fill(0, count($productIds), '?'));
 $types        = str_repeat('s', count($productIds));
@@ -64,7 +69,8 @@ $types        = str_repeat('s', count($productIds));
 if ($branchId) {
     $stmt = $conn->prepare(
         "SELECT p.product_id, p.product_name, p.price,
-                COALESCE(i.stock_quantity, 0) AS stock,
+                COALESCE(i.stock_quantity, 0)    AS raw_stock,
+                COALESCE(i.reserved_quantity, 0) AS reserved,
                 i.inventory_id
          FROM products p
          LEFT JOIN inventory i
@@ -76,7 +82,8 @@ if ($branchId) {
 } else {
     $stmt = $conn->prepare(
         "SELECT p.product_id, p.product_name, p.price,
-                COALESCE(SUM(i.stock_quantity), 0) AS stock,
+                COALESCE(SUM(i.stock_quantity), 0)    AS raw_stock,
+                COALESCE(SUM(i.reserved_quantity), 0) AS reserved,
                 MIN(i.inventory_id) AS inventory_id
          FROM products p
          LEFT JOIN inventory i ON p.product_id = i.product_id
@@ -102,13 +109,15 @@ foreach ($items as $item) {
 
     if (!isset($productMap[$pid])) continue;
 
-    $prod  = $productMap[$pid];
-    $stock = (int)$prod['stock'];
+    $prod      = $productMap[$pid];
+    $rawStock  = (int)$prod['raw_stock'];
+    $reserved  = (int)$prod['reserved'];
+    $available = max(0, $rawStock - $reserved);
 
-    if ($stock < $qty) {
+    if ($available < $qty) {
         echo json_encode([
             'success' => false,
-            'error'   => "Not enough stock for \"{$prod['product_name']}\". Available: $stock.",
+            'error'   => "Not enough stock for \"{$prod['product_name']}\". Available: $available.",
         ]);
         exit;
     }
@@ -124,7 +133,7 @@ foreach ($items as $item) {
         'quantity'     => $qty,
         'unit_price'   => $unitPrice,
         'subtotal'     => $subtotal,
-        'old_stock'    => $stock,
+        'old_stock'    => $rawStock, // physical stock, used for the actual deduction
     ];
 }
 
