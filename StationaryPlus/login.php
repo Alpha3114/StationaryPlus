@@ -20,10 +20,12 @@ if (!empty($_SESSION['user_id'])) {
     exit;
 }
 
-$step      = $_GET['step'] ?? 'login';
-$error     = '';
-$success   = '';
-$email_val = '';
+$step         = $_GET['step'] ?? 'login';
+$error        = '';
+$success      = '';
+$email_val    = '';
+$showResend   = false;   // true when we should render the "resend verification" link
+$resendEmail  = '';      // email to prefill into the resend link
 
 // ── Helpers ───────────────────────────────────────────────────
 function siteUrl(): string {
@@ -54,10 +56,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $user = $stmt->get_result()->fetch_assoc();
             $stmt->close();
 
-            if (!$user || $user['account_status'] !== 'ACTIVE'
-                || !password_verify($password, $user['password_hash'])) {
+            if (!$user || !password_verify($password, $user['password_hash'])) {
                 $error = 'Invalid email or password.';
                 $step  = 'login';
+
+            } elseif ($user['account_status'] === 'PENDING') {
+                $error       = 'Please verify your email before logging in. Check your inbox for the verification link.';
+                $step        = 'login';
+                $showResend  = true;
+                $resendEmail = $email;
+
+            } elseif ($user['account_status'] !== 'ACTIVE') {
+                $error = 'This account is inactive. Please contact support.';
+                $step  = 'login';
+
             } else {
                 session_regenerate_id(true);
                 $_SESSION['user_id']   = $user['user_id'];
@@ -414,7 +426,12 @@ $doneMode = $_GET['mode'] ?? '';
         <?php if ($error): ?>
         <div class="alert-error">
             <i class="fas fa-exclamation-circle" style="flex-shrink:0;margin-top:2px;"></i>
-            <?= htmlspecialchars($error) ?>
+            <div>
+                <?= htmlspecialchars($error) ?>
+                <?php if ($showResend): ?>
+                    <br><a href="Registration.php?resend=<?= urlencode($resendEmail) ?>" style="color:#1d4ed8;font-weight:600;">Resend verification email</a>
+                <?php endif; ?>
+            </div>
         </div>
         <?php endif; ?>
 

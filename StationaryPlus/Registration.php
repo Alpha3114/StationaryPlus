@@ -27,6 +27,69 @@ function generate_user_id(): string {
     return 'USR-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
 }
 
+function site_url(): string {
+    $proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    return $proto . '://' . $_SERVER['HTTP_HOST'];
+}
+
+function send_verification_email(mysqli $conn, string $userId, string $name, string $email): void {
+    // Invalidate any previous unused tokens for this user
+    $stmt = $conn->prepare(
+        "UPDATE email_verifications SET used = 1 WHERE user_id = ? AND used = 0"
+    );
+    $stmt->bind_param('s', $userId);
+    $stmt->execute();
+    $stmt->close();
+
+    $token     = bin2hex(random_bytes(32));
+    $expiresAt = date('Y-m-d H:i:s', time() + 86400); // valid 24 hours
+
+    $stmt = $conn->prepare(
+        "INSERT INTO email_verifications (token, user_id, expires_at) VALUES (?, ?, ?)"
+    );
+    $stmt->bind_param('sss', $token, $userId, $expiresAt);
+    $stmt->execute();
+    $stmt->close();
+
+    $verifyUrl = site_url() . '/verify_email.php?token=' . $token;
+    $subject   = 'StationaryPlus — Verify your email address';
+    $body      =
+        "Hi $name,\n\n" .
+        "Thanks for registering with StationaryPlus! Please confirm your email address " .
+        "to activate your account:\n\n" .
+        $verifyUrl . "\n\n" .
+        "This link is valid for 24 hours. If you didn't create this account, you can " .
+        "safely ignore this email.\n\n" .
+        "— StationaryPlus Support";
+
+    require_once 'mailer.php';
+    sendAppEmail($email, $subject, $body);
+}
+
+// ---- Resend verification link (GET) --------------------------
+$resendMessage = '';
+if (isset($_GET['resend']) && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    $resendEmail = trim($_GET['resend']);
+
+    if (filter_var($resendEmail, FILTER_VALIDATE_EMAIL)) {
+        $stmt = $conn->prepare(
+            "SELECT user_id, name FROM users WHERE email = ? AND account_status = 'PENDING' LIMIT 1"
+        );
+        $stmt->bind_param('s', $resendEmail);
+        $stmt->execute();
+        $ru = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if ($ru) {
+            send_verification_email($conn, $ru['user_id'], $ru['name'], $resendEmail);
+        }
+    }
+
+    // Always show the same generic message, whether or not the account existed
+    // (avoids revealing which emails are registered)
+    $resendMessage = 'If that account needs verification, we\'ve sent a new link to ' . htmlspecialchars($resendEmail) . '.';
+}
+
 // ---- Field values & errors ----------------------------------
 $fields  = ['name' => '', 'email' => '', 'phone' => ''];
 $errors  = [];
@@ -78,7 +141,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $userId       = generate_user_id();
         $passwordHash = password_hash($password, PASSWORD_DEFAULT);
         $role         = 'CUSTOMER';
-        $status       = 'ACTIVE';
+        $status       = 'PENDING'; // must verify email before this becomes ACTIVE
 
         $stmt = $conn->prepare(
             "INSERT INTO users (user_id, name, email, password_hash, phone_number, user_role, account_status)
@@ -88,6 +151,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->bind_param('sssssss', $userId, $name, $email, $passwordHash, $phone, $role, $status);
         $stmt->execute();
         $stmt->close();
+
+        send_verification_email($conn, $userId, $name, $email);
 
         $success = true;
     }
@@ -207,129 +272,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             justify-content: center;
             margin-right: 15px;
             flex-shrink: 0;
-            font-size: 18px;
+            font-size: 17px;
         }
 
-        .benefit-text { font-size: 16px; line-height: 1.5; }
+        .benefit-text { font-size: 15px; line-height: 1.5; }
 
         /* Form Panel */
         .form-panel {
             flex: 1;
             padding: 50px 40px;
-            background-color: var(--white);
             display: flex;
             flex-direction: column;
             justify-content: center;
         }
 
-        .form-header { margin-bottom: 32px; }
+        .form-header { margin-bottom: 30px; }
+        .form-title { font-size: 26px; color: var(--text-primary); margin-bottom: 8px; font-weight: 600; }
+        .form-subtitle { color: var(--text-secondary); font-size: 15px; }
 
-        .form-title {
-            font-size: 30px;
-            color: var(--text-primary);
-            margin-bottom: 8px;
-            font-weight: 600;
+        .alert {
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 14px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            line-height: 1.6;
         }
+        .alert-success { background:#e8f5e9; color:#2e7d32; border:1px solid #a5d6a7; }
+        .alert-error   { background:#fff0f0; color:#c62828; border:1px solid #ef9a9a; }
+        .alert-info    { background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; }
 
-        .form-subtitle { color: var(--text-secondary); font-size: 16px; }
-
-        .form-group {
-            margin-bottom: 22px;
-            position: relative;
-        }
-
-        label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: var(--text-primary);
-            font-size: 15px;
-        }
-
+        .form-group { margin-bottom: 20px; position: relative; }
+        label { display: block; margin-bottom: 8px; font-weight: 600; color: var(--text-primary); font-size: 14px; }
         .input-wrapper { position: relative; }
 
-        input {
+        input[type=text], input[type=email], input[type=password], input[type=tel] {
             width: 100%;
-            padding: 14px 14px 14px 46px;
+            padding: 13px 14px 13px 44px;
             border: 1.5px solid var(--border);
             border-radius: 8px;
-            font-size: 15px;
-            transition: all 0.2s ease;
+            font-size: 14px;
+            transition: all 0.2s;
             background-color: var(--accent);
             color: var(--text-primary);
         }
+        input:focus { outline:none; border-color:var(--primary); box-shadow:0 0 0 3px rgba(168,53,53,0.1); background-color:var(--white); }
+        input.input-error { border-color:#D32F2F; background-color:#fff5f5; }
 
-        input:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(168,53,53,0.1);
-            background-color: var(--white);
-        }
+        .input-icon { position:absolute; left:14px; top:50%; transform:translateY(-50%); color:var(--text-secondary); font-size:15px; pointer-events:none; }
+        .password-toggle { position:absolute; right:14px; top:50%; transform:translateY(-50%); color:var(--text-secondary); cursor:pointer; font-size:15px; }
 
-        input.input-error {
-            border-color: #D32F2F;
-            background-color: #fff5f5;
-        }
+        .input-hint { display:block; font-size:12px; color:var(--text-secondary); margin-top:6px; }
+        .error-message { display:none; font-size:12px; color:#D32F2F; margin-top:6px; }
+        .error-message.visible { display:block; }
 
-        .input-icon {
-            position: absolute;
-            left: 14px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: var(--text-secondary);
-            font-size: 16px;
-        }
-
-        .password-toggle {
-            position: absolute;
-            right: 14px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: var(--text-secondary);
-            cursor: pointer;
-            font-size: 16px;
-        }
-
-        .input-hint {
-            display: block;
-            margin-top: 6px;
-            font-size: 13px;
-            color: var(--text-secondary);
-        }
-
-        .error-message {
-            color: #D32F2F;
-            font-size: 13px;
-            margin-top: 5px;
-            display: none;
-        }
-
-        .error-message.visible { display: block; }
-
-        .alert {
-            padding: 12px 16px;
-            border-radius: 8px;
-            font-size: 14px;
-            margin-bottom: 20px;
-        }
-
-        .alert-success {
-            background: #e8f5e9;
-            color: #2e7d32;
-            border: 1px solid #a5d6a7;
-        }
-
-        .alert-error {
-            background: #fff0f0;
-            color: #c62828;
-            border: 1px solid #ef9a9a;
-        }
-
-        .button-container {
-            margin-top: 8px;
-            margin-bottom: 24px;
-        }
-
+        .button-container { margin-top: 8px; }
         .register-button {
             width: 100%;
             padding: 14px;
@@ -340,41 +339,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
-            transition: background-color 0.2s ease;
+            transition: background-color 0.2s;
         }
-
         .register-button:hover { background-color: #8b2a2a; }
 
-        .secondary-action {
-            text-align: center;
-            color: var(--text-secondary);
-            font-size: 15px;
-            padding-top: 20px;
-            border-top: 1px solid var(--border);
-        }
+        .secondary-action { text-align:center; margin-top:20px; font-size:14px; color:var(--text-secondary); }
+        .secondary-action a { color:var(--primary); font-weight:600; text-decoration:none; }
+        .secondary-action a:hover { text-decoration:underline; }
 
-        .secondary-action a {
-            color: var(--primary);
-            text-decoration: none;
-            font-weight: 600;
-        }
-
-        .secondary-action a:hover { text-decoration: underline; }
-
-        .form-footer {
-            margin-top: 20px;
-            font-size: 13px;
-            color: var(--text-secondary);
-            text-align: center;
-        }
-
-        .form-footer a { color: var(--primary); text-decoration: none; }
+        .form-footer { text-align:center; margin-top:24px; font-size:12px; color:var(--text-secondary); line-height:1.6; }
+        .form-footer a { color:var(--primary); text-decoration:none; }
 
         @media (max-width: 900px) {
-            .registration-container {
-                flex-direction: column;
-                max-width: 600px;
-            }
+            .registration-container { flex-direction: column; max-width: 600px; }
             .info-panel, .form-panel { padding: 40px 30px; }
         }
     </style>
@@ -389,9 +366,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="logo-icon"><i class="fas fa-pen-nib"></i></div>
             <div class="logo-text">StationaryPlus</div>
         </div>
-        <h2 class="system-title">Stationery &amp; Printing Management System</h2>
+        <h2 class="system-title">Join StationaryPlus today</h2>
         <p class="system-description">
-            A comprehensive solution for managing stationery orders, printing services, and pre-order tracking for educational institutions and businesses.
+            Create a free account to access ordering, pre-orders, print uploads, and order tracking.
         </p>
         <div class="benefits-container">
             <div class="benefit">
@@ -416,11 +393,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <p class="form-subtitle">Register to access StationaryPlus services</p>
         </div>
 
+        <?php if ($resendMessage): ?>
+            <div class="alert alert-info">
+                <i class="fas fa-envelope"></i>
+                <?= $resendMessage /* already escaped where the email was inserted */ ?>
+            </div>
+        <?php endif; ?>
+
         <?php if ($success): ?>
             <!-- SUCCESS STATE -->
             <div class="alert alert-success">
-                <i class="fas fa-check-circle"></i>
-                <strong>Account created successfully!</strong> You can now log in.
+                <i class="fas fa-envelope"></i>
+                <strong>Almost there!</strong> We've sent a verification link to your email.
+                Please check your inbox (and spam folder) and click the link to activate your account.
             </div>
             <div class="button-container">
                 <a href="login.php" style="display:block; text-align:center; padding:14px; background:var(--primary); color:#fff; border-radius:8px; font-size:16px; font-weight:600; text-decoration:none;">
@@ -474,7 +459,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             required
                         >
                     </div>
-                    <span class="input-hint">We'll use this for order notifications and account recovery</span>
+                    <span class="input-hint">We'll send a verification link to this address</span>
                     <span class="error-message <?= isset($errors['email']) ? 'visible' : '' ?>" id="email-error">
                         <?= htmlspecialchars($errors['email'] ?? 'Please enter a valid email address') ?>
                     </span>
