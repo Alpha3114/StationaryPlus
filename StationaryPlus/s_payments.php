@@ -98,7 +98,7 @@ $orderBy = $sortOrder === 'oldest' ? 'p.record_date ASC' : 'p.record_date DESC';
 $stmt = $conn->prepare(
     "SELECT
          p.payment_id, p.payment_method, p.amount,
-         p.record_date, p.verification_status,
+         p.record_date, p.verification_status, p.rejection_reason,
          p.reference_number, p.proof_path, p.order_id,
          o.order_type, o.estimated_total,
          u.name AS customer_name, u.phone_number AS customer_phone,
@@ -536,6 +536,12 @@ function statusBadge(string $s): string {
                                                 <div class="label">Reference Number</div>
                                                 <div class="value"><?= htmlspecialchars($p['reference_number'] ?? '—') ?></div>
                                             </div>
+                                            <?php if ($p['verification_status'] === 'INVALID' && !empty($p['rejection_reason'])): ?>
+                                            <div class="detail-block" style="grid-column:1/-1;background:#fef2f2;border:1px solid #ef9a9a;border-radius:8px;padding:10px 14px;">
+                                                <div class="label" style="color:#c62828;"><i class="fas fa-times-circle"></i> Rejection Reason</div>
+                                                <div class="value" style="font-weight:400;"><?= htmlspecialchars($p['rejection_reason']) ?></div>
+                                            </div>
+                                            <?php endif; ?>
                                             <div class="detail-block">
                                                 <div class="label">Order Total vs Paid</div>
                                                 <div class="value">
@@ -782,16 +788,31 @@ function toggleDetail(i) {
 
 // ── Payment verification ──────────────────────────────────────
 async function verifyPayment(paymentId, action, rowIndex) {
-    const label = action === 'VALID' ? 'Verify' : 'Reject';
-    const ok = await customConfirm(`${label} payment ${paymentId}?`, {
-        danger: action === 'INVALID',
-        confirmText: label
-    });
-    if (!ok) return;
+    let rejectionReason = '';
+
+    if (action === 'INVALID') {
+        // Prompt staff for a rejection reason before sending
+        rejectionReason = await customPrompt(
+            `Rejection reason for ${paymentId}:`,
+            {
+                placeholder: 'This message will be shown to the customer…',
+                required: true,
+                confirmText: 'Reject Payment'
+            }
+        );
+        // null = staff cancelled the dialog
+        if (rejectionReason === null) return;
+    } else {
+        const ok = await customConfirm(`Verify payment ${paymentId}?`, { confirmText: 'Verify' });
+        if (!ok) return;
+    }
 
     const form = new FormData();
     form.append('payment_id', paymentId);
     form.append('action',     action);
+    if (action === 'INVALID') {
+        form.append('rejection_reason', rejectionReason);
+    }
 
     try {
         const res  = await fetch('verify_payment.php', { method: 'POST', body: form });

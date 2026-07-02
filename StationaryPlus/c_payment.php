@@ -172,7 +172,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $stmt = $conn->prepare(
     "SELECT
          p.payment_id, p.payment_method, p.amount,
-         p.record_date, p.verification_status,
+         p.record_date, p.verification_status, p.rejection_reason,
          p.reference_number, p.order_id, o.order_type
      FROM payments p
      JOIN orders o ON p.order_id = o.order_id
@@ -505,7 +505,14 @@ function methodLabel(string $method): string {
                             <td><?= methodLabel($pay['payment_method']) ?></td>
                             <td style="font-weight:600;">RM <?= number_format($pay['amount'],2) ?></td>
                             <td style="color:var(--text-secondary);"><?= htmlspecialchars($pay['reference_number'] ?? '—') ?></td>
-                            <td><?= verificationBadge($pay['verification_status']) ?></td>
+                            <td>
+                                <?= verificationBadge($pay['verification_status']) ?>
+                                <?php if ($pay['verification_status'] === 'INVALID' && !empty($pay['rejection_reason'])): ?>
+                                <div style="font-size:11px;color:#c62828;margin-top:4px;max-width:220px;line-height:1.4;">
+                                    <i class="fas fa-info-circle"></i> <?= htmlspecialchars($pay['rejection_reason']) ?>
+                                </div>
+                                <?php endif; ?>
+                            </td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>

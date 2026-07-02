@@ -80,7 +80,7 @@ $stmt = $conn->prepare(
             pf.file_status, pf.print_type, pf.paper_size, pf.paper_type,
             pf.binding_type, pf.copies, pf.total_pages,
             pf.color_pages, pf.bw_pages, pf.estimated_price,
-            pf.ai_analysis, pf.upload_date, pf.order_id,
+            pf.ai_analysis, pf.upload_date, pf.order_id, pf.rejection_reason,
             u.name AS customer_name, u.phone_number AS customer_phone,
             u.user_id AS customer_id
      FROM print_files pf
@@ -595,6 +595,12 @@ function fileStatusBadge(string $s): string {
                                         <button class="btn btn-reject" onclick="updateStatus('<?= $f['file_id'] ?>', 'REJECTED', <?= $i ?>)">
                                             <i class="fas fa-times-circle"></i> Reject File
                                         </button>
+                                    </div>
+                                    <?php elseif ($f['file_status'] === 'REJECTED'): ?>
+                                    <div style="font-size:13px;color:#c62828;background:#fef2f2;border:1px solid #ef9a9a;border-radius:8px;padding:10px 14px;margin-top:4px;">
+                                        <i class="fas fa-times-circle" style="margin-right:6px;"></i>
+                                        <strong>Rejected</strong> —
+                                        <?= !empty($f['rejection_reason']) ? htmlspecialchars($f['rejection_reason']) : '<em>No reason was recorded.</em>' ?>
                                     </div>
                                     <?php else: ?>
                                     <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">

@@ -52,7 +52,7 @@ $stmt->close();
 // Print files linked to this order
 $stmt = $conn->prepare(
     "SELECT file_id, file_name, total_pages, color_pages, bw_pages,
-            paper_size, binding_type, copies, estimated_price, file_status
+            paper_size, binding_type, copies, estimated_price, file_status, rejection_reason
      FROM print_files WHERE order_id = ?"
 );
 $stmt->bind_param('s', $id);
