@@ -1021,13 +1021,18 @@ function renderForecast(data) {
         ${model.data_points||'?'} months of sales, we expect around
         <strong>RM ${fmtRM(nextMonth?.predicted_revenue||0)}</strong> next month.`;
 
-    const r2 = model.r_squared || 0;
+    // Confidence badge is based on full-history R2 (all months), not the
+    // 3-month test R2. The test R2 measures a fixed, tiny hold-out window
+    // no matter how much data you have — it never stabilizes with more
+    // history, so it's the wrong number to gate user-facing confidence on.
+    // Full-history R2 genuinely improves as more months accumulate.
+    const r2 = model.full_r_squared ?? model.r_squared ?? 0;
     const accuracyLabel = r2 >= 0.85 ? '🟢 High confidence'
                         : r2 >= 0.65 ? '🟡 Moderate confidence'
                         : '🔴 Low confidence — more data needed';
     const accuracyTip = r2 >= 0.85
-        ? 'The model fits your sales history well.'
-        : r2 >= 0.65 ? 'Reasonable fit. More data will improve accuracy.'
+        ? 'The model fits your full sales history well.'
+        : r2 >= 0.65 ? 'Reasonable fit across your sales history. More data will improve accuracy further.'
         : 'Not enough data for a reliable forecast yet.';
 
     // Month cards
