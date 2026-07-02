@@ -527,7 +527,7 @@ if ($res && $res->num_rows > 0) {
         <div>
             <div class="fc-title">
                 <i class="fas fa-chart-line"></i> 3-Month Revenue Forecast
-                <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:4px;">Linear &amp; Polynomial Regression</span>
+                <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:4px;">Linear, Polynomial &amp; Seasonal Regression</span>
             </div>
             <?php if ($forecastMeta): ?>
             <div class="fc-meta">
@@ -1010,6 +1010,7 @@ function renderForecast(data) {
     const winner = cmp.winner || 'linear';
     const linM   = cmp.linear     || {};
     const polyM  = cmp.polynomial || {};
+    const seasM  = cmp.seasonal   || {};
 
     // Plain-English summary
     const trendWord = model.trend === 'upward'   ? 'trending upward 📈'
@@ -1037,7 +1038,7 @@ function renderForecast(data) {
             <div class="fc-month-label">${esc(p.month_label)}</div>
             <div class="fc-month-val">RM ${fmtRM(p.predicted_revenue)}</div>
             <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">
-                ${i===0?'Next month':i===1?'In 2 months':'In 3 months'}</div>
+                ${esc(p.relative_label || (i===0?'Next month':i===1?'In 2 months':'In 3 months'))}</div>
             <div class="fc-month-bar-wrap">
                 <div class="fc-month-bar" style="width:${pct}%"></div>
             </div></div>`;
@@ -1047,6 +1048,7 @@ function renderForecast(data) {
     const modelRows = [
         {key:'linear',     m:linM,  label:'Linear Regression'},
         {key:'polynomial', m:polyM, label:'Polynomial (curve fit)'},
+        {key:'seasonal',   m:seasM, label:'Seasonal (time + calendar month)'},
     ].map(({key,m,label}) => {
         const isW = key===winner;
         return `<tr class="${isW?'winner-row':''}">
@@ -1062,15 +1064,17 @@ function renderForecast(data) {
 
     // Actual vs predicted rows
     const testResults = eval_.test_results || [];
-    const maxTest = Math.max(...testResults.flatMap(r=>[r.actual,r.linear_pred,r.poly_pred]))||1;
+    const maxTest = Math.max(...testResults.flatMap(r=>[r.actual,r.linear_pred,r.poly_pred,r.seasonal_pred]))||1;
     const avpRows = testResults.map(r => {
         const linErr  = Math.abs(r.actual-r.linear_pred);
         const polyErr = Math.abs(r.actual-r.poly_pred);
+        const seasErr = Math.abs(r.actual-r.seasonal_pred);
         return `<div style="padding:12px 16px;border-bottom:1px solid var(--border);">
             <div style="font-size:12px;font-weight:700;margin-bottom:8px;">${esc(r.month_label)}</div>
             ${avpBar('Actual', r.actual, maxTest,'#374151')}
             ${avpBar('Linear', r.linear_pred, maxTest,'#3b82f6',`off by RM ${fmtRM(linErr)}`)}
             ${avpBar('Poly°2', r.poly_pred,   maxTest,'#8b5cf6',`off by RM ${fmtRM(polyErr)}`)}
+            ${avpBar('Season', r.seasonal_pred, maxTest,'#059669',`off by RM ${fmtRM(seasErr)}`)}
         </div>`;
     }).join('');
 
@@ -1117,6 +1121,14 @@ function renderForecast(data) {
                     then tested on <strong>${eval_.test_months||'?'} months</strong>
                     ${eval_.test_period?'('+esc(eval_.test_period)+')':''}
                     that the model had never seen — giving a realistic accuracy estimate.
+                    <div style="margin-top:8px;padding-top:8px;border-top:1px solid #bfdbfe;">
+                        <strong>Full-history fit:</strong> ${fmtFit(model.full_r_squared)}
+                        <span style="color:var(--muted);">
+                            — measured across all ${model.data_points||'?'} months rather than
+                            just the ${eval_.test_months||'?'}-month test window, so it isn't
+                            as sensitive to a small, volatile hold-out sample.
+                        </span>
+                    </div>
                 </div>
                 <!-- Model table -->
                 <div style="font-size:11px;font-weight:700;color:var(--muted);
@@ -1146,6 +1158,8 @@ function renderForecast(data) {
                             border-radius:2px;background:#3b82f6;margin-right:3px;"></span>Linear</span>
                         <span><span style="display:inline-block;width:9px;height:9px;
                             border-radius:2px;background:#8b5cf6;margin-right:3px;"></span>Polynomial</span>
+                        <span><span style="display:inline-block;width:9px;height:9px;
+                            border-radius:2px;background:#059669;margin-right:3px;"></span>Seasonal</span>
                     </div>
                     ${avpRows}
                 </div>`:''}

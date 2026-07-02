@@ -37,50 +37,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ── Update profile info ───────────────────────────────────
     if ($action === 'update_profile') {
         $name  = trim($_POST['name']         ?? '');
-        $email = trim($_POST['email']        ?? '');
         $phone = trim($_POST['phone_number'] ?? '');
+        // Email is intentionally NOT read from $_POST — it cannot be
+        // changed from this form. The existing value is always kept.
 
         if (mb_strlen($name) < 2) {
             $message = 'Name must be at least 2 characters.';
             $msgType = 'error';
 
-        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $message = 'Please enter a valid email address.';
-            $msgType = 'error';
-
         } else {
-            // Check email not taken by another user
-            $chk = $conn->prepare(
-                "SELECT user_id FROM users WHERE email = ? AND user_id != ? LIMIT 1"
+            $stmt = $conn->prepare(
+                "UPDATE users SET name = ?, phone_number = ? WHERE user_id = ?"
             );
-            $chk->bind_param('ss', $email, $userId);
-            $chk->execute();
-            $chk->store_result();
-            $emailTaken = $chk->num_rows > 0;
-            $chk->close();
+            $stmt->bind_param('sss', $name, $phone, $userId);
+            $stmt->execute();
+            $stmt->close();
 
-            if ($emailTaken) {
-                $message = 'That email address is already used by another account.';
-                $msgType = 'error';
-            } else {
-                $stmt = $conn->prepare(
-                    "UPDATE users SET name = ?, email = ?, phone_number = ? WHERE user_id = ?"
-                );
-                $stmt->bind_param('ssss', $name, $email, $phone, $userId);
-                $stmt->execute();
-                $stmt->close();
+            // Update session name so sidebar reflects the change immediately
+            $_SESSION['user_name'] = $name;
 
-                // Update session name so sidebar reflects the change immediately
-                $_SESSION['user_name'] = $name;
+            // Refresh user data (email stays untouched)
+            $user['name']         = $name;
+            $user['phone_number'] = $phone;
 
-                // Refresh user data
-                $user['name']         = $name;
-                $user['email']        = $email;
-                $user['phone_number'] = $phone;
-
-                $message = 'Profile updated successfully.';
-                $msgType = 'success';
-            }
+            $message = 'Profile updated successfully.';
+            $msgType = 'success';
         }
     }
 
@@ -288,8 +269,8 @@ $userInitial = strtoupper(mb_substr($user['name'], 0, 1));
                             <label class="form-label">Email Address</label>
                             <input type="email" name="email" class="form-input"
                                 value="<?= htmlspecialchars($user['email']) ?>"
-                                required>
-                            <div class="input-hint">This is used to log in — changing it takes effect immediately.</div>
+                                readonly>
+                            <div class="input-hint"><i class="fas fa-lock" style="margin-right:4px;"></i>Email can't be changed here. Contact support if you need it updated.</div>
                         </div>
 
                         <div class="form-group">

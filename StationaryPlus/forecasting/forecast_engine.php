@@ -152,6 +152,135 @@ class PolynomialModel
 }
 
 /**
+ * Seasonal Regression: revenue = b0 + b1*monthIdx + b2*sin(2*pi*monthOfYear/12) + b3*cos(2*pi*monthOfYear/12)
+ *
+ * General multiple linear regression (Ordinary Least Squares), solved via
+ * Gauss-Jordan elimination on the normal equations (XtX * beta = Xty).
+ * Unlike order_count, both inputs here (a sequential month index, and the
+ * calendar month 1-12) are always knowable in advance for future months —
+ * which is what makes this model actually usable for forecasting, not just
+ * for explaining historical variance.
+ *
+ * The time-index feature is standardized (z-scored) before fitting to keep
+ * the normal-equation matrix well-conditioned across 36+ months of history;
+ * sin/cos are already bounded in [-1, 1] and don't need it.
+ */
+class SeasonalModel
+{
+    public array $coef = [0.0, 0.0, 0.0, 0.0]; // [intercept, monthIdx, sin, cos]
+    public bool $degenerate = false;
+
+    private float $idxMean = 0.0;
+    private float $idxStd  = 1.0;
+
+    public function fit(array $monthIdx, array $monthOfYear, array $y): void
+    {
+        $n = count($monthIdx);
+
+        $this->idxMean = array_sum($monthIdx) / $n;
+        $variance = 0.0;
+        foreach ($monthIdx as $v) $variance += ($v - $this->idxMean) ** 2;
+        $this->idxStd = sqrt($variance / $n);
+        if ($this->idxStd < 1e-9) $this->idxStd = 1.0;
+
+        // Design matrix: [1, idx_z, sin, cos] per row
+        $X = [];
+        for ($i = 0; $i < $n; $i++) {
+            $idxZ = ($monthIdx[$i] - $this->idxMean) / $this->idxStd;
+            $angle = 2 * M_PI * $monthOfYear[$i] / 12.0;
+            $X[] = [1.0, $idxZ, sin($angle), cos($angle)];
+        }
+
+        $p = 4; // number of coefficients
+        $XtX = array_fill(0, $p, array_fill(0, $p, 0.0));
+        $Xty = array_fill(0, $p, 0.0);
+        for ($i = 0; $i < $n; $i++) {
+            for ($a = 0; $a < $p; $a++) {
+                $Xty[$a] += $X[$i][$a] * $y[$i];
+                for ($b = 0; $b < $p; $b++) {
+                    $XtX[$a][$b] += $X[$i][$a] * $X[$i][$b];
+                }
+            }
+        }
+
+        $solved = self::gaussJordanSolve($XtX, $Xty);
+        if ($solved === null) {
+            // Singular matrix — not enough variation to separate the four
+            // effects reliably. Fall back to predicting the mean, same
+            // philosophy as the degenerate guard in PolynomialModel.
+            $this->degenerate = true;
+            $this->coef = [$n > 0 ? array_sum($y) / $n : 0.0, 0.0, 0.0, 0.0];
+            return;
+        }
+        $this->coef = $solved;
+    }
+
+    public function predict(float $monthIdx, int $monthOfYear): float
+    {
+        $idxZ  = ($monthIdx - $this->idxMean) / $this->idxStd;
+        $angle = 2 * M_PI * $monthOfYear / 12.0;
+        return $this->coef[0]
+             + $this->coef[1] * $idxZ
+             + $this->coef[2] * sin($angle)
+             + $this->coef[3] * cos($angle);
+    }
+
+    public function predictAll(array $monthIdxArr, array $monthOfYearArr): array
+    {
+        $out = [];
+        foreach ($monthIdxArr as $i => $idx) {
+            $out[] = $this->predict($idx, $monthOfYearArr[$i]);
+        }
+        return $out;
+    }
+
+    /**
+     * Solves A*x = b via Gauss-Jordan elimination with partial pivoting.
+     * Returns null if A is (near-)singular — the multi-feature analogue
+     * of PolynomialModel's det3x3 degeneracy guard.
+     */
+    private static function gaussJordanSolve(array $A, array $b): ?array
+    {
+        $n = count($A);
+        $M = [];
+        for ($i = 0; $i < $n; $i++) {
+            $M[$i] = $A[$i];
+            $M[$i][] = $b[$i];
+        }
+
+        for ($col = 0; $col < $n; $col++) {
+            $maxRow = $col;
+            $maxVal = abs($M[$col][$col]);
+            for ($r = $col + 1; $r < $n; $r++) {
+                if (abs($M[$r][$col]) > $maxVal) {
+                    $maxVal = abs($M[$r][$col]);
+                    $maxRow = $r;
+                }
+            }
+            if ($maxVal < 1e-9) return null;
+
+            if ($maxRow !== $col) {
+                [$M[$col], $M[$maxRow]] = [$M[$maxRow], $M[$col]];
+            }
+
+            $pivot = $M[$col][$col];
+            for ($k = $col; $k <= $n; $k++) $M[$col][$k] /= $pivot;
+
+            for ($r = 0; $r < $n; $r++) {
+                if ($r === $col) continue;
+                $factor = $M[$r][$col];
+                if (abs($factor) < 1e-12) continue;
+                for ($k = $col; $k <= $n; $k++) $M[$r][$k] -= $factor * $M[$col][$k];
+            }
+        }
+
+        $solution = [];
+        for ($i = 0; $i < $n; $i++) $solution[] = $M[$i][$n];
+        return $solution;
+    }
+}
+
+/**
  * Metric helpers — identical formulas to sklearn's
  * mean_absolute_error, mean_squared_error (sqrt'd for RMSE), r2_score.
  */
