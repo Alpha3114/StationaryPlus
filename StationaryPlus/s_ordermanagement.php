@@ -229,7 +229,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
 
                     $proto   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
                     $siteUrl = $proto . '://' . $_SERVER['HTTP_HOST'];
-                    $host    = $_SERVER['HTTP_HOST'];
                     $subject = "StationaryPlus — Your $orderLabel is Ready for Collection!";
 
                     $body =
@@ -248,14 +247,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
                       . "Track your order: $siteUrl/c_orderstatus.php\n\n"
                       . "— StationaryPlus Team";
 
-                    $headers = implode("\r\n", [
-                        "From: noreply@$host",
-                        "Reply-To: noreply@$host",
-                        "X-Mailer: PHP/" . PHP_VERSION,
-                        "Content-Type: text/plain; charset=UTF-8",
-                    ]);
-
-                    mail($notif['email'], $subject, $body, $headers);
+                    require_once 'mailer.php';
+                    sendAppEmail($notif['email'], $subject, $body);
                 }
             }
         }

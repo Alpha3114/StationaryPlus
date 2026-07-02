@@ -488,11 +488,15 @@ if (!empty($_SESSION['cart'])) {
                     <textarea id="notes" name="notes" class="notes-textarea"
                               placeholder="e.g. Please wrap items separately…"></textarea>
 
-                    <button type="submit" name="submit_preorder" class="submit-btn"
+                    <button type="submit" class="submit-btn"
                             <?= empty($cartItems) ? 'disabled' : '' ?>
                             <?= !empty($cartItems) ? 'onclick="return confirmSubmitPreorder(event, this)"' : '' ?>>
                         <i class="fas fa-paper-plane"></i> Submit Pre-order
                     </button>
+                    <!-- Hidden fallback: form.submit() via JS does not include the
+                         triggering button's name=value pair, so this ensures PHP
+                         still sees submit_preorder in $_POST regardless. -->
+                    <input type="hidden" name="submit_preorder" value="1">
                 </form>
 
             </div>

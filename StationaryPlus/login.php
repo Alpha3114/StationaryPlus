@@ -134,10 +134,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     "your account has not been changed.\n\n" .
                     "— StationaryPlus Support";
 
-                $host    = $_SERVER['HTTP_HOST'];
-                $headers = "From: noreply@$host\r\nReply-To: noreply@$host\r\nX-Mailer: PHP/" . PHP_VERSION;
-
-                mail($email, $subject, $body, $headers);
+                require_once 'mailer.php';
+                sendAppEmail($email, $subject, $body);
             }
 
             // Always redirect to done — never confirm whether email exists

@@ -527,7 +527,7 @@ if ($res && $res->num_rows > 0) {
         <div>
             <div class="fc-title">
                 <i class="fas fa-chart-line"></i> 3-Month Revenue Forecast
-                <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:4px;">Linear Regression · scikit-learn</span>
+                <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:4px;">Linear &amp; Polynomial Regression</span>
             </div>
             <?php if ($forecastMeta): ?>
             <div class="fc-meta">
@@ -572,11 +572,25 @@ if ($res && $res->num_rows > 0) {
         <div class="fc-model-row">
             <div class="fc-model-stat">
                 <i class="fas fa-bullseye" style="color:#059669;"></i>
-                Model Accuracy (R²): <strong><?= number_format($forecastMeta['r_squared'] * 100, 1) ?>%</strong>
+                <?php
+                // R² can legitimately go negative on a short/volatile test
+                // window — that's expected with limited data, not a bug.
+                // Showing a raw negative percentage reads as broken, so
+                // it gets a clear label instead.
+                $r2Val = $forecastMeta['r_squared'];
+                ?>
+                Model Accuracy (R²):
+                <strong>
+                    <?php if ($r2Val < 0): ?>
+                        <span style="color:#dc2626;">Below average</span>
+                    <?php else: ?>
+                        <?= number_format($r2Val * 100, 1) ?>%
+                    <?php endif; ?>
+                </strong>
             </div>
             <div class="fc-model-stat" style="flex:1;">
                 <div class="r2-bar-wrap">
-                    <div class="r2-bar" style="width:<?= round($forecastMeta['r_squared'] * 100) ?>%"></div>
+                    <div class="r2-bar" style="width:<?= max(0, round($r2Val * 100)) ?>%"></div>
                 </div>
             </div>
             <div class="fc-model-stat">
@@ -1041,7 +1055,7 @@ function renderForecast(data) {
                 <span style="font-size:10px;color:var(--muted);">avg error/month</span></td>
             <td class="${isW?'metric-good':''}">RM ${fmtRM(m.rmse||0)}<br>
                 <span style="font-size:10px;color:var(--muted);">penalises big errors</span></td>
-            <td class="${isW?'metric-good':''}">${Math.round((m.r_squared||0)*100)}%<br>
+            <td class="${isW?'metric-good':''}">${fmtFit(m.r_squared)}<br>
                 <span style="font-size:10px;color:var(--muted);">how well it fits</span></td>
         </tr>`;
     }).join('');
@@ -1164,6 +1178,18 @@ function avpBar(label, value, maxVal, color, subtitle) {
 
 function fmtRM(n) {
     return Number(n).toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+
+// R² can legitimately go negative when a model tested on a short/volatile
+// holdout period performs worse than just guessing the average — this is
+// expected with limited data, not a bug. A raw "-31%" reads as broken to
+// a non-technical viewer, so negative values get a clear label instead.
+function fmtFit(r2) {
+    const v = r2 || 0;
+    if (v < 0) {
+        return `<span style="color:#dc2626;">Below average</span>`;
+    }
+    return `${Math.round(v * 100)}%`;
 }
 
 async function generateInsights() {
