@@ -317,7 +317,8 @@ function orderStatusBadge(string $status): string {
             <div id="branchPanel"
                  style="display:none;position:absolute;top:calc(100% + 8px);right:0;
                         background:white;border:1.5px solid var(--border);border-radius:12px;
-                        box-shadow:0 8px 24px rgba(0,0,0,0.1);padding:18px;min-width:260px;z-index:100;">
+                        box-shadow:0 8px 24px rgba(0,0,0,0.1);padding:18px;min-width:260px;
+                        max-height:90vh;overflow-y:auto;z-index:100;">
                 <form method="POST" action="c_dashboard.php">
                     <input type="hidden" name="switch_branch" value="1">
 
@@ -333,7 +334,8 @@ function orderStatusBadge(string $status): string {
                         style="color:var(--primary);font-weight:600;">products page</a>.
                     </p>
 
-                    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;">
+                    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;
+                                max-height:280px;overflow-y:auto;overscroll-behavior:contain;padding-right:4px;">
                         <?php foreach ($branchList as $b): ?>
                         <label style="display:flex;align-items:center;gap:10px;padding:9px 12px;
                                       border-radius:8px;cursor:pointer;transition:all 0.15s;font-size:13px;

@@ -42,18 +42,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['review_request']) && 
     exit;
 }
 
-$products = [];
+// ── Filters ──────────────────────────────────────────────────
+$search         = trim($_GET['psearch']  ?? '');
+$filterCategory = trim($_GET['category'] ?? 'all');
+$filterStatus   = $_GET['pstatus']       ?? 'all';
+if (!in_array($filterStatus, ['ACTIVE', 'INACTIVE'])) $filterStatus = 'all';
+
+// True total, independent of filters (used in the header stat)
+$totalProductsCount = 0;
 if ($conn) {
-    $sql = "SELECT product_id, product_name, category, price, product_status, last_updated FROM products ORDER BY product_id";
-    $res = $conn->query($sql);
-    if ($res) {
-        while ($row = $res->fetch_assoc()) {
-            $products[] = $row;
-        }
+    $totalRes = $conn->query("SELECT COUNT(*) AS cnt FROM products");
+    $totalProductsCount = $totalRes ? (int)$totalRes->fetch_assoc()['cnt'] : 0;
+}
+
+// Distinct categories for the filter dropdown
+$categoryList = [];
+if ($conn) {
+    $catRes = $conn->query("SELECT DISTINCT category FROM products WHERE category IS NOT NULL AND category <> '' ORDER BY category");
+    if ($catRes) {
+        while ($row = $catRes->fetch_assoc()) $categoryList[] = $row['category'];
     }
 }
 
-$totalProductsCount = count($products);
+$where  = ['1=1'];
+$params = [];
+$types  = '';
+
+if ($search !== '') {
+    $like     = "%$search%";
+    $where[]  = "(product_name LIKE ? OR product_id LIKE ?)";
+    $params[] = $like; $params[] = $like;
+    $types   .= 'ss';
+}
+if ($filterCategory !== 'all') {
+    $where[]  = "category = ?";
+    $params[] = $filterCategory;
+    $types   .= 's';
+}
+if ($filterStatus !== 'all') {
+    $where[]  = "product_status = ?";
+    $params[] = $filterStatus;
+    $types   .= 's';
+}
+
+$products = [];
+if ($conn) {
+    $sql  = "SELECT product_id, product_name, category, price, product_status, last_updated
+              FROM products WHERE " . implode(' AND ', $where) . " ORDER BY product_id";
+    $stmt = $conn->prepare($sql);
+    if ($types) $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $products = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+}
 
 $pendingCountRes = $conn->query("SELECT COUNT(*) AS cnt FROM restock_requests WHERE status = 'PENDING'");
 $pendingRequestCount = $pendingCountRes ? (int)$pendingCountRes->fetch_assoc()['cnt'] : 0;
@@ -436,6 +477,28 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
             border-bottom: 1px solid var(--border);
             background-color: rgba(168, 53, 53, 0.03);
         }
+
+        .filter-bar {
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(168,53,53,0.01);
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .filter-bar form { display:flex; gap:8px; flex-wrap:wrap; align-items:center; flex:1; }
+        .search-wrap { position:relative; flex:1; min-width:160px; }
+        .search-icon { position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--light-text); font-size:13px; }
+        .search-input { width:100%; padding:8px 10px 8px 32px; border:1.5px solid var(--border); border-radius:7px; font-size:13px; background:var(--white); }
+        .search-input:focus { outline:none; border-color:var(--primary); }
+        .filter-select { padding:8px 12px; border:1.5px solid var(--border); border-radius:7px; font-size:13px; background:var(--white); cursor:pointer; }
+        .filter-select:focus { outline:none; border-color:var(--primary); }
+        .filter-btn { padding:8px 16px; background:var(--primary); color:white; border:none; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer; }
+        .filter-btn:hover { background:#8b2a2a; }
+        .filter-clear { font-size:12px; color:var(--light-text); text-decoration:none; white-space:nowrap; }
+        .filter-clear:hover { color:var(--primary); }
+
         
         .section-header h2 {
             font-size: 18px;
@@ -1050,7 +1113,36 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
                 <div class="section-header">
                     <h2><i class="fas fa-boxes"></i> Product Catalog</h2>
                 </div>
-                
+
+                <div class="filter-bar">
+                    <form method="GET" action="a_productmanagement.php" style="display:contents;">
+                        <input type="hidden" name="tab" value="catalog">
+                        <div class="search-wrap">
+                            <i class="fas fa-search search-icon"></i>
+                            <input type="text" name="psearch" class="search-input"
+                                   placeholder="Search name or ID…"
+                                   value="<?= htmlspecialchars($search) ?>">
+                        </div>
+                        <select name="category" class="filter-select">
+                            <option value="all" <?= $filterCategory==='all' ? 'selected':'' ?>>All Categories</option>
+                            <?php foreach ($categoryList as $cat): ?>
+                            <option value="<?= htmlspecialchars($cat) ?>" <?= $filterCategory===$cat ? 'selected':'' ?>>
+                                <?= htmlspecialchars($cat) ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <select name="pstatus" class="filter-select">
+                            <option value="all"      <?= $filterStatus==='all'      ? 'selected':'' ?>>All Statuses</option>
+                            <option value="ACTIVE"   <?= $filterStatus==='ACTIVE'   ? 'selected':'' ?>>Active</option>
+                            <option value="INACTIVE" <?= $filterStatus==='INACTIVE' ? 'selected':'' ?>>Inactive</option>
+                        </select>
+                        <button type="submit" class="filter-btn"><i class="fas fa-filter"></i> Filter</button>
+                        <?php if ($search !== '' || $filterCategory !== 'all' || $filterStatus !== 'all'): ?>
+                        <a href="a_productmanagement.php?tab=catalog" class="filter-clear"><i class="fas fa-times"></i> Clear</a>
+                        <?php endif; ?>
+                    </form>
+                </div>
+
                 <div class="table-container">
                     <table class="product-table">
                         <thead>
@@ -1064,7 +1156,11 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
                         </thead>
                         <tbody>
                             <?php if (empty($products)): ?>
-                                <tr><td colspan="5" style="color:var(--light-text); padding:18px;">No products found in the database.</td></tr>
+                                <tr><td colspan="5" style="color:var(--light-text); padding:18px;">
+                                    <?= ($search !== '' || $filterCategory !== 'all' || $filterStatus !== 'all')
+                                        ? 'No products match your filters.'
+                                        : 'No products found in the database.' ?>
+                                </td></tr>
                             <?php else: ?>
                                 <?php foreach ($products as $p): ?>
                                     <tr>

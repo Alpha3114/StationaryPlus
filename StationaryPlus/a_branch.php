@@ -5,15 +5,37 @@ require_once 'db.php';
 
 $userName = $_SESSION['user_name'];
 
+// ── Filters ──────────────────────────────────────────────────
+$search       = trim($_GET['search'] ?? '');
+$filterStatus = $_GET['status']      ?? 'all';
+$validStatuses = ['ACTIVE', 'INACTIVE', 'RENOVATION'];
+if (!in_array($filterStatus, $validStatuses)) $filterStatus = 'all';
+
+$where  = ['1=1'];
+$params = [];
+$types  = '';
+
+if ($search !== '') {
+    $like     = "%$search%";
+    $where[]  = "(branch_name LIKE ? OR branch_id LIKE ? OR address LIKE ? OR phone_number LIKE ?)";
+    $params[] = $like; $params[] = $like; $params[] = $like; $params[] = $like;
+    $types   .= 'ssss';
+}
+if ($filterStatus !== 'all') {
+    $where[]  = "status = ?";
+    $params[] = $filterStatus;
+    $types   .= 's';
+}
+
 $branches = [];
 if ($conn) {
-    $sql = "SELECT branch_id, branch_name, address, phone_number, status FROM branches ORDER BY branch_id";
-    $res = $conn->query($sql);
-    if ($res) {
-        while ($row = $res->fetch_assoc()) {
-            $branches[] = $row;
-        }
-    }
+    $sql  = "SELECT branch_id, branch_name, address, phone_number, status
+              FROM branches WHERE " . implode(' AND ', $where) . " ORDER BY branch_id";
+    $stmt = $conn->prepare($sql);
+    if ($types) $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $branches = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
 }
 ?>
 
@@ -284,6 +306,28 @@ if ($conn) {
             justify-content: space-between;
             align-items: center;
         }
+
+        .filter-bar {
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+            background: rgba(168,53,53,0.01);
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .filter-bar form { display:flex; gap:8px; flex-wrap:wrap; align-items:center; flex:1; }
+        .search-wrap { position:relative; flex:1; min-width:160px; }
+        .search-icon { position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--light-text); font-size:13px; }
+        .search-input { width:100%; padding:8px 10px 8px 32px; border:1.5px solid var(--border); border-radius:7px; font-size:13px; background:var(--white); }
+        .search-input:focus { outline:none; border-color:var(--primary); }
+        .filter-select { padding:8px 12px; border:1.5px solid var(--border); border-radius:7px; font-size:13px; background:var(--white); cursor:pointer; }
+        .filter-select:focus { outline:none; border-color:var(--primary); }
+        .filter-btn { padding:8px 16px; background:var(--primary); color:white; border:none; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer; }
+        .filter-btn:hover { background:#8b2a2a; }
+        .filter-clear { font-size:12px; color:var(--light-text); text-decoration:none; white-space:nowrap; }
+        .filter-clear:hover { color:var(--primary); }
+
         
         .section-header h2 {
             font-size: 18px;
@@ -676,7 +720,28 @@ if ($conn) {
                 <div class="section-header">
                     <h2><i class="fas fa-store"></i> Branch Directory</h2>
                 </div>
-                
+
+                <div class="filter-bar">
+                    <form method="GET" action="a_branch.php" style="display:contents;">
+                        <div class="search-wrap">
+                            <i class="fas fa-search search-icon"></i>
+                            <input type="text" name="search" class="search-input"
+                                   placeholder="Search name, ID, address, phone…"
+                                   value="<?= htmlspecialchars($search) ?>">
+                        </div>
+                        <select name="status" class="filter-select">
+                            <option value="all"        <?= $filterStatus==='all'        ? 'selected':'' ?>>All Statuses</option>
+                            <option value="ACTIVE"     <?= $filterStatus==='ACTIVE'     ? 'selected':'' ?>>Active</option>
+                            <option value="INACTIVE"   <?= $filterStatus==='INACTIVE'   ? 'selected':'' ?>>Inactive</option>
+                            <option value="RENOVATION" <?= $filterStatus==='RENOVATION' ? 'selected':'' ?>>Renovation</option>
+                        </select>
+                        <button type="submit" class="filter-btn"><i class="fas fa-filter"></i> Filter</button>
+                        <?php if ($search !== '' || $filterStatus !== 'all'): ?>
+                        <a href="a_branch.php" class="filter-clear"><i class="fas fa-times"></i> Clear</a>
+                        <?php endif; ?>
+                    </form>
+                </div>
+
                 <div class="table-container">
                     <table class="branch-table">
                         <thead>
@@ -689,7 +754,11 @@ if ($conn) {
                         </thead>
                         <tbody>
                             <?php if (empty($branches)): ?>
-                                <tr><td colspan="4" style="color:var(--light-text); padding:18px;">No branches found in the database.</td></tr>
+                                <tr><td colspan="4" style="color:var(--light-text); padding:18px;">
+                                    <?= ($search !== '' || $filterStatus !== 'all')
+                                        ? 'No branches match your filters.'
+                                        : 'No branches found in the database.' ?>
+                                </td></tr>
                             <?php else: ?>
                                 <?php foreach ($branches as $branch): ?>
                                     <tr>
