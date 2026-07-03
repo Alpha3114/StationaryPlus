@@ -436,6 +436,15 @@ if (!empty($_SESSION['cart'])) {
             </div>
             <?php endforeach; ?>
 
+            <!-- Frequently Bought Together — populated by JS, hidden if empty -->
+            <div id="fbtSection" style="display:none;margin:18px 0 4px;padding-top:16px;border-top:1px solid var(--border);">
+                <div style="font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:10px;display:flex;align-items:center;gap:7px;">
+                    <i class="fas fa-layer-group" style="color:var(--primary);"></i>
+                    Frequently Bought Together
+                </div>
+                <div id="fbtGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;"></div>
+            </div>
+
             <div class="browse-bar">
                 <a href="c_viewproducts.php" class="browse-link">
                     <i class="fas fa-plus"></i> Add more products
@@ -642,6 +651,55 @@ function updateTotals() {
     const totalEl = document.getElementById('grand-total');
     if (totalEl) totalEl.textContent = 'RM ' + grandTotal.toFixed(2);
 }
+
+// ── Frequently Bought Together ─────────────────────────────────
+function escHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function loadFrequentlyBoughtTogether() {
+    const section = document.getElementById('fbtSection');
+    const grid    = document.getElementById('fbtGrid');
+    if (!section || !grid) return; // cart is empty, section wasn't rendered at all
+
+    try {
+        const res  = await fetch('cart_recommend.php');
+        const data = await res.json();
+
+        if (!data.success || !data.recommendations?.length) {
+            return; // stay hidden — no forced "popular" fallback here, dashboard already covers that
+        }
+
+        grid.innerHTML = data.recommendations.map(p => `
+            <div style="border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--white);">
+                <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:3px;line-height:1.3;">
+                    ${escHtml(p.product_name)}
+                </div>
+                <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">
+                    ${escHtml(p.freq_label)}
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+                    <span style="font-size:13px;font-weight:700;color:var(--primary);">RM ${parseFloat(p.price).toFixed(2)}</span>
+                    <a href="c_preorder.php?action=add&product_id=${encodeURIComponent(p.product_id)}"
+                       style="font-size:11px;font-weight:600;color:var(--white);background:var(--primary);
+                              padding:5px 9px;border-radius:6px;text-decoration:none;white-space:nowrap;">
+                        <i class="fas fa-plus"></i> Add
+                    </a>
+                </div>
+            </div>`
+        ).join('');
+
+        section.style.display = 'block';
+
+    } catch (e) {
+        // fail silently — this is a nice-to-have suggestion strip, not
+        // core cart functionality, so a network hiccup shouldn't show
+        // an error to the customer here
+    }
+}
+
+window.addEventListener('load', loadFrequentlyBoughtTogether);
 </script>
 
 </body>

@@ -88,7 +88,7 @@ function callClaudeWithMessages(array $messages, int $maxTokens = 1000): string 
 
 // ── Core Gemini API caller ────────────────────────────────────
 function callGemini(array $payload): string {
-    if (!defined('GEMINI_API_KEY') || GEMINI_API_KEY === 'AIza-YOUR-KEY-HERE') {
+    if (!defined('GEMINI_API_KEY') || GEMINI_API_KEY === 'MEOW-COOL-KEY-YURP') {
         error_log('GEMINI_API_KEY is not configured. Edit config.php.');
         return json_encode(['error' => 'API key not configured — edit config.php']);
     }
@@ -102,7 +102,7 @@ function callGemini(array $payload): string {
         512
     );
 
-    // Try primary model first, then fallback models if busy
+    // Primary model first, then fallback models if bz/failed
     $primaryModel  = defined('GEMINI_MODEL') ? GEMINI_MODEL : 'gemini-3.5-flash';
     $fallbackModels = defined('GEMINI_FALLBACK_MODELS')
         ? GEMINI_FALLBACK_MODELS
@@ -111,7 +111,7 @@ function callGemini(array $payload): string {
     $modelsToTry = array_unique(array_merge([$primaryModel], $fallbackModels));
 
     foreach ($modelsToTry as $modelIndex => $model) {
-        // Retry each model up to 3 times on rate limit / high demand errors
+        // Retry each model up to 3 times if bz
         $maxAttempts = 3;
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             $endpoint = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key=" . GEMINI_API_KEY;

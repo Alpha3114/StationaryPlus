@@ -153,11 +153,9 @@ if ($method === 'CASH' && $amountPaid < $total) {
 $conn->begin_transaction();
 
 try {
-    // 5a. Create the order
     $orderId     = 'ORD-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
     $orderStatus = 'COLLECTED';
     $notes       = 'Walk-in sale (POS)';
-
     $stmt = $conn->prepare(
         "INSERT INTO orders
             (order_id, user_id, order_type, order_status, estimated_total, notes, branch_id)
@@ -167,7 +165,6 @@ try {
     $stmt->execute();
     $stmt->close();
 
-    // 5b. Insert order items
     $stmt = $conn->prepare(
         "INSERT INTO order_items
             (order_item_id, order_id, product_id, quantity, unit_price)
@@ -180,11 +177,9 @@ try {
     }
     $stmt->close();
 
-    // 5c. Record payment
     $paymentId          = 'PAY-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
     $verificationStatus = $method === 'CASH' ? 'VALID' : 'PENDING';
     $payDate            = date('Y-m-d H:i:s');
-
     $stmt = $conn->prepare(
         "INSERT INTO payments
             (payment_id, order_id, payment_method, amount,
@@ -199,14 +194,11 @@ try {
     $stmt->execute();
     $stmt->close();
 
-    // 5d. Decrement inventory + log each movement
     foreach ($validatedItems as $vi) {
         $oldQty    = $vi['old_stock'];
         $newQty    = $oldQty - $vi['quantity'];
         $changeQty = -$vi['quantity'];
-
         if ($branchId && $vi['inventory_id']) {
-            // Deduct from specific branch inventory row
             $stmt = $conn->prepare(
                 "UPDATE inventory
                  SET stock_quantity = ?,
@@ -215,7 +207,6 @@ try {
             );
             $stmt->bind_param('is', $newQty, $vi['inventory_id']);
         } else {
-            // No branch — deduct from first available inventory row
             $stmt = $conn->prepare(
                 "UPDATE inventory
                  SET stock_quantity = GREATEST(0, stock_quantity - ?),
@@ -228,7 +219,6 @@ try {
         $stmt->execute();
         $stmt->close();
 
-        // Log the inventory movement
         $logStmt = $conn->prepare(
             "INSERT INTO inventory_log
                 (inventory_id, product_id, branch_id, change_qty, old_qty, new_qty,

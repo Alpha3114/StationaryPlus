@@ -169,7 +169,6 @@ class SeasonalModel
 {
     public array $coef = [0.0, 0.0, 0.0, 0.0]; // [intercept, monthIdx, sin, cos]
     public bool $degenerate = false;
-
     private float $idxMean = 0.0;
     private float $idxStd  = 1.0;
 
@@ -205,9 +204,6 @@ class SeasonalModel
 
         $solved = self::gaussJordanSolve($XtX, $Xty);
         if ($solved === null) {
-            // Singular matrix — not enough variation to separate the four
-            // effects reliably. Fall back to predicting the mean, same
-            // philosophy as the degenerate guard in PolynomialModel.
             $this->degenerate = true;
             $this->coef = [$n > 0 ? array_sum($y) / $n : 0.0, 0.0, 0.0, 0.0];
             return;

@@ -630,6 +630,10 @@ async function loadCollabRecommendations() {
 }
 
 window.addEventListener('load', loadCollabRecommendations);
+function escHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
 
 async function getRecommendations() {

@@ -51,21 +51,15 @@ if ($historyCount > 0) {
 
     $stmt = $conn->prepare(
         "SELECT
-             p.product_id,
-             p.product_name,
-             p.category,
-             p.price,
+             p.product_id,p.product_name,p.category,p.price,
              COUNT(DISTINCT o_other.user_id) AS frequency
          FROM order_items oi_other
          JOIN orders o_other ON oi_other.order_id = o_other.order_id
          JOIN products p     ON oi_other.product_id = p.product_id
          $branchJoin
          WHERE
-             -- only other customers
              o_other.user_id != ?
              AND o_other.order_status != 'CANCELLED'
-
-             -- those other customers share at least one purchased product with us
              AND o_other.user_id IN (
                  SELECT DISTINCT o2.user_id
                  FROM order_items oi2
@@ -79,17 +73,13 @@ if ($historyCount > 0) {
                  )
                  AND o2.user_id != ?
              )
-
-             -- exclude what this customer already bought
              AND oi_other.product_id NOT IN (
                  SELECT DISTINCT oi4.product_id
                  FROM order_items oi4
                  JOIN orders o4 ON oi4.order_id = o4.order_id
                  WHERE o4.user_id = ?
              )
-
              AND p.product_status = 'ACTIVE'
-
          GROUP BY p.product_id
          ORDER BY frequency DESC, p.product_name ASC
          LIMIT ?"
