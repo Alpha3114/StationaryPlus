@@ -1,128 +1,91 @@
 <?php
 // ============================================================
-//  verify_payment.php — AJAX: staff verifies a payment
-//  POST: payment_id, action (VALID | INVALID)
-//  Returns JSON
+//  verify_email.php — Activates a customer account once they
+//  click the verification link sent by Registration.php
 // ============================================================
 
 if (session_status() === PHP_SESSION_NONE) session_start();
 
-require_once 'auth.php';
-require_role(['STAFF', 'ADMIN']);
 require_once 'db.php';
 
-header('Content-Type: application/json');
+$token   = trim($_GET['token'] ?? '');
+$status  = 'error'; // 'success' | 'error' | 'expired'
+$message = '';
 
-$paymentId       = trim($_POST['payment_id']       ?? '');
-$action          = trim($_POST['action']           ?? '');
-$rejectionReason = trim($_POST['rejection_reason'] ?? '');
-
-if (!$paymentId || !in_array($action, ['VALID', 'INVALID'])) {
-    echo json_encode(['success' => false, 'error' => 'Invalid request.']);
-    exit;
-}
-
-if ($action === 'INVALID' && $rejectionReason === '') {
-    echo json_encode(['success' => false, 'error' => 'Please enter a rejection reason.']);
-    exit;
-}
-
-// Confirm payment exists and is still PENDING
-$stmt = $conn->prepare(
-    "SELECT p.payment_id, p.verification_status, p.order_id,
-            o.order_type, o.order_status
-     FROM payments p
-     JOIN orders o ON p.order_id = o.order_id
-     WHERE p.payment_id = ? LIMIT 1"
-);
-$stmt->bind_param('s', $paymentId);
-$stmt->execute();
-$payment = $stmt->get_result()->fetch_assoc();
-$stmt->close();
-
-if (!$payment) {
-    echo json_encode(['success' => false, 'error' => 'Payment not found.']);
-    exit;
-}
-
-if ($payment['verification_status'] !== 'PENDING') {
-    echo json_encode([
-        'success' => false,
-        'error'   => 'Payment has already been ' . strtolower($payment['verification_status']) . '.',
-    ]);
-    exit;
-}
-
-// Update verification status (store the reason for INVALID, clear it for VALID)
-if ($action === 'INVALID') {
-    $stmt = $conn->prepare(
-        "UPDATE payments SET verification_status = ?, rejection_reason = ? WHERE payment_id = ?"
-    );
-    $stmt->bind_param('sss', $action, $rejectionReason, $paymentId);
+if (!$token) {
+    $message = 'Invalid or missing verification link.';
 } else {
     $stmt = $conn->prepare(
-        "UPDATE payments SET verification_status = ?, rejection_reason = NULL WHERE payment_id = ?"
+        "SELECT ev.id, ev.user_id, ev.expires_at, ev.used, u.name, u.account_status
+         FROM email_verifications ev
+         JOIN users u ON ev.user_id = u.user_id
+         WHERE ev.token = ? LIMIT 1"
     );
-    $stmt->bind_param('ss', $action, $paymentId);
-}
-$stmt->execute();
-$stmt->close();
+    $stmt->bind_param('s', $token);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
 
-// ── If VALID: conditionally move order to PROCESSING ─────────
-$transitioned  = false;
-$holdReason    = '';
+    if (!$row) {
+        $message = 'This verification link is invalid.';
 
-if ($action === 'VALID') {
-    $orderId   = $payment['order_id'];
-    $orderType = $payment['order_type'];
+    } elseif ($row['account_status'] === 'ACTIVE') {
+        // Already verified (e.g. link clicked twice) — treat as success
+        $status  = 'success';
+        $message = 'Your email is already verified. You can log in.';
 
-    // For PREORDERs: check if there are any print files still awaiting review.
-    // If so, hold the transition — the order will move to PROCESSING automatically
-    // when the last file is marked REVIEWED in update_print_status.php.
-    $blockedByFiles = false;
+    } elseif ($row['used']) {
+        $message = 'This verification link has already been used.';
 
-    if ($orderType === 'PREORDER') {
-        $stmt = $conn->prepare(
-            "SELECT COUNT(*) AS cnt FROM print_files
-             WHERE order_id = ? AND file_status = 'RECEIVED'"
-        );
-        $stmt->bind_param('s', $orderId);
-        $stmt->execute();
-        $unreviewedCount = (int)$stmt->get_result()->fetch_assoc()['cnt'];
-        $stmt->close();
+    } elseif (strtotime($row['expires_at']) < time()) {
+        $status  = 'expired';
+        $message = 'This verification link has expired. Please request a new one.';
 
-        if ($unreviewedCount > 0) {
-            $blockedByFiles = true;
-            $holdReason = "Payment verified. Order will move to Processing once the $unreviewedCount pending print file(s) are reviewed by staff.";
-        }
-    }
+    } else {
+        // Activate the account
+        $upd = $conn->prepare("UPDATE users SET account_status = 'ACTIVE' WHERE user_id = ?");
+        $upd->bind_param('s', $row['user_id']);
+        $upd->execute();
+        $upd->close();
 
-    if (!$blockedByFiles) {
-        // Safe to transition — no unreviewed files (or it's an ORDER type)
-        $stmt = $conn->prepare(
-            "UPDATE orders o
-             JOIN payments p ON p.order_id = o.order_id
-             SET o.order_status = 'PROCESSING'
-             WHERE p.payment_id = ?
-               AND o.order_status = 'NEW'"
-        );
-        $stmt->bind_param('s', $paymentId);
-        $stmt->execute();
-        $transitioned = ($stmt->affected_rows > 0);
-        $stmt->close();
+        $mark = $conn->prepare("UPDATE email_verifications SET used = 1 WHERE token = ?");
+        $mark->bind_param('s', $token);
+        $mark->execute();
+        $mark->close();
+
+        $status  = 'success';
+        $message = 'Your email has been verified! You can now log in.';
     }
 }
-
-$message = match(true) {
-    $action === 'INVALID'  => 'Payment rejected.',
-    $holdReason !== ''     => $holdReason,
-    $transitioned          => 'Payment verified. Order moved to Processing.',
-    default                => 'Payment verified.',
-};
-
-echo json_encode([
-    'success'     => true,
-    'action'      => $action,
-    'transitioned'=> $transitioned,
-    'message'     => $message,
-]);
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StationaryPlus - Email Verification</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root { --primary:#A83535; --background:#FAFAFA; --text:#2E2E2E; --text-secondary:#707070; }
+        * { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI',system-ui,sans-serif; }
+        body { background:var(--background); color:var(--text); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+        .box { background:#fff; max-width:440px; width:100%; padding:44px 36px; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.08); text-align:center; }
+        .icon { width:64px; height:64px; border-radius:50%; display:flex; align-items:center; justify-content:center; margin:0 auto 20px; font-size:28px; }
+        .icon.success { background:#ecfdf5; color:#059669; }
+        .icon.error   { background:#fef2f2; color:#dc2626; }
+        h1 { font-size:20px; margin-bottom:10px; }
+        p { color:var(--text-secondary); font-size:14px; line-height:1.6; margin-bottom:26px; }
+        a.btn { display:inline-block; padding:12px 28px; background:var(--primary); color:#fff; border-radius:8px; text-decoration:none; font-weight:600; font-size:14px; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <div class="icon <?= $status === 'success' ? 'success' : 'error' ?>">
+            <i class="fas <?= $status === 'success' ? 'fa-check' : 'fa-exclamation' ?>"></i>
+        </div>
+        <h1><?= $status === 'success' ? 'Email Verified' : 'Verification Failed' ?></h1>
+        <p><?= htmlspecialchars($message) ?></p>
+        <a href="login.php" class="btn">Go to Login</a>
+    </div>
+</body>
+</html>

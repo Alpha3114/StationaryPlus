@@ -29,11 +29,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $password   = $_POST['password']            ?? '';
     $branchId   = trim($_POST['branch_id']      ?? '') ?: null;
 
-    $validRoles    = ['ADMIN', 'STAFF', 'CUSTOMER'];
-    $validStatuses = ['ACTIVE', 'INACTIVE', 'PENDING'];
-
-    if (!in_array($role,   $validRoles))    $role   = 'CUSTOMER';
-    if (!in_array($status, $validStatuses)) $status = 'ACTIVE';
+    $validRoles = ['ADMIN', 'STAFF', 'CUSTOMER'];
+    if (!in_array($role, $validRoles)) $role = 'CUSTOMER';
 
     // Branch only applies to STAFF — clear it for any other role
     if ($role !== 'STAFF') $branchId = null;
@@ -59,9 +56,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $message = 'A user with this email already exists.';
                 $msgType = 'error';
             } else {
-                $newId = generate_user_id();
-                $hash  = password_hash($password, PASSWORD_DEFAULT);
-                $stmt  = $conn->prepare(
+                $newId  = generate_user_id();
+                $hash   = password_hash($password, PASSWORD_DEFAULT);
+                // Accounts created directly by an admin are active immediately —
+                // PENDING is only used for the customer self-registration/email-verification flow.
+                $status = 'ACTIVE';
+                $stmt   = $conn->prepare(
                     "INSERT INTO users (user_id, name, email, password_hash, phone_number, user_role, account_status, branch_id)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
                 );
@@ -75,60 +75,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
     // ── Update existing user ──────────────────────────────────
+    // Name, email, and phone are locked from this form — they're set at
+    // registration (and verified) or by the user themselves, and admin
+    // edits here shouldn't be able to silently change them. Only role,
+    // branch, and (for STAFF only) password can be changed here.
     } elseif ($action === 'update' && $userId !== '') {
-        if ($name === '' || $email === '') {
-            $message = 'Name and email are required.';
+        $exStmt = $conn->prepare("SELECT name, user_role FROM users WHERE user_id = ? LIMIT 1");
+        $exStmt->bind_param('s', $userId);
+        $exStmt->execute();
+        $existing = $exStmt->get_result()->fetch_assoc();
+        $exStmt->close();
+
+        if (!$existing) {
+            $message = 'User not found.';
             $msgType = 'error';
         } elseif ($role === 'STAFF' && !$branchId) {
             $message = 'Please assign a branch for staff accounts.';
             $msgType = 'error';
         } else {
-            // Check duplicate email (exclude current user)
-            $chk = $conn->prepare("SELECT user_id FROM users WHERE email = ? AND user_id != ? LIMIT 1");
-            $chk->bind_param('ss', $email, $userId);
-            $chk->execute();
-            $chk->store_result();
-            if ($chk->num_rows > 0) {
-                $message = 'Another user already has this email address.';
-                $msgType = 'error';
-            } else {
-                if ($password !== '') {
-                    // Update with new password
-                    $hash = password_hash($password, PASSWORD_DEFAULT);
-                    $stmt = $conn->prepare(
-                        "UPDATE users SET name=?, email=?, phone_number=?, user_role=?, account_status=?, password_hash=?, branch_id=?
-                         WHERE user_id=?"
-                    );
-                    $stmt->bind_param('ssssssss', $name, $email, $phone, $role, $status, $hash, $branchId, $userId);
-                } else {
-                    // Update without touching password
-                    $stmt = $conn->prepare(
-                        "UPDATE users SET name=?, email=?, phone_number=?, user_role=?, account_status=?, branch_id=?
-                         WHERE user_id=?"
-                    );
-                    $stmt->bind_param('sssssss', $name, $email, $phone, $role, $status, $branchId, $userId);
-                }
-                $stmt->execute();
-                $stmt->close();
-                $message = "User <strong>$name</strong> updated successfully.";
-                $msgType = 'success';
-            }
-            $chk->close();
-        }
+            // Password may only be changed here for STAFF accounts —
+            // staff don't self-register, so admin resetting their password directly is fine.
+            $applyPassword = ($existing['user_role'] === 'STAFF' && $password !== '');
 
-    // ── Deactivate user ───────────────────────────────────────
-    } elseif ($action === 'deactivate' && $userId !== '') {
-        // Prevent self-deactivation
-        if ($userId === $_SESSION['user_id']) {
-            $message = 'You cannot deactivate your own account.';
-            $msgType = 'error';
-        } else {
-            $stmt = $conn->prepare("UPDATE users SET account_status='INACTIVE' WHERE user_id=?");
-            $stmt->bind_param('s', $userId);
+            if ($applyPassword) {
+                $hash = password_hash($password, PASSWORD_DEFAULT);
+                $stmt = $conn->prepare(
+                    "UPDATE users SET user_role=?, password_hash=?, branch_id=? WHERE user_id=?"
+                );
+                $stmt->bind_param('ssss', $role, $hash, $branchId, $userId);
+            } else {
+                $stmt = $conn->prepare(
+                    "UPDATE users SET user_role=?, branch_id=? WHERE user_id=?"
+                );
+                $stmt->bind_param('sss', $role, $branchId, $userId);
+            }
             $stmt->execute();
             $stmt->close();
-            $message = 'User deactivated successfully.';
+            $message = "User <strong>{$existing['name']}</strong> updated successfully.";
             $msgType = 'success';
+        }
+
+    // ── Activate / Deactivate toggle ──────────────────────────
+    } elseif ($action === 'toggle_status' && $userId !== '') {
+        $exStmt = $conn->prepare("SELECT account_status FROM users WHERE user_id = ? LIMIT 1");
+        $exStmt->bind_param('s', $userId);
+        $exStmt->execute();
+        $existing = $exStmt->get_result()->fetch_assoc();
+        $exStmt->close();
+
+        if (!$existing) {
+            $message = 'User not found.';
+            $msgType = 'error';
+        } else {
+            $newStatus = ($existing['account_status'] === 'ACTIVE') ? 'INACTIVE' : 'ACTIVE';
+
+            if ($newStatus === 'INACTIVE' && $userId === $_SESSION['user_id']) {
+                $message = 'You cannot deactivate your own account.';
+                $msgType = 'error';
+            } else {
+                $stmt = $conn->prepare("UPDATE users SET account_status=? WHERE user_id=?");
+                $stmt->bind_param('ss', $newStatus, $userId);
+                $stmt->execute();
+                $stmt->close();
+                $message = $newStatus === 'ACTIVE' ? 'User activated successfully.' : 'User deactivated successfully.';
+                $msgType = 'success';
+            }
         }
     }
 }
@@ -253,8 +264,11 @@ $pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_statu
         .filter-bar form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex: 1; }
         .search-wrap { position: relative; flex: 1; min-width: 160px; }
         .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--light-text); font-size: 13px; }
-        .search-input { width: 100%; padding: 8px 10px 8px 32px; border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px; background: var(--white); }
+        .search-input { width: 100%; padding: 8px 28px 8px 32px; border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px; background: var(--white); }
         .search-input:focus { outline: none; border-color: var(--primary); }
+        .search-clear { display: none; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--light-text); cursor: pointer; font-size: 13px; padding: 2px 4px; }
+        .search-clear:hover { color: var(--primary); }
+        .search-clear.show { display: block; }
         .filter-select { padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px; background: var(--white); cursor: pointer; }
         .filter-select:focus { outline: none; border-color: var(--primary); }
         .filter-btn { padding: 8px 16px; background: var(--primary); color: white; border: none; border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; }
@@ -417,9 +431,15 @@ $pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_statu
                 <form method="GET" action="a_usermanagement.php" style="display:contents;">
                     <div class="search-wrap">
                         <i class="fas fa-search search-icon"></i>
-                        <input type="text" name="search" class="search-input"
+                        <input type="text" name="search" id="userSearchInput" class="search-input"
                                placeholder="Search name, email, ID…"
-                               value="<?= htmlspecialchars($search) ?>">
+                               value="<?= htmlspecialchars($search) ?>"
+                               oninput="document.getElementById('userSearchClear').classList.toggle('show', this.value.length > 0)">
+                        <button type="button" id="userSearchClear" class="search-clear <?= $search !== '' ? 'show' : '' ?>"
+                                title="Clear search"
+                                onclick="document.getElementById('userSearchInput').value='';this.classList.remove('show');this.form.submit();">
+                            <i class="fas fa-times"></i>
+                        </button>
                     </div>
                     <select name="role" class="filter-select">
                         <option value="all"     <?= $filterRole==='all'      ? 'selected':'' ?>>All Roles</option>
@@ -525,27 +545,30 @@ $pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_statu
                     <div class="form-group">
                         <label class="form-label">Full Name</label>
                         <input type="text" name="name" id="fieldName" class="form-input" placeholder="Enter full name" required>
+                        <div class="form-hint" id="nameLockHint" style="display:none;">Name is set at registration and can't be changed here.</div>
                     </div>
 
                     <div class="form-group">
                         <label class="form-label">Email Address</label>
                         <input type="email" name="email" id="fieldEmail" class="form-input" placeholder="email@domain.com" required>
+                        <div class="form-hint" id="emailLockHint" style="display:none;">Email is verified at registration and can't be changed here.</div>
                     </div>
 
                     <div class="form-group">
                         <label class="form-label">Phone Number <span class="optional">(optional)</span></label>
                         <input type="text" name="phone_number" id="fieldPhone" class="form-input" placeholder="e.g. 0123456789">
+                        <div class="form-hint" id="phoneLockHint" style="display:none;">Phone is set by the user and can't be changed here.</div>
                     </div>
 
-                    <div class="form-group">
+                    <div class="form-group" id="passwordFieldWrap">
                         <label class="form-label">Password <span class="optional" id="pwHint">(required for new user)</span></label>
                         <input type="password" name="password" id="fieldPassword" class="form-input" placeholder="Min. 8 characters" autocomplete="new-password">
-                        <div class="form-hint" id="pwEditHint" style="display:none;">Leave blank to keep current password.</div>
+                        <div class="form-hint" id="pwEditHint" style="display:none;">Only staff passwords can be reset from here. Leave blank to keep current password.</div>
                     </div>
 
                     <div class="form-group">
                         <label class="form-label">User Role</label>
-                        <select name="user_role" id="fieldRole" class="form-select" onchange="toggleBranchField()">
+                        <select name="user_role" id="fieldRole" class="form-select" onchange="toggleBranchField(); togglePasswordField();">
                             <option value="CUSTOMER">Customer</option>
                             <option value="STAFF">Staff</option>
                             <option value="ADMIN">Admin</option>
@@ -568,45 +591,24 @@ $pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_statu
                         <div class="form-hint">Staff only see and manage data for their assigned branch.</div>
                     </div>
 
-                    <div class="form-group">
-                        <label class="form-label">Account Status</label>
-                        <div class="radio-group">
-                            <div class="radio-option">
-                                <input type="radio" name="account_status" id="statusActive" value="ACTIVE" checked>
-                                <label class="radio-label" for="statusActive">Active</label>
-                            </div>
-                            <div class="radio-option">
-                                <input type="radio" name="account_status" id="statusInactive" value="INACTIVE">
-                                <label class="radio-label" for="statusInactive">Inactive</label>
-                            </div>
-                            <div class="radio-option">
-                                <input type="radio" name="account_status" id="statusPending" value="PENDING">
-                                <label class="radio-label" for="statusPending">Pending</label>
-                            </div>
-                        </div>
-                    </div>
-
                     <div class="form-actions">
                         <button type="submit" class="btn-primary" id="submitBtn">
                             <i class="fas fa-save"></i> <span id="submitLabel">Add User</span>
                         </button>
-                        <button type="button" class="btn-secondary" onclick="clearForm()">
-                            <i class="fas fa-plus"></i> New
-                        </button>
-                        <!-- Deactivate button — only shown in edit mode -->
-                        <button type="button" class="btn-danger" id="deactivateBtn" style="display:none;"
-                                onclick="deactivateUser()">
-                            <i class="fas fa-user-slash"></i> Deactivate
+                        <!-- Activate/Deactivate toggle — only shown in edit mode -->
+                        <button type="button" class="btn-danger" id="statusToggleBtn" style="display:none;"
+                                onclick="toggleUserStatus()">
+                            <i class="fas fa-user-slash" id="statusToggleIcon"></i> <span id="statusToggleLabel">Deactivate</span>
                         </button>
                     </div>
 
                 </form>
 
-                <!-- Hidden deactivate form — must be OUTSIDE the main form -->
-                <form method="POST" id="deactivateForm" style="display:none;"
+                <!-- Hidden status-toggle form — must be OUTSIDE the main form -->
+                <form method="POST" id="statusToggleForm" style="display:none;"
                       action="a_usermanagement.php?search=<?= urlencode($search) ?>&role=<?= urlencode($filterRole) ?>&status=<?= urlencode($filterStatus) ?>">
-                    <input type="hidden" name="action" value="deactivate">
-                    <input type="hidden" name="user_id" id="deactivateUserId">
+                    <input type="hidden" name="action" value="toggle_status">
+                    <input type="hidden" name="user_id" id="statusToggleUserId">
                 </form>
             </div>
         </section>
@@ -684,9 +686,13 @@ function customConfirm(message, options = {}) {
 </script>
 
 <script>
+let editingUserId   = null;
+let editingIsSelf   = false;
+
 // Populate form from clicked row
 function loadUser(u) {
     showForm(true);
+    editingUserId = u.user_id;
 
     document.getElementById('formAction').value   = 'update';
     document.getElementById('fieldUserId').value  = u.user_id;
@@ -698,20 +704,30 @@ function loadUser(u) {
     document.getElementById('fieldBranch').value  = u.branch_id || '';
     toggleBranchField();
 
-    // Set status radio
-    document.querySelectorAll('input[name="account_status"]').forEach(r => {
-        r.checked = (r.value === u.account_status);
+    // Name/email/phone are locked in edit mode — set at registration,
+    // shouldn't be silently changed by an admin.
+    ['fieldName', 'fieldEmail', 'fieldPhone'].forEach(id => {
+        document.getElementById(id).readOnly = true;
     });
+    document.getElementById('nameLockHint').style.display  = 'block';
+    document.getElementById('emailLockHint').style.display = 'block';
+    document.getElementById('phoneLockHint').style.display = 'block';
+
+    togglePasswordField();
 
     // UI tweaks for edit mode
     document.getElementById('formTitle').textContent = 'Edit User';
     document.getElementById('modeBadge').textContent = 'Edit';
     document.getElementById('modeBadge').className   = 'form-mode-badge badge-edit';
     document.getElementById('submitLabel').textContent = 'Update User';
-    document.getElementById('pwHint').textContent     = '(optional for edit)';
-    document.getElementById('pwEditHint').style.display = 'block';
-    document.getElementById('deactivateBtn').style.display = 'flex';
-    document.getElementById('deactivateUserId').value = u.user_id;
+
+    // Activate/Deactivate toggle reflects the user's current status
+    const isActive = u.account_status === 'ACTIVE';
+    document.getElementById('statusToggleLabel').textContent = isActive ? 'Deactivate' : 'Activate';
+    document.getElementById('statusToggleIcon').className    = isActive ? 'fas fa-user-slash' : 'fas fa-user-check';
+    document.getElementById('statusToggleBtn').className     = 'btn-danger';
+    document.getElementById('statusToggleBtn').style.display = 'flex';
+    document.getElementById('statusToggleUserId').value      = u.user_id;
 
     // Highlight selected row
     document.querySelectorAll('.user-table tbody tr').forEach(r => r.classList.remove('selected'));
@@ -722,6 +738,7 @@ function loadUser(u) {
 // Clear / new user mode
 function clearForm() {
     showForm(true);
+    editingUserId = null;
 
     document.getElementById('formAction').value   = 'add';
     document.getElementById('fieldUserId').value  = '';
@@ -732,15 +749,22 @@ function clearForm() {
     document.getElementById('fieldRole').value    = 'CUSTOMER';
     document.getElementById('fieldBranch').value  = '';
     toggleBranchField();
-    document.getElementById('statusActive').checked = true;
+
+    // New users are fully editable
+    ['fieldName', 'fieldEmail', 'fieldPhone'].forEach(id => {
+        document.getElementById(id).readOnly = false;
+    });
+    document.getElementById('nameLockHint').style.display  = 'none';
+    document.getElementById('emailLockHint').style.display = 'none';
+    document.getElementById('phoneLockHint').style.display = 'none';
+
+    togglePasswordField();
 
     document.getElementById('formTitle').textContent = 'Add New User';
     document.getElementById('modeBadge').textContent = 'New';
     document.getElementById('modeBadge').className   = 'form-mode-badge badge-new';
     document.getElementById('submitLabel').textContent = 'Add User';
-    document.getElementById('pwHint').textContent     = '(required for new user)';
-    document.getElementById('pwEditHint').style.display = 'none';
-    document.getElementById('deactivateBtn').style.display = 'none';
+    document.getElementById('statusToggleBtn').style.display = 'none';
 
     document.querySelectorAll('.user-table tbody tr').forEach(r => r.classList.remove('selected'));
 }
@@ -760,6 +784,25 @@ function toggleBranchField() {
     }
 }
 
+// Password is always available when adding a new user, but in edit mode
+// it's only editable for STAFF accounts (customers/admins don't get their
+// password reset from this generic form).
+function togglePasswordField() {
+    const isEditMode = (document.getElementById('formAction').value === 'update');
+    const role        = document.getElementById('fieldRole').value;
+    const wrap        = document.getElementById('passwordFieldWrap');
+    const input       = document.getElementById('fieldPassword');
+    const showField   = !isEditMode || role === 'STAFF';
+
+    wrap.style.display = showField ? 'block' : 'none';
+    if (!showField) input.value = '';
+
+    document.getElementById('pwHint').textContent = !isEditMode
+        ? '(required for new user)'
+        : '(optional — leave blank to keep current password)';
+    document.getElementById('pwEditHint').style.display = isEditMode ? 'block' : 'none';
+}
+
 // Require a branch when saving a STAFF account
 document.getElementById('userForm').addEventListener('submit', function(e) {
     const role   = document.getElementById('fieldRole').value;
@@ -771,12 +814,14 @@ document.getElementById('userForm').addEventListener('submit', function(e) {
     }
 });
 
-function deactivateUser() {
-    const name = document.getElementById('fieldName').value;
-    customConfirm(`Deactivate "${name}"? Their account will be set to INACTIVE.`, {
-        danger: true, confirmText: 'Deactivate'
+function toggleUserStatus() {
+    const name        = document.getElementById('fieldName').value;
+    const activating  = document.getElementById('statusToggleLabel').textContent === 'Activate';
+    const verb        = activating ? 'Activate' : 'Deactivate';
+    customConfirm(`${verb} "${name}"?`, {
+        danger: !activating, confirmText: verb
     }).then(ok => {
-        if (ok) document.getElementById('deactivateForm').submit();
+        if (ok) document.getElementById('statusToggleForm').submit();
     });
 }
 

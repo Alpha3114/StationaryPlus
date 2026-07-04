@@ -105,13 +105,16 @@ if ($start !== false && $end !== false) {
     $parsed = json_decode(substr($clean, $start, $end - $start + 1), true);
 }
 
-// Fallback — return first 3 products if parse fails
+// If the AI response couldn't be parsed at all, be honest about it rather
+// than backfilling with arbitrary catalog items that may have nothing to
+// do with what the customer asked for.
 if (!is_array($parsed) || count($parsed) === 0) {
     error_log("ai_recommend.php: parse failed. Raw: " . substr($aiRaw, 0, 300));
-    $parsed = array_map(fn($p) => [
-        'product_id' => $p['product_id'],
-        'reason'     => 'This is one of our popular products that may suit your needs.',
-    ], array_slice($catalog, 0, 3));
+    echo json_encode([
+        'success' => false,
+        'error'   => "Couldn't come up with recommendations for that request — try rephrasing, or browse the catalog directly.",
+    ]);
+    exit;
 }
 
 // ── Enrich with real DB product data ─────────────────────────
@@ -129,7 +132,9 @@ $products   = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $productMap = array_column($products, null, 'product_id');
 $stmt->close();
 
-// Build result in AI's order
+// Build result in AI's order. Only genuine AI matches are returned — if the
+// AI named fewer than 3 valid products, we show fewer rather than padding
+// with unrelated catalog items just to hit a count of 3.
 $result = [];
 foreach ($recommendedIds as $pid) {
     if (isset($productMap[$pid])) {
@@ -139,15 +144,12 @@ foreach ($recommendedIds as $pid) {
     }
 }
 
-// Fill up to 3 if any IDs were invalid
-if (count($result) < 3) {
-    foreach ($catalog as $p) {
-        if (count($result) >= 3) break;
-        if (!in_array($p['product_id'], array_column($result, 'product_id'))) {
-            $p['reason'] = 'This product may help with your needs.';
-            $result[]    = $p;
-        }
-    }
+if (empty($result)) {
+    echo json_encode([
+        'success' => false,
+        'error'   => "Couldn't find a strong match for that request — try rephrasing, or browse the catalog directly.",
+    ]);
+    exit;
 }
 
 echo json_encode([

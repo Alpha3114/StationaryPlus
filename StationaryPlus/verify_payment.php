@@ -13,11 +13,17 @@ require_once 'db.php';
 
 header('Content-Type: application/json');
 
-$paymentId = trim($_POST['payment_id'] ?? '');
-$action    = trim($_POST['action']     ?? '');
+$paymentId       = trim($_POST['payment_id']       ?? '');
+$action          = trim($_POST['action']           ?? '');
+$rejectionReason = trim($_POST['rejection_reason'] ?? '');
 
 if (!$paymentId || !in_array($action, ['VALID', 'INVALID'])) {
     echo json_encode(['success' => false, 'error' => 'Invalid request.']);
+    exit;
+}
+
+if ($action === 'INVALID' && $rejectionReason === '') {
+    echo json_encode(['success' => false, 'error' => 'Please provide a rejection reason.']);
     exit;
 }
 
@@ -47,11 +53,18 @@ if ($payment['verification_status'] !== 'PENDING') {
     exit;
 }
 
-// Update verification status
-$stmt = $conn->prepare(
-    "UPDATE payments SET verification_status = ? WHERE payment_id = ?"
-);
-$stmt->bind_param('ss', $action, $paymentId);
+// Update verification status (and store the rejection reason, if any)
+if ($action === 'INVALID') {
+    $stmt = $conn->prepare(
+        "UPDATE payments SET verification_status = ?, rejection_reason = ? WHERE payment_id = ?"
+    );
+    $stmt->bind_param('sss', $action, $rejectionReason, $paymentId);
+} else {
+    $stmt = $conn->prepare(
+        "UPDATE payments SET verification_status = ?, rejection_reason = NULL WHERE payment_id = ?"
+    );
+    $stmt->bind_param('ss', $action, $paymentId);
+}
 $stmt->execute();
 $stmt->close();
 

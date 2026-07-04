@@ -302,15 +302,16 @@ function orderStatusBadge(string $status): string {
             <p class="page-subtitle">Manage your stationery and printing needs</p>
         </div>
 
-        <!-- Branch selector -->
-        <div style="position:relative;" id="branchDropdownWrapper">
+        <!-- Preferred Branch selector (permanent — saved to your account; distinct from the
+             session-only "Browsing Branch" selector shown on other pages) -->
+        <div style="position:relative;" id="branchDropdownWrapper" title="Preferred Branch — saved permanently to your account.">
             <button type="button" onclick="toggleBranchPanel()"
                 style="display:flex;align-items:center;gap:8px;padding:8px 16px;
                        border:1.5px solid var(--border);border-radius:20px;font-size:13px;
                        font-weight:600;color:var(--primary);background:rgba(168,53,53,0.06);
                        cursor:pointer;outline:none;transition:background 0.2s;">
-                <i class="fas fa-store"></i>
-                <span><?= htmlspecialchars($currentBranch ?? 'Select Branch') ?></span>
+                <i class="fas fa-star" style="font-size:11px;color:#f59e0b;"></i>
+                <span>Preferred: <?= htmlspecialchars($currentBranch ?? 'Select Branch') ?></span>
                 <i class="fas fa-chevron-down" style="font-size:11px;opacity:0.6;"></i>
             </button>
 
@@ -495,13 +496,13 @@ function orderStatusBadge(string $status): string {
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>Pre-order ID</th><th>Date</th><th>Notes</th><th>Status</th><th>Est. Total</th>
+                            <th>Pre-order ID</th><th>Date</th><th>Notes</th><th>Status</th><th>Est. Total</th><th></th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($recentPreorders)): ?>
                             <tr class="empty-row">
-                                <td colspan="5">No pre-orders yet.
+                                <td colspan="6">No pre-orders yet.
                                     <a href="c_preorder.php" style="color:var(--primary);">Place a pre-order</a>.
                                 </td>
                             </tr>
@@ -513,6 +514,14 @@ function orderStatusBadge(string $status): string {
                                 <td><?= htmlspecialchars($po['notes'] ?? '—') ?></td>
                                 <td><?= orderStatusBadge($po['order_status']) ?></td>
                                 <td>RM <?= number_format($po['estimated_total'] ?? 0, 2) ?></td>
+                                <td>
+                                    <button type="button" onclick="openOrderModal('<?= htmlspecialchars($po['preorder_id'], ENT_QUOTES) ?>')"
+                                            style="padding:6px 12px;background:rgba(168,53,53,0.08);color:var(--primary);
+                                                   border:1px solid rgba(168,53,53,0.3);border-radius:7px;font-size:12px;
+                                                   font-weight:600;cursor:pointer;white-space:nowrap;">
+                                        <i class="fas fa-arrow-right"></i>
+                                    </button>
+                                </td>
                             </tr>
                             <?php endforeach; ?>
                         <?php endif; ?>
@@ -531,6 +540,18 @@ function orderStatusBadge(string $status): string {
     </footer>
 
 </main>
+
+<!-- Order details modal (reuses the same c_orderdetail.php endpoint as c_orderstatus.php) -->
+<div class="modal-overlay" id="orderModalOverlay" onclick="if(event.target===this)closeOrderModal()"
+     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;align-items:center;justify-content:center;">
+    <div class="modal" style="background:var(--white);border-radius:12px;width:90%;max-width:520px;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+        <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+            <div style="font-size:16px;font-weight:700;color:var(--primary);">Order Details</div>
+            <button onclick="closeOrderModal()" style="background:none;border:none;font-size:18px;color:var(--text-secondary);cursor:pointer;padding:4px 8px;border-radius:6px;"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body" id="orderModalBody" style="padding:22px;"></div>
+    </div>
+</div>
 
 <!-- Branch popup (first login — no preferred branch set yet) -->
 <?php if ($showBranchPopup): ?>
@@ -710,6 +731,82 @@ function esc(s) {
         .replace(/&/g,'&amp;').replace(/</g,'&lt;')
         .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+// ── Recent Pre-orders drill-in (same c_orderdetail.php endpoint used by c_orderstatus.php) ──
+function openOrderModal(id) {
+    document.getElementById('orderModalBody').innerHTML =
+        '<div style="text-align:center;padding:30px;color:#707070"><i class="fas fa-spinner fa-spin" style="font-size:22px;margin-bottom:10px;display:block;"></i>Loading…</div>';
+    document.getElementById('orderModalOverlay').style.display = 'flex';
+
+    fetch('c_orderdetail.php?id=' + encodeURIComponent(id))
+        .then(r => r.json())
+        .then(d => renderOrderReceipt(d))
+        .catch(() => {
+            document.getElementById('orderModalBody').innerHTML =
+                '<p style="text-align:center;color:#c62828;padding:30px;">Failed to load details.</p>';
+        });
+}
+
+function closeOrderModal() {
+    document.getElementById('orderModalOverlay').style.display = 'none';
+    document.getElementById('orderModalBody').innerHTML = '';
+}
+
+function renderOrderReceipt(d) {
+    if (d.error) {
+        document.getElementById('orderModalBody').innerHTML =
+            '<p style="text-align:center;color:#c62828;padding:30px;">' + esc(d.error) + '</p>';
+        return;
+    }
+
+    const row = (label, value) => `
+        <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);font-size:14px;">
+            <span style="color:var(--text-secondary);">${label}</span>
+            <span style="font-weight:600;color:var(--text-primary);">${value}</span>
+        </div>`;
+
+    let itemsHtml = '';
+    if (d.items && d.items.length > 0) {
+        itemsHtml = `
+        <div style="margin:14px 0 4px;font-size:12px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;">
+            <i class="fas fa-box"></i> Stationery Items
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:10px;">
+            <tbody>
+                ${d.items.map(i => `
+                <tr style="border-bottom:1px solid #f0f0f0;">
+                    <td style="padding:9px 10px;font-weight:600;">${esc(i.name)}</td>
+                    <td style="padding:9px 10px;text-align:center;">×${i.qty}</td>
+                    <td style="padding:9px 10px;text-align:right;font-family:monospace;">RM ${(i.qty * i.unit_price).toFixed(2)}</td>
+                </tr>`).join('')}
+            </tbody>
+        </table>`;
+    }
+
+    document.getElementById('orderModalBody').innerHTML = `
+        ${row('Order ID', `<span style="font-family:monospace;">${esc(d.id)}</span>`)}
+        ${row('Date', esc(d.date))}
+        ${row('Order Status', esc(d.status))}
+        ${itemsHtml}
+        <div style="display:flex;justify-content:space-between;padding:14px 0 0;margin-top:8px;border-top:2px solid var(--primary);">
+            <span style="font-size:15px;font-weight:700;">Estimated Total</span>
+            <span style="font-size:20px;font-weight:800;color:var(--primary);">
+                ${d.total !== null ? 'RM ' + parseFloat(d.total).toFixed(2) : '—'}
+            </span>
+        </div>
+        <div style="margin-top:14px;text-align:center;">
+            <a href="c_orderstatus.php" style="display:inline-flex;align-items:center;gap:8px;padding:9px 20px;
+                   background:rgba(168,53,53,0.08);color:var(--primary);border:1.5px solid rgba(168,53,53,0.3);
+                   border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;">
+                <i class="fas fa-list"></i> View all orders
+            </a>
+        </div>
+    `;
+}
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeOrderModal();
+});
 
 // Enter key in advisor textarea
 document.getElementById('advisorInput').addEventListener('keydown', e => {

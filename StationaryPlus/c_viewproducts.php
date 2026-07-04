@@ -11,35 +11,9 @@ require_once 'db.php';
 
 $userId = $_SESSION['user_id'];  // FIX: was missing — needed for "remember branch"
 
-// ── Branch context ────────────────────────────────────────────
-$branchList = $conn->query(
-    "SELECT branch_id, branch_name FROM branches WHERE status = 'ACTIVE' ORDER BY branch_name"
-)->fetch_all(MYSQLI_ASSOC);
+// ── Branch context — session-only "Browsing Branch" (see branch_browse.php) ──
+require_once 'branch_browse.php';
 
-// Handle branch switch — session only, never touches preferred_branch_id
-// Preferred branch is managed exclusively from the dashboard.
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['switch_branch'])) {
-    $newBranch = trim($_POST['branch_id'] ?? '');
-
-    $chk = $conn->prepare("SELECT branch_id FROM branches WHERE branch_id = ? AND status = 'ACTIVE' LIMIT 1");
-    $chk->bind_param('s', $newBranch);
-    $chk->execute(); $chk->store_result();
-    if ($chk->num_rows > 0) {
-        $_SESSION['branch_id'] = $newBranch;
-    }
-    $chk->close();
-    header('Location: c_viewproducts.php'); exit;
-}
-
-$activeBranchId = $_SESSION['branch_id'] ?? null;
-$currentBranch  = null;
-if ($activeBranchId) {
-    $stmt = $conn->prepare("SELECT branch_name FROM branches WHERE branch_id = ? LIMIT 1");
-    $stmt->bind_param('s', $activeBranchId);
-    $stmt->execute();
-    $currentBranch = $stmt->get_result()->fetch_assoc()['branch_name'] ?? null;
-    $stmt->close();
-}
 // Cart item count for header badge
 if (session_status() === PHP_SESSION_NONE) session_start();
 $cartCount = array_sum($_SESSION['cart'] ?? []);
@@ -418,6 +392,21 @@ function pageUrl(int $p): string {
             background-color: #d1d5db; color: #9ca3af; cursor: not-allowed;
             pointer-events: none;
         }
+        .qty-stepper { display: flex; align-items: center; flex-shrink: 0; }
+        .qty-stepper button {
+            width: 30px; height: 42px; border: 1.5px solid var(--border);
+            background: var(--white); color: var(--text-primary); font-size: 15px;
+            font-weight: 600; cursor: pointer; transition: all 0.15s ease;
+        }
+        .qty-stepper button:hover { background: var(--accent); border-color: var(--primary); color: var(--primary); }
+        .qty-stepper button.dec { border-radius: 8px 0 0 8px; border-right: none; }
+        .qty-stepper button.inc { border-radius: 0 8px 8px 0; border-left: none; }
+        .qty-stepper input {
+            width: 34px; height: 42px; text-align: center; border: 1.5px solid var(--border);
+            border-left: none; border-right: none; font-size: 13px; font-weight: 600;
+            background: var(--white); color: var(--text-primary);
+        }
+        .qty-stepper input:focus { outline: none; }
 
         /* Empty state */
         .empty-state {
@@ -499,35 +488,14 @@ function pageUrl(int $p): string {
                 autocomplete="off"
             >
         </form>
-        <!-- Branch context bar -->
-    <form method="POST" action="c_viewproducts.php" style="display:flex;align-items:center;gap:10px;">
-        <input type="hidden" name="switch_branch" value="1">
-        <label style="font-size:13px;color:var(--text-secondary);font-weight:600;white-space:nowrap;">
-            <i class="fas fa-store" style="color:var(--primary);margin-right:4px;"></i> Branch:
-        </label>
-        <select name="branch_id" onchange="this.form.submit()"
-                style="padding:8px 28px 8px 12px;border:1.5px solid var(--border);border-radius:20px;
-                       font-size:13px;font-weight:600;color:var(--primary);
-                       background:rgba(168,53,53,0.06);cursor:pointer;outline:none;
-                       appearance:none;
-                       background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23A83535' d='M6 8L1 3h10z'/%3E%3C/svg%3E\");
-                       background-repeat:no-repeat;background-position:right 10px center;">
-            <!-- Placeholder shown when no branch is selected -->
-            <option value="" <?= !$activeBranchId ? 'selected' : '' ?>>
-                <?= $activeBranchId ? '' : '— Select your branch —' ?>
-            </option>
-            <?php foreach ($branchList as $b): ?>
-                <option value="<?= htmlspecialchars($b['branch_id']) ?>"
-                    <?= $activeBranchId === $b['branch_id'] ? 'selected' : '' ?>>
-                    <?= htmlspecialchars($b['branch_name']) ?>
-                </option>
-            <?php endforeach; ?>
-        </select>
-        <p style="font-size:11px;color:var(--text-secondary);margin-top:5px;white-space:nowrap;">
-            Browsing only —
-            <a href="c_dashboard.php" style="color:var(--primary);font-weight:600;">set preferred branch</a>
-        </p>
-    </form>
+        <!-- Browsing Branch context bar (session-only view filter; see branch_browse.php) -->
+        <div style="display:flex;flex-direction:column;gap:3px;">
+            <?php render_browsing_branch_bar(); ?>
+            <p style="font-size:11px;color:var(--text-secondary);white-space:nowrap;">
+                Temporary for this session —
+                <a href="c_dashboard.php" style="color:var(--primary);font-weight:600;">set your preferred branch</a>
+            </p>
+        </div>
 
     <!-- Cart link -->
         <a href="c_preorder.php" style="position:relative;display:flex;align-items:center;padding:9px 16px;background:rgba(168,53,53,0.08);border-radius:8px;color:var(--primary);text-decoration:none;font-weight:600;font-size:14px;gap:8px;white-space:nowrap;">
@@ -619,9 +587,9 @@ function pageUrl(int $p): string {
                 if ($stock <= 0) {
                     $stockClass = 'stock-out'; $stockLabel = 'Out of Stock';
                 } elseif ($stock <= 5) {
-                    $stockClass = 'stock-low'; $stockLabel = 'Low Stock';
+                    $stockClass = 'stock-low'; $stockLabel = "Low Stock ($stock)";
                 } else {
-                    $stockClass = 'stock-in'; $stockLabel = 'In Stock';
+                    $stockClass = 'stock-in'; $stockLabel = "In Stock ($stock)";
                 }
                 $icon = categoryIcon($p['category'] ?? '');
             ?>
@@ -642,14 +610,22 @@ function pageUrl(int $p): string {
                     <div class="product-actions">
                         <?php
                         // Adds directly to session cart, then redirects back to products
-                        $addUrl = 'c_preorder.php?action=add&product_id=' . urlencode($p['product_id']) . '&redirect=products';
+                        $pid = htmlspecialchars($p['product_id'], ENT_QUOTES);
                         ?>
-                        <a href="<?= $addUrl ?>"
-                           class="preorder-btn <?= $stock <= 0 ? 'disabled' : '' ?>"
-                           <?= $stock <= 0 ? 'aria-disabled="true"' : '' ?>>
-                            <i class="fas fa-cart-plus"></i>
-                            <?= $stock <= 0 ? 'Unavailable' : 'Pre-order' ?>
+                        <?php if ($stock > 0): ?>
+                        <div class="qty-stepper">
+                            <button type="button" class="dec" onclick="stepQty('<?= $pid ?>', -1)">−</button>
+                            <input type="number" id="qty_<?= $pid ?>" value="1" min="1" max="<?= $stock ?>" readonly>
+                            <button type="button" class="inc" onclick="stepQty('<?= $pid ?>', 1, <?= $stock ?>)">+</button>
+                        </div>
+                        <a href="#" onclick="addToCart('<?= $pid ?>'); return false;" class="preorder-btn">
+                            <i class="fas fa-cart-plus"></i> Pre-order
                         </a>
+                        <?php else: ?>
+                        <a href="#" class="preorder-btn disabled" aria-disabled="true">
+                            <i class="fas fa-cart-plus"></i> Unavailable
+                        </a>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -694,6 +670,22 @@ function pageUrl(int $p): string {
     </footer>
 
 </main>
+
+<script>
+function stepQty(pid, delta, max) {
+    const input = document.getElementById('qty_' + pid);
+    const cap   = max || parseInt(input.max, 10) || 99;
+    let val     = (parseInt(input.value, 10) || 1) + delta;
+    val = Math.max(1, Math.min(cap, val));
+    input.value = val;
+}
+function addToCart(pid) {
+    const input = document.getElementById('qty_' + pid);
+    const qty   = input ? (parseInt(input.value, 10) || 1) : 1;
+    window.location.href = 'c_preorder.php?action=add&product_id=' + encodeURIComponent(pid)
+        + '&qty=' + qty + '&redirect=products';
+}
+</script>
 
 </body>
 </html>

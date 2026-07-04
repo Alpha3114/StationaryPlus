@@ -8,6 +8,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'auth.php';
 require_role('CUSTOMER');
 require_once 'db.php';
+require_once 'branch_browse.php';
 
 $userId = $_SESSION['user_id'];
 
@@ -27,6 +28,8 @@ $action    = $_GET['action']     ?? '';
 $productId = trim($_GET['product_id'] ?? '');
 
 if ($action === 'add' && $productId !== '') {
+    $addQty = max(1, min(99, (int)($_GET['qty'] ?? 1)));
+
     $stmt = $conn->prepare(
         "SELECT product_id FROM products WHERE product_id = ? AND product_status = 'ACTIVE' LIMIT 1"
     );
@@ -34,7 +37,7 @@ if ($action === 'add' && $productId !== '') {
     $stmt->execute();
     $stmt->store_result();
     if ($stmt->num_rows > 0) {
-        $_SESSION['cart'][$productId] = ($_SESSION['cart'][$productId] ?? 0) + 1;
+        $_SESSION['cart'][$productId] = ($_SESSION['cart'][$productId] ?? 0) + $addQty;
         if (($_GET['redirect'] ?? '') === 'products') {
             header('Location: c_viewproducts.php?added=1'); exit;
         }
@@ -231,10 +234,33 @@ if (!empty($_SESSION['cart'])) {
     $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
 
+    $cartBranchId = $_SESSION['branch_id'] ?? null;
+
     foreach ($rows as $row) {
         $qty             = $_SESSION['cart'][$row['product_id']] ?? 1;
         $row['qty']      = $qty;
         $row['subtotal'] = $row['price'] * $qty;
+
+        // Available stock, used only to cap the qty input in the UI —
+        // the authoritative check still happens server-side at submit time.
+        if ($cartBranchId) {
+            $sStmt = $conn->prepare(
+                "SELECT GREATEST(0, stock_quantity - reserved_quantity) AS avail
+                 FROM inventory WHERE product_id = ? AND branch_id = ? LIMIT 1"
+            );
+            $sStmt->bind_param('ss', $row['product_id'], $cartBranchId);
+        } else {
+            $sStmt = $conn->prepare(
+                "SELECT GREATEST(0, stock_quantity - reserved_quantity) AS avail
+                 FROM inventory WHERE product_id = ?
+                 ORDER BY (stock_quantity - reserved_quantity) DESC LIMIT 1"
+            );
+            $sStmt->bind_param('s', $row['product_id']);
+        }
+        $sStmt->execute();
+        $row['available_stock'] = (int)($sStmt->get_result()->fetch_assoc()['avail'] ?? 0);
+        $sStmt->close();
+
         $cartItems[]     = $row;
         $orderTotal     += $row['subtotal'];
     }
@@ -272,7 +298,7 @@ if (!empty($_SESSION['cart'])) {
         .logout-link{display:flex;align-items:center;gap:10px;padding:10px 14px;background-color:rgba(168,53,53,0.06);color:var(--primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;transition:background-color 0.2s ease;}
         .logout-link:hover{background-color:rgba(168,53,53,0.14);}
         .main-content{flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column;}
-        .top-header{background-color:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;}
+        .top-header{background-color:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;}
         .page-title{font-size:24px;font-weight:700;color:var(--text-primary);}
         .page-subtitle{font-size:14px;color:var(--text-secondary);margin-top:4px;}
         .alert{margin:20px 30px 0;padding:14px 18px;border-radius:8px;font-size:14px;display:flex;align-items:center;gap:10px;}
@@ -362,6 +388,7 @@ if (!empty($_SESSION['cart'])) {
             <h1 class="page-title">Pre-order</h1>
             <p class="page-subtitle">Add items to your cart and submit a pre-order</p>
         </div>
+        <?php render_browsing_branch_bar(); ?>
     </header>
 
     <?php if ($message): ?>
@@ -420,10 +447,11 @@ if (!empty($_SESSION['cart'])) {
                 </div>
                 <div class="item-price">RM <?= number_format($item['price'], 2) ?></div>
                 <div class="qty-wrap">
+                    <?php $qtyCap = max(1, min(99, (int)$item['available_stock'])); ?>
                     <button type="button" class="qty-btn dec" data-pid="<?= htmlspecialchars($item['product_id']) ?>">−</button>
                     <input type="number" class="qty-input"
                            id="qty_<?= htmlspecialchars($item['product_id']) ?>"
-                           value="<?= $item['qty'] ?>" min="1" max="99"
+                           value="<?= min($item['qty'], $qtyCap) ?>" min="1" max="<?= $qtyCap ?>"
                            data-price="<?= $item['price'] ?>"
                            data-pid="<?= htmlspecialchars($item['product_id']) ?>"
                            oninput="updateTotals()">
@@ -611,9 +639,10 @@ document.querySelectorAll('.qty-btn').forEach(btn => {
     btn.addEventListener('click', function () {
         const pid   = this.dataset.pid;
         const input = document.getElementById('qty_' + pid);
+        const cap   = parseInt(input.max, 10) || 99;
         let val     = parseInt(input.value) || 1;
-        if (this.classList.contains('inc') && val < 99) val++;
-        if (this.classList.contains('dec') && val > 1)  val--;
+        if (this.classList.contains('inc') && val < cap) val++;
+        if (this.classList.contains('dec') && val > 1)   val--;
         input.value = val;
         syncHidden(pid, val);
         updateTotals();
@@ -630,7 +659,9 @@ function updateTotals() {
     document.querySelectorAll('.qty-input[data-price]').forEach(input => {
         const pid      = input.dataset.pid;
         const price    = parseFloat(input.dataset.price);
-        const qty      = Math.max(1, parseInt(input.value) || 1);
+        const cap      = parseInt(input.max, 10) || 99;
+        const qty      = Math.max(1, Math.min(cap, parseInt(input.value) || 1));
+        input.value    = qty;
         const subtotal = price * qty;
         grandTotal    += subtotal;
 

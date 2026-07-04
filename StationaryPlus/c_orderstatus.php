@@ -7,6 +7,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'auth.php';
 require_role('CUSTOMER');
 require_once 'db.php';
+require_once 'branch_browse.php';
 
 $userId = $_SESSION['user_id'];
 
@@ -214,7 +215,7 @@ function paymentBadge(?string $status): string {
         .logout-link { display:flex;align-items:center;gap:10px;padding:10px 14px;background-color:rgba(168,53,53,0.06);color:var(--primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600; }
         .logout-link:hover { background-color:rgba(168,53,53,0.14); }
         .main-content { flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column; }
-        .top-header { background-color:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10; }
+        .top-header { background-color:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap; }
         .page-title { font-size:24px;font-weight:700; }
         .page-subtitle { font-size:14px;color:var(--text-secondary);margin-top:4px; }
         .content-container { padding:30px;flex-grow:1;display:flex;flex-direction:column;gap:24px; }
@@ -279,8 +280,11 @@ function paymentBadge(?string $status): string {
 
 <main class="main-content">
     <header class="top-header">
-        <h1 class="page-title">Order Status</h1>
-        <p class="page-subtitle">Track your pre-orders and orders in real time</p>
+        <div>
+            <h1 class="page-title">Order Status</h1>
+            <p class="page-subtitle">Track your pre-orders and orders in real time</p>
+        </div>
+        <?php render_browsing_branch_bar(); ?>
     </header>
 
     <div class="content-container">

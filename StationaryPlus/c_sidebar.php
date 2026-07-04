@@ -23,10 +23,10 @@ $userInitial = strtoupper(mb_substr($userName, 0, 1));
 <nav class="sidebar">
 
     <!-- Logo -->
-    <div class="logo-area">
+    <a href="c_dashboard.php" class="logo-area" style="text-decoration:none;">
         <div class="logo-icon"><i class="fas fa-pen-nib"></i></div>
         <div class="logo-text">StationaryPlus</div>
-    </div>
+    </a>
 
     <!-- Main Menu -->
     <div class="nav-section">

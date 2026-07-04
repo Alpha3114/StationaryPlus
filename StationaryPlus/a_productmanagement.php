@@ -490,8 +490,11 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
         .filter-bar form { display:flex; gap:8px; flex-wrap:wrap; align-items:center; flex:1; }
         .search-wrap { position:relative; flex:1; min-width:160px; }
         .search-icon { position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--light-text); font-size:13px; }
-        .search-input { width:100%; padding:8px 10px 8px 32px; border:1.5px solid var(--border); border-radius:7px; font-size:13px; background:var(--white); }
+        .search-input { width:100%; padding:8px 28px 8px 32px; border:1.5px solid var(--border); border-radius:7px; font-size:13px; background:var(--white); }
         .search-input:focus { outline:none; border-color:var(--primary); }
+        .search-clear { display:none; position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--light-text); cursor:pointer; font-size:13px; padding:2px 4px; }
+        .search-clear:hover { color:var(--primary); }
+        .search-clear.show { display:block; }
         .filter-select { padding:8px 12px; border:1.5px solid var(--border); border-radius:7px; font-size:13px; background:var(--white); cursor:pointer; }
         .filter-select:focus { outline:none; border-color:var(--primary); }
         .filter-btn { padding:8px 16px; background:var(--primary); color:white; border:none; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer; }
@@ -934,16 +937,6 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
             background-color: rgba(168, 53, 53, 0.2);
         }
         
-        .add-new-btn {
-            background-color: rgba(244, 162, 97, 0.15);
-            color: var(--secondary);
-            border: 1.5px solid rgba(244, 162, 97, 0.3);
-        }
-        
-        .add-new-btn:hover {
-            background-color: rgba(244, 162, 97, 0.25);
-        }
-        
         /* Table column widths for product table */
         .product-table th:nth-child(1), .product-table td:nth-child(1) {
             width: 12%;
@@ -1119,9 +1112,15 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
                         <input type="hidden" name="tab" value="catalog">
                         <div class="search-wrap">
                             <i class="fas fa-search search-icon"></i>
-                            <input type="text" name="psearch" class="search-input"
+                            <input type="text" name="psearch" id="productSearchInput" class="search-input"
                                    placeholder="Search name or ID…"
-                                   value="<?= htmlspecialchars($search) ?>">
+                                   value="<?= htmlspecialchars($search) ?>"
+                                   oninput="document.getElementById('productSearchClear').classList.toggle('show', this.value.length > 0)">
+                            <button type="button" id="productSearchClear" class="search-clear <?= $search !== '' ? 'show' : '' ?>"
+                                    title="Clear search"
+                                    onclick="document.getElementById('productSearchInput').value='';this.classList.remove('show');this.form.submit();">
+                                <i class="fas fa-times"></i>
+                            </button>
                         </div>
                         <select name="category" class="filter-select">
                             <option value="all" <?= $filterCategory==='all' ? 'selected':'' ?>>All Categories</option>

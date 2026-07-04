@@ -73,10 +73,10 @@ if (isset($conn)) {
 
 <nav class="sidebar">
 
-    <div class="logo-area">
+    <a href="s_dashboard.php" class="logo-area" style="text-decoration:none;">
         <div class="logo-icon"><i class="fas fa-pen-nib"></i></div>
         <div class="logo-text">StationaryPlus</div>
-    </div>
+    </a>
 
     <div class="nav-section">
         <div class="nav-title">Staff Menu</div>

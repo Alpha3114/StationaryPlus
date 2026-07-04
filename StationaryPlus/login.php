@@ -406,10 +406,10 @@ $doneMode = $_GET['mode'] ?? '';
             </div>
         </div>
 
-        <div class="role-badges">
-            <div class="badge"><i class="fas fa-user-shield"></i> Admin</div>
-            <div class="badge"><i class="fas fa-user-tie"></i> Staff</div>
-            <div class="badge"><i class="fas fa-user"></i> Customer</div>
+        <div class="role-badges" title="StationaryPlus supports all three account types — sign in below with whichever account you have; you don't pick a role here.">
+            <div class="badge" title="For branch/company administrators"><i class="fas fa-user-shield"></i> Admin</div>
+            <div class="badge" title="For branch staff"><i class="fas fa-user-tie"></i> Staff</div>
+            <div class="badge" title="For registered customers"><i class="fas fa-user"></i> Customer</div>
         </div>
     </div>
 

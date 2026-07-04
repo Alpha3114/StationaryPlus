@@ -8,6 +8,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'auth.php';
 require_role('CUSTOMER');
 require_once 'db.php';
+require_once 'branch_browse.php';
 
 $userId = $_SESSION['user_id'];
 
@@ -105,7 +106,7 @@ function statusBadge(string $s): string {
 
         /* ── Main ── */
         .main-content{flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column;}
-        .top-header{background-color:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;}
+        .top-header{background-color:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;}
         .page-title{font-size:24px;font-weight:700;}
         .page-subtitle{font-size:14px;color:var(--text-secondary);margin-top:4px;}
         .content-wrap{padding:24px 30px;flex-grow:1;}
@@ -180,8 +181,9 @@ function statusBadge(string $s): string {
         .result-panel.show{display:block;}
 
         .page-map{display:flex;flex-wrap:wrap;gap:5px;margin:12px 0;}
-        .page-dot{width:32px;height:32px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;cursor:default;transition:transform 0.1s;}
+        .page-dot{width:32px;height:32px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;cursor:pointer;transition:transform 0.1s;border:none;}
         .page-dot:hover{transform:scale(1.15);}
+        .page-map-hint{font-size:11px;color:var(--text-secondary);margin-top:2px;}
         .page-dot.colour{background:#fdf2f2;color:#A83535;border:1px solid #fca5a5;}
         .page-dot.bw{background:#f3f4f6;color:#6b7280;border:1px solid #E0E0E0;}
 
@@ -250,8 +252,11 @@ function statusBadge(string $s): string {
 
 <main class="main-content">
     <header class="top-header">
-        <h1 class="page-title">Upload Files for Printing</h1>
-        <p class="page-subtitle">Choose your print mode — AI analysis only runs when you need it</p>
+        <div>
+            <h1 class="page-title">Upload Files for Printing</h1>
+            <p class="page-subtitle">Choose your print mode — AI analysis only runs when you need it</p>
+        </div>
+        <?php render_browsing_branch_bar(); ?>
     </header>
 
     <div class="content-wrap">
@@ -457,6 +462,7 @@ function statusBadge(string $s): string {
                             Page Breakdown
                         </div>
                         <div class="page-map" id="pageMap"></div>
+                        <div class="page-map-hint"><i class="fas fa-hand-pointer"></i> Click a page to switch it between colour and B&amp;W</div>
                         <div class="summary-bar" id="summaryBar"></div>
 
                         <table class="price-table" id="priceTable"></table>
@@ -506,13 +512,11 @@ function statusBadge(string $s): string {
                 <div class="card-title"><i class="fas fa-history"></i> Your Upload History</div>
             </div>
             <div style="overflow-x:auto;">
-                <?php if (empty($recentUploads)): ?>
-                    <div class="empty-hist">
-                        <i class="fas fa-file-upload"></i>
-                        <p>No files uploaded yet.</p>
-                    </div>
-                <?php else: ?>
-                <table class="hist-table">
+                <div class="empty-hist" id="emptyHistState" style="<?= empty($recentUploads) ? '' : 'display:none;' ?>">
+                    <i class="fas fa-file-upload"></i>
+                    <p>No files uploaded yet.</p>
+                </div>
+                <table class="hist-table" id="uploadHistTable" style="<?= empty($recentUploads) ? 'display:none;' : '' ?>">
                     <thead>
                         <tr>
                             <th>File ID</th>
@@ -525,7 +529,7 @@ function statusBadge(string $s): string {
                             <th>Status</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="uploadHistBody">
                         <?php foreach ($recentUploads as $u): ?>
                         <tr>
                             <td><span class="file-id"><?= htmlspecialchars($u['file_id']) ?></span></td>
@@ -566,7 +570,6 @@ function statusBadge(string $s): string {
                         <?php endforeach; ?>
                     </tbody>
                 </table>
-                <?php endif; ?>
             </div>
         </div>
 
@@ -723,7 +726,10 @@ analyseBtn.addEventListener('click', async () => {
 });
 
 // ── Render result ─────────────────────────────────────────────
+let lastAnalysis = null;
+
 function renderResult(d, mode) {
+    lastAnalysis = d;
     const b = d.breakdown;
 
     document.getElementById('resultFilename').textContent = d.filename;
@@ -732,16 +738,17 @@ function renderResult(d, mode) {
     document.getElementById('parseWarn').style.display =
         (mode === 'MIXED' && !d.ai_parse_ok) ? 'flex' : 'none';
 
-    // Page colour map
+    // Page colour map — click a dot to manually override that page's colour mode
     const map = document.getElementById('pageMap');
     map.innerHTML = '';
     if (d.page_details && d.page_details.length > 0) {
         d.page_details.forEach(p => {
-            const dot = document.createElement('span');
+            const dot = document.createElement('button');
+            dot.type        = 'button';
             dot.className   = 'page-dot ' + (p.is_color ? 'colour' : 'bw');
             dot.textContent = p.page;
-            dot.title       = `Page ${p.page}: ${p.is_color ? 'Colour' : 'Black & White'}` +
-                              (p.confidence !== 'customer_selected' ? ` (${p.confidence} confidence)` : ' (your selection)');
+            dot.title       = `Page ${p.page}: ${p.is_color ? 'Colour' : 'Black & White'} — click to toggle`;
+            dot.addEventListener('click', () => togglePageColor(p.page));
             map.appendChild(dot);
         });
     } else {
@@ -791,7 +798,8 @@ function renderResult(d, mode) {
         Paper: ${b.paper_size} · ${document.getElementById('paperType').value}<br>
         Binding: ${b.binding}<br>
         Copies: ${b.copies}<br>
-        Mode: ${{'BW':'Black & White','COLOR':'Full Colour','MIXED':'Mixed (AI detected)'}[mode] ?? mode}`;
+        Mode: ${{'BW':'Black & White','COLOR':'Full Colour','MIXED':'Mixed (AI detected)'}[mode] ?? mode}<br>
+        Branch: <?= $currentBranch ? htmlspecialchars($currentBranch) : 'All branches (no branch selected)' ?>`;
 
     // Show panel, wire confirm button
     document.getElementById('resultPanel').classList.add('show');
@@ -802,14 +810,35 @@ function renderResult(d, mode) {
     document.getElementById('confirmBtn').disabled = false;
 }
 
-// ── Confirm button ────────────────────────────────────────────
-let sessionUploads = [];
+// ── Manual per-page colour override ────────────────────────────
+async function togglePageColor(pageNum) {
+    if (!lastAnalysis || !lastAnalysis.page_details) return;
 
+    const pages = lastAnalysis.page_details.map(p =>
+        p.page === pageNum ? { page: p.page, is_color: !p.is_color } : { page: p.page, is_color: p.is_color }
+    );
+
+    const form = new FormData();
+    form.append('file_id', lastAnalysis.file_id);
+    form.append('pages', JSON.stringify(pages));
+
+    try {
+        const res  = await fetch('update_page_colors.php', { method: 'POST', body: form });
+        const data = await res.json();
+        if (!data.success) {
+            showAlert(data.error || 'Could not update that page. Please try again.');
+            return;
+        }
+        renderResult(data, getSelectedMode());
+    } catch (err) {
+        showAlert('Network error while updating the page. Please try again.');
+    }
+}
+
+// ── Confirm button ────────────────────────────────────────────
 document.getElementById('confirmBtn').addEventListener('click', async function () {
-    const btn         = this;
-    const fileId      = btn.dataset.fileId;
-    const currentName = document.getElementById('resultFilename').textContent;
-    const currentPrice= document.getElementById('priceTotal').textContent;
+    const btn    = this;
+    const fileId = btn.dataset.fileId;
 
     btn.disabled  = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting…';
@@ -828,14 +857,15 @@ document.getElementById('confirmBtn').addEventListener('click', async function (
             return;
         }
 
-        // Record this upload in the session list for display
-        sessionUploads.push({ fileId, name: currentName, price: currentPrice });
-        renderSessionUploads();
+        // Prepend the newly submitted file into the real upload history
+        // table, so it's visible immediately without a page reload.
+        prependHistoryRow(lastAnalysis);
 
-        // Reset UI for next upload
+        // Reset UI for next upload, then scroll back to the top so the
+        // customer sees the confirmation + updated history.
         clearFile();
         document.getElementById('resultPanel').classList.remove('show');
-        document.getElementById('dropZone').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
 
     } catch (err) {
         showAlert('Network error. Please try again.');
@@ -848,51 +878,39 @@ document.getElementById('confirmBtn').addEventListener('click', async function (
     btn.disabled  = false;
 });
 
-function renderSessionUploads() {
-    let box = document.getElementById('sessionUploadBox');
-    if (!box) {
-        box = document.createElement('div');
-        box.id = 'sessionUploadBox';
-        box.style.cssText = 'margin-top:0;padding:16px 20px;background:#f0fdf4;border:1px solid #a7f3d0;border-radius:10px;';
-        document.querySelector('.content-wrap').insertBefore(
-            box,
-            document.querySelector('.card:last-child')
-        );
-    }
+// ── Prepend a row into the real Upload History table ──────────
+function prependHistoryRow(d) {
+    if (!d) return;
+    const b = d.breakdown;
 
-    const rows = sessionUploads.map(u => `
-        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #d1fae5;font-size:13px;">
-            <i class="fas fa-check-circle" style="color:#10b981;flex-shrink:0;"></i>
-            <span style="flex-grow:1;font-weight:600;color:#065f46;">${u.name}</span>
-            <span style="color:#065f46;font-family:monospace;">${u.price}</span>
-            <span style="font-family:monospace;font-size:11px;color:#6b7280;">${u.fileId}</span>
-        </div>`).join('');
+    const today = new Date();
+    const dateStr = today.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, ' ');
 
-    const linkedOrder  = document.getElementById('preorderSelect').value;
-    const orderLabel   = linkedOrder
-        ? `Linked to order <strong>${linkedOrder}</strong>`
-        : 'No linked order (standalone print job)';
+    let colourCell = '';
+    if (d.color_pages > 0) colourCell += `<span style="color:#A83535;font-weight:600;">${d.color_pages} C</span>`;
+    if (d.bw_pages    > 0) colourCell += `<span style="color:#6b7280;"> / ${d.bw_pages} B&W</span>`;
 
-    box.innerHTML = `
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-            <i class="fas fa-layer-group" style="color:#10b981;font-size:18px;"></i>
-            <div>
-                <div style="font-size:14px;font-weight:700;color:#065f46;">
-                    ${sessionUploads.length} file${sessionUploads.length > 1 ? 's' : ''} submitted this session
-                </div>
-                <div style="font-size:12px;color:#6b7280;">${orderLabel}</div>
-            </div>
-            <a href="c_orderstatus.php" style="margin-left:auto;padding:7px 14px;
-               background:#10b981;color:white;border-radius:7px;text-decoration:none;
-               font-size:13px;font-weight:600;">
-                <i class="fas fa-eye"></i> View order status
-            </a>
-        </div>
-        ${rows}
-        <div style="font-size:12px;color:#6b7280;margin-top:10px;">
-            <i class="fas fa-info-circle"></i>
-            You can upload more files above. Staff will review all files before printing.
-        </div>`;
+    const row = document.createElement('tr');
+    row.innerHTML = `
+        <td><span class="file-id">${esc(d.file_id)}</span></td>
+        <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(d.filename)}</td>
+        <td>${d.total_pages}</td>
+        <td>${colourCell}</td>
+        <td style="font-size:12px;color:var(--text-secondary);">
+            ${esc(b.paper_size)} · ${b.copies} cop${b.copies > 1 ? 'ies' : 'y'}${b.binding && b.binding !== 'None' ? ' · ' + esc(b.binding) : ''}
+        </td>
+        <td style="font-weight:600;color:var(--primary);">RM ${d.price.toFixed(2)}</td>
+        <td style="font-size:12px;color:var(--text-secondary);">${dateStr}</td>
+        <td><span style="background:#eff6ff;color:#3b82f6;border:1px solid #3b82f655;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;white-space:nowrap;">Under Review</span></td>
+    `;
+
+    document.getElementById('uploadHistBody').prepend(row);
+    document.getElementById('uploadHistTable').style.display = '';
+    document.getElementById('emptyHistState').style.display  = 'none';
+}
+
+function esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>
 </body>
