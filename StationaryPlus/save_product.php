@@ -42,6 +42,40 @@ function generateProductId(mysqli $conn): string {
 }
 
 /**
+ * Validates and saves an optional uploaded product image, following the
+ * same pattern as c_payment.php's proof-of-payment upload. Returns the new
+ * relative path, or null if no file was submitted (not an error — the
+ * caller then leaves the existing image_path untouched on update). Throws
+ * on an invalid file so the caller can report it as a save failure.
+ */
+function handleProductImageUpload(): ?string {
+    if (empty($_FILES['product_image']) || $_FILES['product_image']['error'] === UPLOAD_ERR_NO_FILE) {
+        return null;
+    }
+    if ($_FILES['product_image']['error'] !== UPLOAD_ERR_OK) {
+        throw new Exception('Image upload failed. Please try again.');
+    }
+
+    $allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    $mime    = mime_content_type($_FILES['product_image']['tmp_name']);
+    $size    = $_FILES['product_image']['size'];
+
+    if (!in_array($mime, $allowed)) {
+        throw new Exception('Product image must be JPG, PNG, or WEBP.');
+    }
+    if ($size > 5 * 1024 * 1024) {
+        throw new Exception('Product image must be under 5MB.');
+    }
+
+    $uploadDir = 'uploads/products/';
+    if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
+    $ext      = pathinfo($_FILES['product_image']['name'], PATHINFO_EXTENSION);
+    $filename = 'prod_' . uniqid() . '.' . $ext;
+    move_uploaded_file($_FILES['product_image']['tmp_name'], $uploadDir . $filename);
+    return $uploadDir . $filename;
+}
+
+/**
  * Provisions a zero-stock inventory row for a brand-new product at every
  * currently-ACTIVE branch, so it's immediately visible to branch-scoped
  * queries (POS lookup, customer catalog, collaborative filtering) system-
@@ -66,6 +100,8 @@ function provisionInventoryAtActiveBranches(mysqli $conn, string $productId): vo
 }
 
 try {
+    $imagePath = handleProductImageUpload(); // null = no new file chosen, leave existing image untouched on update
+
     if ($product_id !== '') {
         $check = $conn->prepare("SELECT 1 FROM products WHERE product_id = ?");
         $check->bind_param('s', $product_id);
@@ -74,8 +110,14 @@ try {
 
         if ($check->num_rows > 0) {
             $check->close();
-            $stmt = $conn->prepare("UPDATE products SET product_name = ?, category = ?, price = ?, product_status = ?, last_updated = ? WHERE product_id = ?");
-            $stmt->bind_param('ssdsss', $product_name, $category, $price, $product_status, $now, $product_id);
+
+            if ($imagePath !== null) {
+                $stmt = $conn->prepare("UPDATE products SET product_name = ?, category = ?, price = ?, product_status = ?, last_updated = ?, image_path = ? WHERE product_id = ?");
+                $stmt->bind_param('ssdssss', $product_name, $category, $price, $product_status, $now, $imagePath, $product_id);
+            } else {
+                $stmt = $conn->prepare("UPDATE products SET product_name = ?, category = ?, price = ?, product_status = ?, last_updated = ? WHERE product_id = ?");
+                $stmt->bind_param('ssdsss', $product_name, $category, $price, $product_status, $now, $product_id);
+            }
             $stmt->execute();
             $stmt->close();
 
@@ -83,8 +125,8 @@ try {
             exit;
         } else {
             $check->close();
-            $stmt = $conn->prepare("INSERT INTO products (product_id, product_name, category, price, product_status, last_updated) VALUES (?,?,?,?,?,?)");
-            $stmt->bind_param('sssdss', $product_id, $product_name, $category, $price, $product_status, $now);
+            $stmt = $conn->prepare("INSERT INTO products (product_id, product_name, category, price, product_status, last_updated, image_path) VALUES (?,?,?,?,?,?,?)");
+            $stmt->bind_param('sssdsss', $product_id, $product_name, $category, $price, $product_status, $now, $imagePath);
             $stmt->execute();
             $stmt->close();
 
@@ -98,8 +140,8 @@ try {
         // omitting product_id from the INSERT entirely — see function docblock)
         $product_id = generateProductId($conn);
 
-        $stmt = $conn->prepare("INSERT INTO products (product_id, product_name, category, price, product_status, last_updated) VALUES (?,?,?,?,?,?)");
-        $stmt->bind_param('sssdss', $product_id, $product_name, $category, $price, $product_status, $now);
+        $stmt = $conn->prepare("INSERT INTO products (product_id, product_name, category, price, product_status, last_updated, image_path) VALUES (?,?,?,?,?,?,?)");
+        $stmt->bind_param('sssdsss', $product_id, $product_name, $category, $price, $product_status, $now, $imagePath);
         $stmt->execute();
         $stmt->close();
 

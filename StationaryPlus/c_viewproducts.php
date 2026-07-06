@@ -87,7 +87,7 @@ $countStmt->close();
 // another pending pre-order.
 if ($activeBranchId) {
     $dataSQL = "
-        SELECT p.product_id, p.product_name, p.category, p.price,
+        SELECT p.product_id, p.product_name, p.category, p.price, p.image_path,
                GREATEST(0, COALESCE(i.stock_quantity, 0) - COALESCE(i.reserved_quantity, 0)) AS total_stock
         FROM products p
         LEFT JOIN inventory i ON p.product_id = i.product_id AND i.branch_id = ?
@@ -100,7 +100,7 @@ if ($activeBranchId) {
     $dataParams = array_merge([$activeBranchId], $params, [$perPage, $offset]);
 } else {
     $dataSQL = "
-        SELECT p.product_id, p.product_name, p.category, p.price,
+        SELECT p.product_id, p.product_name, p.category, p.price, p.image_path,
                GREATEST(0, COALESCE(SUM(i.stock_quantity), 0) - COALESCE(SUM(i.reserved_quantity), 0)) AS total_stock
         FROM products p
         LEFT JOIN inventory i ON p.product_id = i.product_id
@@ -595,7 +595,11 @@ function pageUrl(int $p): string {
             ?>
             <div class="product-card">
                 <div class="product-image">
-                    <div class="image-placeholder"><i class="fas <?= $icon ?>"></i></div>
+                    <?php if (!empty($p['image_path'])): ?>
+                        <img src="<?= htmlspecialchars($p['image_path']) ?>" alt="<?= htmlspecialchars($p['product_name']) ?>" style="width:100%;height:100%;object-fit:cover;">
+                    <?php else: ?>
+                        <div class="image-placeholder"><i class="fas <?= $icon ?>"></i></div>
+                    <?php endif; ?>
                     <?php if ($p['category']): ?>
                         <span class="category-badge"><?= htmlspecialchars($p['category']) ?></span>
                     <?php endif; ?>

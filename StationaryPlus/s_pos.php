@@ -122,6 +122,9 @@ if ($branchId) {
             flex-direction: column;
             border-right: 1px solid var(--border);
             overflow: hidden;
+            min-width: 0; /* grid items default to min-width:auto and won't shrink below
+                             their content's intrinsic width otherwise, which silently
+                             clips the panel instead of letting it fit the grid track */
         }
 
         /* Scanner bar */
@@ -225,6 +228,7 @@ if ($branchId) {
         .cart-area {
             flex: 1;
             overflow-y: auto;
+            overflow-x: auto;
             padding: 0;
         }
         .cart-empty {

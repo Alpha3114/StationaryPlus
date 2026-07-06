@@ -87,7 +87,7 @@ if ($filterStatus !== 'all') {
 
 $products = [];
 if ($conn) {
-    $sql  = "SELECT product_id, product_name, category, price, product_status, last_updated
+    $sql  = "SELECT product_id, product_name, category, price, product_status, last_updated, image_path
               FROM products WHERE " . implode(' AND ', $where) . " ORDER BY product_id";
     $stmt = $conn->prepare($sql);
     if ($types) $stmt->bind_param($types, ...$params);
@@ -1162,7 +1162,7 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
                                 </td></tr>
                             <?php else: ?>
                                 <?php foreach ($products as $p): ?>
-                                    <tr>
+                                    <tr data-image="<?php echo htmlspecialchars($p['image_path'] ?? ''); ?>">
                                         <td><?php echo htmlspecialchars($p['product_id']); ?></td>
                                         <td>
                                             <div class="product-info">
@@ -1218,13 +1218,25 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
                     </div>
                     
                     <div class="form-group">
+                        <label class="form-label">Product Image <span style="font-weight:400;color:var(--light-text);">(optional)</span></label>
+                        <div style="display:flex;align-items:center;gap:14px;">
+                            <div id="productImagePreviewWrap" style="width:64px;height:64px;border-radius:8px;background:var(--background);border:1.5px dashed var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;">
+                                <i class="fas fa-image" style="color:var(--light-text);font-size:20px;" id="productImagePlaceholderIcon"></i>
+                                <img id="productImagePreview" src="" alt="" style="display:none;width:100%;height:100%;object-fit:cover;">
+                            </div>
+                            <input type="file" id="productImageInput" accept="image/jpeg,image/png,image/webp" style="font-size:12px;">
+                        </div>
+                        <input type="hidden" id="productImageCurrent" value="">
+                    </div>
+
+                    <div class="form-group">
                         <label class="form-label">Price (RM)</label>
                         <div class="price-input-container">
                             <span class="price-prefix">RM</span>
                             <input type="text" class="form-input price-input" placeholder="0.00" >
                         </div>
                     </div>
-                    
+
                     <div class="form-group">
                         <label class="form-label">Status</label>
                         <div class="radio-group">
@@ -1585,7 +1597,36 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
                         radio.checked = true;
                     }
                 });
+
+                // Set image preview from the row's current image (if any)
+                document.getElementById('productImageInput').value = '';
+                document.getElementById('productImageCurrent').value = this.dataset.image || '';
+                showProductImagePreview(this.dataset.image || '');
             });
+        });
+
+        // Show/hide the image preview vs. placeholder icon
+        function showProductImagePreview(src) {
+            const img  = document.getElementById('productImagePreview');
+            const icon = document.getElementById('productImagePlaceholderIcon');
+            if (src) {
+                img.src = src;
+                img.style.display = 'block';
+                icon.style.display = 'none';
+            } else {
+                img.src = '';
+                img.style.display = 'none';
+                icon.style.display = 'block';
+            }
+        }
+
+        // Live preview when a new file is chosen
+        document.getElementById('productImageInput').addEventListener('change', function() {
+            const file = this.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => showProductImagePreview(e.target.result);
+            reader.readAsDataURL(file);
         });
         
         // Save product button (sends to save_product.php)
@@ -1602,6 +1643,9 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
             formData.append('category', category);
             formData.append('price', price);
             formData.append('product_status', status);
+
+            const imageFile = document.getElementById('productImageInput').files[0];
+            if (imageFile) formData.append('product_image', imageFile);
 
             try {
                 const res = await fetch('save_product.php', { method: 'POST', body: formData });
@@ -1627,7 +1671,10 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
             document.querySelector('.form-select').value = 'paper';
             document.querySelector('.price-input').value = '';
             document.querySelector('input[name="status"][id="active"]').checked = true;
-            
+            document.getElementById('productImageInput').value = '';
+            document.getElementById('productImageCurrent').value = '';
+            showProductImagePreview('');
+
             // Deselect all table rows
             document.querySelectorAll('.product-table tbody tr').forEach(r => {
                 r.classList.remove('selected');
@@ -1654,6 +1701,9 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
             document.querySelector('.form-select').value = 'paper';
             document.querySelector('.price-input').value = '';
             document.querySelector('input[name="status"][id="active"]').checked = true;
+            document.getElementById('productImageInput').value = '';
+            document.getElementById('productImageCurrent').value = '';
+            showProductImagePreview('');
             document.querySelectorAll('.product-table tbody tr').forEach(r => {
                 r.classList.remove('selected');
             });

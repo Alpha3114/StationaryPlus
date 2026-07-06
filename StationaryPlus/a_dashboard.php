@@ -154,6 +154,7 @@ if ($lastMonthSales > 0) {
     $salesTrend = (($totalSales - $lastMonthSales) / $lastMonthSales) * 100;
 }
 
+$salesTrendDown = $salesTrend < 0;
 $salesTrend = number_format($salesTrend, 1);
 ?>
 <!DOCTYPE html>
@@ -172,7 +173,7 @@ $salesTrend = number_format($salesTrend, 1);
             --light-text: #707070;   /* Secondary Text */
             --border: #E0E0E0;       /* Border Grey */
             --white: #FFFFFF;
-            --sidebar-width: 280px;
+            --sidebar-width: 260px;
             --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
         }
         
@@ -207,7 +208,6 @@ $salesTrend = number_format($salesTrend, 1);
         .logo-area {
             padding: 22px;
             border-bottom: 1px solid var(--border);
-            background-color: rgba(168, 53, 53, 0.03);
             display: flex;
             align-items: center;
         }
@@ -243,7 +243,7 @@ $salesTrend = number_format($salesTrend, 1);
         }
         
         .nav-title {
-            font-size: 14px;
+            font-size: 12px;
             font-weight: 600;
             color: var(--light-text);
             text-transform: uppercase;
@@ -283,14 +283,14 @@ $salesTrend = number_format($salesTrend, 1);
         }
         
         .nav-icon {
-            width: 22px;
+            width: 18px;
             text-align: center;
-            margin-right: 16px;
-            font-size: 18px;
-        }
-        
-        .nav-text {
+            margin-right: 14px;
             font-size: 16px;
+        }
+
+        .nav-text {
+            font-size: 14px;
         }
         
         .user-section {
@@ -306,8 +306,8 @@ $salesTrend = number_format($salesTrend, 1);
         }
         
         .user-avatar {
-            width: 50px;
-            height: 50px;
+            width: 38px;
+            height: 38px;
             border-radius: 50%;
             background-color: rgba(168, 53, 53, 0.1);
             display: flex;
@@ -315,8 +315,8 @@ $salesTrend = number_format($salesTrend, 1);
             justify-content: center;
             color: var(--primary);
             font-weight: 700;
-            font-size: 20px;
-            margin-right: 15px;
+            font-size: 15px;
+            margin-right: 12px;
         }
         
         .user-details {
@@ -399,37 +399,6 @@ $salesTrend = number_format($salesTrend, 1);
             font-size: 15px;
             color: var(--light-text);
             font-weight: 500;
-        }
-        
-        .admin-notifications {
-            position: relative;
-            cursor: pointer;
-        }
-        
-        .notification-icon {
-            font-size: 22px;
-            color: var(--text);
-            transition: color 0.2s ease;
-        }
-        
-        .notification-icon:hover {
-            color: var(--primary);
-        }
-        
-        .notification-badge {
-            position: absolute;
-            top: -6px;
-            right: -6px;
-            background-color: var(--primary);
-            color: white;
-            font-size: 11px;
-            font-weight: 700;
-            width: 18px;
-            height: 18px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
         }
         
         /* Admin Dashboard Content */
@@ -698,10 +667,6 @@ $salesTrend = number_format($salesTrend, 1);
             </div>
             <div class="admin-header-right">
                 <div class="admin-date"><?= date('F j, Y') ?></div>
-                <div class="admin-notifications">
-                    <i class="fas fa-bell notification-icon"></i>
-                    <div class="notification-badge">5</div>
-                </div>
             </div>
         </header>
         
@@ -770,7 +735,7 @@ $salesTrend = number_format($salesTrend, 1);
     RM <?php echo number_format($totalSales, 2); ?>
 </div>
                     <div class="overview-trend">
-                        <i class="fas fa-arrow-up trend-up"></i>
+                        <i class="fas <?php echo $salesTrendDown ? 'fa-arrow-down trend-down' : 'fa-arrow-up trend-up'; ?>"></i>
                         <span>
     <?php echo $salesTrend; ?>% from last month
 </span>
@@ -839,17 +804,6 @@ $salesTrend = number_format($salesTrend, 1);
                 this.classList.add('active');
             });
         });
-        
-        // Update current date
-        function updateCurrentDate() {
-            const now = new Date();
-            const options = { year: 'numeric', month: 'long', day: 'numeric' };
-            const dateString = now.toLocaleDateString('en-US', options);
-            document.querySelector('.admin-date').textContent = dateString;
-        }
-        
-        // Initialize date
-        updateCurrentDate();
     </script>
 </body>
 </html>
