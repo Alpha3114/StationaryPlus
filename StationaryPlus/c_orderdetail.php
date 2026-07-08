@@ -77,7 +77,7 @@ $stmt->close();
 // orders.estimated_total can lag behind (e.g. print file not yet reviewed)
 // so we never rely on it for the receipt display.
 $itemsTotal = array_reduce($items,      fn($s, $i) => $s + $i['qty'] * $i['unit_price'],     0.0);
-$printTotal = array_reduce($printFiles, fn($s, $f) => $s + (float)$f['estimated_price'],      0.0);
+$printTotal = array_reduce($printFiles, fn($s, $f) => $s + ($f['file_status'] === 'REJECTED' ? 0 : (float)$f['estimated_price']), 0.0);
 $total      = $itemsTotal + $printTotal;
 
 echo json_encode([

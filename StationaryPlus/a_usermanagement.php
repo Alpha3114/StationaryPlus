@@ -175,7 +175,7 @@ $sql = "SELECT u.user_id, u.name, u.email, u.phone_number, u.user_role, u.accoun
                u.branch_id, b.branch_name
         FROM users u
         LEFT JOIN branches b ON u.branch_id = b.branch_id
-        WHERE $whereSQL ORDER BY u.name ASC LIMIT 200";
+        WHERE $whereSQL ORDER BY FIELD(u.account_status, 'ACTIVE', 'PENDING', 'INACTIVE'), u.name ASC LIMIT 200";
 
 $stmt = $conn->prepare($sql);
 if ($types) $stmt->bind_param($types, ...$params);
@@ -236,8 +236,8 @@ $pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_statu
         .user-avatar { width: 38px; height: 38px; border-radius: 50%; background-color: rgba(168,53,53,0.1); display: flex; align-items: center; justify-content: center; color: var(--primary); font-weight: 600; font-size: 15px; margin-right: 12px; }
         .user-name { font-weight: 600; font-size: 14px; color: var(--text); }
         .user-role { font-size: 12px; color: var(--light-text); }
-        .logout-link { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background-color: rgba(168,53,53,0.08); color: var(--primary); border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 600; transition: background-color 0.2s; }
-        .logout-link:hover { background-color: rgba(168,53,53,0.18); }
+        .logout-link { width: 100%; padding: 9px; background: rgba(168,53,53,0.1); color: var(--primary); border: 1.5px solid var(--primary); border-radius: 5px; font-weight: 600; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; transition: all 0.2s; }
+        .logout-link:hover { background: rgba(168,53,53,0.2); }
 
         /* ── Main ── */
         .main-content { flex-grow: 1; margin-left: var(--sidebar-width); min-height: 100vh; display: flex; flex-direction: column; overflow: hidden; }

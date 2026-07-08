@@ -16,7 +16,7 @@ if (!$token) {
     $message = 'Invalid or missing verification link.';
 } else {
     $stmt = $conn->prepare(
-        "SELECT ev.id, ev.user_id, ev.expires_at, ev.used, u.name, u.account_status
+        "SELECT ev.id, ev.user_id, ev.expires_at, ev.used, u.name, u.email, u.account_status
          FROM email_verifications ev
          JOIN users u ON ev.user_id = u.user_id
          WHERE ev.token = ? LIMIT 1"
@@ -85,7 +85,11 @@ if (!$token) {
         </div>
         <h1><?= $status === 'success' ? 'Email Verified' : 'Verification Failed' ?></h1>
         <p><?= htmlspecialchars($message) ?></p>
-        <a href="login.php" class="btn">Go to Login</a>
+        <?php if ($status === 'expired'): ?>
+            <a href="Registration.php?resend=<?= urlencode($row['email']) ?>" class="btn">Resend Verification Email</a>
+        <?php else: ?>
+            <a href="login.php" class="btn">Go to Login</a>
+        <?php endif; ?>
     </div>
 </body>
 </html>

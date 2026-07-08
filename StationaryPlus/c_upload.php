@@ -256,7 +256,10 @@ function statusBadge(string $s): string {
             <h1 class="page-title">Upload Files for Printing</h1>
             <p class="page-subtitle">Choose your print mode — AI analysis only runs when you need it</p>
         </div>
-        <?php render_browsing_branch_bar(); ?>
+        <div style="display:flex;flex-direction:column;gap:3px;">
+            <?php render_browsing_branch_bar(); ?>
+            <?php render_branch_unavailable_notice(); ?>
+        </div>
     </header>
 
     <div class="content-wrap">
@@ -576,12 +579,7 @@ function statusBadge(string $s): string {
     </div><!-- /.content-wrap -->
 
     <footer class="page-footer">
-        &copy; <?= date('Y') ?> StationaryPlus.
-        <div class="footer-links">
-            <a href="c_dashboard.php">Dashboard</a>
-            <a href="c_orderstatus.php">Order Status</a>
-            <a href="c_payment.php">Payments</a>
-        </div>
+        &copy; <?= date('Y') ?> StationaryPlus &mdash; Stationery &amp; Printing Management System
     </footer>
 </main>
 

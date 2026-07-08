@@ -9,8 +9,21 @@ require_once 'auth.php';
 require_role(['STAFF','ADMIN']);
 require_once 'db.php';
 
+$branchActive = staff_branch_is_active($conn);
+
 // ── Handle status update (POST) ───────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
+    if (!$branchActive) {
+        $qs = http_build_query(array_filter([
+            'error'  => 'branch_inactive',
+            'search' => $_GET['search'] ?? '',
+            'status' => $_GET['status'] ?? '',
+            'filter' => $_GET['filter'] ?? '',
+        ]));
+        header('Location: s_ordermanagement.php?' . $qs);
+        exit;
+    }
+
     $orderId      = trim($_POST['order_id']   ?? '');
     $newStatus    = trim($_POST['new_status'] ?? '');
     $staffBranch  = $_SESSION['branch_id'] ?? null;
@@ -545,6 +558,23 @@ function statusBadge(string $status): string {
         </div>
         <?php endif; ?>
 
+        <?php if (isset($_GET['error']) && $_GET['error'] === 'branch_inactive'): ?>
+        <div style="position:fixed;top:74px;left:var(--sidebar-width);right:0;z-index:20;
+                    padding:12px 24px;background:#fef2f2;border-bottom:1px solid #fecaca;
+                    display:flex;align-items:center;gap:10px;font-size:13px;color:#991b1b;">
+            <i class="fas fa-triangle-exclamation" style="flex-shrink:0;"></i>
+            <strong>Cannot update status:</strong>
+            Your assigned branch is inactive/under renovation — contact an admin to be reassigned.
+        </div>
+        <?php elseif (!$branchActive): ?>
+        <div style="position:fixed;top:74px;left:var(--sidebar-width);right:0;z-index:20;
+                    padding:12px 24px;background:#fef2f2;border-bottom:1px solid #fecaca;
+                    display:flex;align-items:center;gap:10px;font-size:13px;color:#991b1b;">
+            <i class="fas fa-triangle-exclamation" style="flex-shrink:0;"></i>
+            Your assigned branch is temporarily unavailable (inactive/under renovation). Order status updates are disabled — contact an admin to be reassigned.
+        </div>
+        <?php endif; ?>
+
         <!-- ── LEFT: order list ── -->
         <div class="list-pane" id="listPane">
             <div class="list-header">
@@ -706,7 +736,7 @@ function renderDetail(d, id, type) {
                                      outline:none;"></textarea>
                 </div>
 
-                <button type="submit" name="update_status" class="update-btn">
+                <button type="submit" name="update_status" class="update-btn" <?= $branchActive ? '' : 'disabled' ?>>
                     <i class="fas fa-check-circle"></i> Update Status
                 </button>
             </form>

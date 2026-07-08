@@ -18,7 +18,51 @@ $navMapping = [
 $activePage  = $navMapping[$currentPage] ?? '';
 $userName    = $_SESSION['user_name']   ?? 'Customer';
 $userInitial = strtoupper(mb_substr($userName, 0, 1));
+
+// ── Live counts for nav badges ─────────────────────────────────
+$readyForCollection = 0;
+$needsPayment       = 0;
+if (isset($conn) && !empty($_SESSION['user_id'])) {
+    $uid = $_SESSION['user_id'];
+
+    $stmt = $conn->prepare("SELECT COUNT(*) AS cnt FROM orders WHERE user_id = ? AND order_status = 'READY'");
+    $stmt->bind_param('s', $uid);
+    $stmt->execute();
+    $readyForCollection = (int)($stmt->get_result()->fetch_assoc()['cnt'] ?? 0);
+    $stmt->close();
+
+    // Same eligibility as c_payment.php's "unpaid orders" query, as a COUNT —
+    // keeps the badge number consistent with what actually shows up there.
+    $stmt = $conn->prepare(
+        "SELECT COUNT(*) AS cnt FROM orders o
+         WHERE o.user_id = ?
+           AND o.order_status NOT IN ('CANCELLED','COLLECTED')
+           AND o.order_id NOT IN (
+               SELECT p.order_id FROM payments p
+               WHERE p.verification_status IN ('VALID','PENDING')
+           )
+           AND o.order_id NOT IN (
+               SELECT DISTINCT pf.order_id FROM print_files pf
+               WHERE pf.file_status = 'RECEIVED'
+                 AND pf.order_id IS NOT NULL
+           )"
+    );
+    $stmt->bind_param('s', $uid);
+    $stmt->execute();
+    $needsPayment = (int)($stmt->get_result()->fetch_assoc()['cnt'] ?? 0);
+    $stmt->close();
+}
 ?>
+
+<style>
+.nav-alert {
+    margin-left: auto;
+    background: #ef4444; color: white;
+    font-size: 10px; font-weight: 700;
+    padding: 1px 6px; border-radius: 10px;
+    min-width: 18px; text-align: center;
+}
+</style>
 
 <nav class="sidebar">
 
@@ -67,12 +111,18 @@ $userInitial = strtoupper(mb_substr($userName, 0, 1));
                 <a href="c_orderstatus.php" class="nav-link <?= $activePage === 'orderstatus' ? 'active' : '' ?>">
                     <div class="nav-icon"><i class="fas fa-search"></i></div>
                     <div class="nav-text">Order Status</div>
+                    <?php if ($readyForCollection > 0): ?>
+                    <span class="nav-alert" title="Ready for collection"><?= $readyForCollection ?></span>
+                    <?php endif; ?>
                 </a>
             </li>
             <li class="nav-item">
                 <a href="c_payment.php" class="nav-link <?= $activePage === 'payment' ? 'active' : '' ?>">
                     <div class="nav-icon"><i class="fas fa-receipt"></i></div>
                     <div class="nav-text">Payment Record</div>
+                    <?php if ($needsPayment > 0): ?>
+                    <span class="nav-alert" title="Needs payment"><?= $needsPayment ?></span>
+                    <?php endif; ?>
                 </a>
             </li>
         </ul>

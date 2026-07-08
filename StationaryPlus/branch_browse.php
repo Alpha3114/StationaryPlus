@@ -37,14 +37,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['switch_branch'])) {
     exit;
 }
 
-$activeBranchId = $_SESSION['branch_id'] ?? null;
-$currentBranch  = null;
+$activeBranchId          = $_SESSION['branch_id'] ?? null;
+$currentBranch           = null;
+$branchBecameUnavailable = false;
 if ($activeBranchId) {
-    $stmt = $conn->prepare("SELECT branch_name FROM branches WHERE branch_id = ? LIMIT 1");
+    // Only resolve against currently-ACTIVE branches — a branch selected
+    // earlier may have since gone INACTIVE/RENOVATION.
+    $stmt = $conn->prepare("SELECT branch_name FROM branches WHERE branch_id = ? AND status = 'ACTIVE' LIMIT 1");
     $stmt->bind_param('s', $activeBranchId);
     $stmt->execute();
     $currentBranch = $stmt->get_result()->fetch_assoc()['branch_name'] ?? null;
     $stmt->close();
+
+    if ($currentBranch === null) {
+        // Stale selection — clear it so listings stop silently filtering
+        // against a branch that's no longer open.
+        unset($_SESSION['branch_id']);
+        $activeBranchId          = null;
+        $branchBecameUnavailable = true;
+    }
+}
+
+// Compact single-line notice meant to sit alongside the existing
+// "Temporary for this session — set your preferred branch" helper text
+// in each page's narrow branch-bar column.
+function render_branch_unavailable_notice(): void {
+    global $branchBecameUnavailable;
+    if (!$branchBecameUnavailable) return;
+    ?>
+    <p style="font-size:11px;color:#b45309;font-weight:600;white-space:nowrap;">
+        <i class="fas fa-triangle-exclamation"></i>
+        Your branch is unavailable (inactive/renovation) — showing all branches.
+    </p>
+    <?php
 }
 
 function render_browsing_branch_bar(): void {

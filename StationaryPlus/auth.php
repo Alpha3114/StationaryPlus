@@ -41,6 +41,27 @@ function require_role(string|array $roles): void {
 }
 
 /**
+ * Whether the logged-in staff member's assigned branch is still ACTIVE.
+ * Returns true for ADMIN / unassigned STAFF (no branch_id in session) —
+ * this guard only concerns staff tied to a specific branch that may have
+ * since gone INACTIVE/RENOVATION out from under them.
+ */
+function staff_branch_is_active(mysqli $conn): bool {
+    $branchId = $_SESSION['branch_id'] ?? null;
+    if (!$branchId) {
+        return true;
+    }
+
+    $stmt = $conn->prepare("SELECT status FROM branches WHERE branch_id = ? LIMIT 1");
+    $stmt->bind_param('s', $branchId);
+    $stmt->execute();
+    $status = $stmt->get_result()->fetch_assoc()['status'] ?? null;
+    $stmt->close();
+
+    return $status === 'ACTIVE';
+}
+
+/**
  * Redirect user to their role-specific dashboard.
  */
 function redirect_to_dashboard(): void {

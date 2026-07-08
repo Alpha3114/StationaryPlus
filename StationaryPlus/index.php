@@ -521,8 +521,7 @@ if (!empty($_SESSION['user_id']) && !empty($_SESSION['user_role'])) {
     </section>
 
     <footer class="footer">
-        <span>&copy; <?= date('Y') ?> StationaryPlus</span>
-        <a href="login.php" class="footer-staff-link">Staff &amp; Admin Login →</a>
+        &copy; <?= date('Y') ?> StationaryPlus &mdash; Stationery &amp; Printing Management System
     </footer>
 
     <script>

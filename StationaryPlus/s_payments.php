@@ -9,7 +9,8 @@ require_once 'auth.php';
 require_role(['STAFF', 'ADMIN']);
 require_once 'db.php';
 
-$branchId = $_SESSION['branch_id'] ?? null;
+$branchId     = $_SESSION['branch_id'] ?? null;
+$branchActive = staff_branch_is_active($conn);
 
 // ── Existing filters ──────────────────────────────────────────
 $filterStatus  = $_GET['status'] ?? 'PENDING';
@@ -320,6 +321,15 @@ function statusBadge(string $s): string {
         <?php endif; ?>
     </header>
 
+    <?php if (!$branchActive): ?>
+    <div style="margin:16px 30px 0;background:#fef2f2;border:1.5px solid #fecaca;border-radius:8px;
+                padding:12px 18px;font-size:13px;color:#991b1b;
+                display:flex;align-items:center;gap:10px;">
+        <i class="fas fa-triangle-exclamation" style="font-size:16px;"></i>
+        <span>Your assigned branch is temporarily unavailable (inactive/under renovation). Payment verification is disabled — contact an admin to be reassigned.</span>
+    </div>
+    <?php endif; ?>
+
     <div class="content-wrap">
 
         <!-- Filter bar -->
@@ -503,7 +513,7 @@ function statusBadge(string $s): string {
                                 <td style="font-size:12px;color:var(--text-secondary);"><?= date('d M Y', strtotime($p['record_date'])) ?></td>
                                 <td><?= statusBadge($p['verification_status']) ?></td>
                                 <td onclick="event.stopPropagation()">
-                                    <?php if ($p['verification_status'] === 'PENDING'): ?>
+                                    <?php if ($p['verification_status'] === 'PENDING' && $branchActive): ?>
                                     <div style="display:flex;gap:6px;">
                                         <button class="btn btn-valid"
                                             onclick="verifyPayment('<?= $p['payment_id'] ?>', 'VALID', <?= $i ?>)">
@@ -579,7 +589,7 @@ function statusBadge(string $s): string {
                                                 <?php endif; ?>
                                             </div>
                                         </div>
-                                        <?php if ($p['verification_status'] === 'PENDING'): ?>
+                                        <?php if ($p['verification_status'] === 'PENDING' && $branchActive): ?>
                                         <div class="action-row">
                                             <button class="btn btn-valid"
                                                 onclick="verifyPayment('<?= $p['payment_id'] ?>', 'VALID', <?= $i ?>)">

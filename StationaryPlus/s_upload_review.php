@@ -9,6 +9,8 @@ require_once 'auth.php';
 require_role(['STAFF', 'ADMIN']);
 require_once 'db.php';
 
+$branchActive = staff_branch_is_active($conn);
+
 // ── Existing filters ──────────────────────────────────────────
 $filterStatus = $_GET['status'] ?? 'RECEIVED';
 $search       = trim($_GET['search'] ?? '');
@@ -313,6 +315,15 @@ function fileStatusBadge(string $s): string {
         </div>
         <?php endif; ?>
     </header>
+
+    <?php if (!$branchActive): ?>
+    <div style="margin:16px 30px 0;background:#fef2f2;border:1.5px solid #fecaca;border-radius:8px;
+                padding:12px 18px;font-size:13px;color:#991b1b;
+                display:flex;align-items:center;gap:10px;">
+        <i class="fas fa-triangle-exclamation" style="font-size:16px;"></i>
+        <span>Your assigned branch is temporarily unavailable (inactive/under renovation). Print file review is disabled — contact an admin to be reassigned.</span>
+    </div>
+    <?php endif; ?>
 
     <div class="content-wrap">
 

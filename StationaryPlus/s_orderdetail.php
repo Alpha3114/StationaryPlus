@@ -35,11 +35,11 @@ $stmt = $conn->prepare(
          o.order_status,
          o.estimated_total,
          o.notes,
-         u.name         AS customer_name,
+         COALESCE(u.name, 'Walk-in Guest') AS customer_name,
          u.email        AS customer_email,
          u.phone_number AS customer_phone
      FROM orders o
-     JOIN users u ON o.user_id = u.user_id
+     LEFT JOIN users u ON o.user_id = u.user_id
      WHERE o.order_id = ?
      LIMIT 1"
 );

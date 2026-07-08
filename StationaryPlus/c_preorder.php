@@ -388,7 +388,10 @@ if (!empty($_SESSION['cart'])) {
             <h1 class="page-title">Pre-order</h1>
             <p class="page-subtitle">Add items to your cart and submit a pre-order</p>
         </div>
-        <?php render_browsing_branch_bar(); ?>
+        <div style="display:flex;flex-direction:column;gap:3px;">
+            <?php render_browsing_branch_bar(); ?>
+            <?php render_branch_unavailable_notice(); ?>
+        </div>
     </header>
 
     <?php if ($message): ?>
@@ -542,11 +545,7 @@ if (!empty($_SESSION['cart'])) {
     </div>
 
     <footer class="page-footer">
-        <div>&copy; <?= date('Y') ?> StationaryPlus</div>
-        <div class="footer-links">
-            <a href="c_orderstatus.php">Order Status</a> |
-            <a href="c_payment.php">Payments</a>
-        </div>
+        &copy; <?= date('Y') ?> StationaryPlus &mdash; Stationery &amp; Printing Management System
     </footer>
 </main>
 

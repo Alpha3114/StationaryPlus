@@ -491,6 +491,7 @@ function pageUrl(int $p): string {
         <!-- Browsing Branch context bar (session-only view filter; see branch_browse.php) -->
         <div style="display:flex;flex-direction:column;gap:3px;">
             <?php render_browsing_branch_bar(); ?>
+            <?php render_branch_unavailable_notice(); ?>
             <p style="font-size:11px;color:var(--text-secondary);white-space:nowrap;">
                 Temporary for this session —
                 <a href="c_dashboard.php" style="color:var(--primary);font-weight:600;">set your preferred branch</a>
@@ -665,12 +666,7 @@ function pageUrl(int $p): string {
     </div>
 
     <footer class="product-footer">
-        <div>&copy; <?= date('Y') ?> StationaryPlus — Stationery &amp; Printing Management System</div>
-        <div class="footer-links">
-            <a href="#">Help Center</a> |
-            <a href="#">Contact Support</a> |
-            <a href="#">Privacy Policy</a>
-        </div>
+        &copy; <?= date('Y') ?> StationaryPlus &mdash; Stationery &amp; Printing Management System
     </footer>
 
 </main>

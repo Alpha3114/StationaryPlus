@@ -30,7 +30,8 @@ if ($filterStatus !== 'all') {
 $branches = [];
 if ($conn) {
     $sql  = "SELECT branch_id, branch_name, address, phone_number, status
-              FROM branches WHERE " . implode(' AND ', $where) . " ORDER BY branch_id";
+              FROM branches WHERE " . implode(' AND ', $where) . "
+              ORDER BY FIELD(status, 'ACTIVE', 'RENOVATION', 'INACTIVE'), branch_id";
     $stmt = $conn->prepare($sql);
     if ($types) $stmt->bind_param($types, ...$params);
     $stmt->execute();
@@ -443,7 +444,7 @@ if ($conn) {
         
         .status-inactive {
             background-color: rgba(158, 158, 158, 0.15);
-            color: #757575;
+            color: #616161;
         }
         
         .status-renovation {
@@ -740,6 +741,9 @@ if ($conn) {
                         <a href="a_branch.php" class="filter-clear"><i class="fas fa-times"></i> Clear</a>
                         <?php endif; ?>
                     </form>
+                    <button type="button" class="secondary-btn add-new-btn" id="newBtn">
+                        <i class="fas fa-plus-circle"></i> Add New
+                    </button>
                 </div>
 
                 <div class="table-container">
@@ -830,9 +834,6 @@ if ($conn) {
                     <div class="form-actions">
                         <button class="primary-btn" id="saveBtn">
                             <i class="fas fa-save"></i> Save Branch
-                        </button>
-                        <button class="secondary-btn" id="newBtn">
-                            <i class="fas fa-plus-circle"></i> New Branch
                         </button>
                     </div>
                 </div>

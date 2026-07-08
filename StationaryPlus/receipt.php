@@ -101,7 +101,7 @@ $stmt->close();
 
 // ── Computed totals ───────────────────────────────────────────
 $itemsTotal = array_reduce($items,      fn($s, $i) => $s + (float)$i['subtotal'],         0.0);
-$printTotal = array_reduce($printFiles, fn($s, $f) => $s + (float)$f['estimated_price'],  0.0);
+$printTotal = array_reduce($printFiles, fn($s, $f) => $s + ($f['file_status'] === 'REJECTED' ? 0 : (float)$f['estimated_price']), 0.0);
 $grandTotal = $itemsTotal + $printTotal;
 
 // ── Helpers ───────────────────────────────────────────────────

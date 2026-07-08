@@ -88,7 +88,8 @@ if ($filterStatus !== 'all') {
 $products = [];
 if ($conn) {
     $sql  = "SELECT product_id, product_name, category, price, product_status, last_updated, image_path
-              FROM products WHERE " . implode(' AND ', $where) . " ORDER BY product_id";
+              FROM products WHERE " . implode(' AND ', $where) . "
+              ORDER BY FIELD(product_status, 'ACTIVE', 'INACTIVE'), product_id";
     $stmt = $conn->prepare($sql);
     if ($types) $stmt->bind_param($types, ...$params);
     $stmt->execute();
@@ -635,10 +636,10 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
             background-color: rgba(76, 175, 80, 0.1);
             color: #4CAF50;
         }
-        
+
         .status-inactive {
-            background-color: rgba(168, 53, 53, 0.1);
-            color: var(--primary);
+            background-color: rgba(158, 158, 158, 0.15);
+            color: #616161;
         }
         
         /* Low Stock Requests Section */
@@ -1140,6 +1141,9 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
                         <a href="a_productmanagement.php?tab=catalog" class="filter-clear"><i class="fas fa-times"></i> Clear</a>
                         <?php endif; ?>
                     </form>
+                    <button type="button" class="secondary-btn add-new-btn" id="addNewBtn">
+                        <i class="fas fa-plus"></i> Add New
+                    </button>
                 </div>
 
                 <div class="table-container">
@@ -1254,9 +1258,6 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
                     <div class="form-actions">
                         <button class="primary-btn" id="saveBtn">
                             <i class="fas fa-save"></i> Save Product
-                        </button>
-                        <button class="secondary-btn add-new-btn" id="addNewBtn">
-                            <i class="fas fa-plus"></i> Add New
                         </button>
                     </div>
                 </div>

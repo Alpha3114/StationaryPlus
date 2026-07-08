@@ -14,6 +14,11 @@ require_once 'db.php';
 
 header('Content-Type: application/json');
 
+if (!staff_branch_is_active($conn)) {
+    echo json_encode(['success' => false, 'error' => 'Your assigned branch is inactive — print file review is disabled.']);
+    exit;
+}
+
 $fileId          = trim($_POST['file_id']          ?? '');
 $status          = trim($_POST['status']           ?? '');
 $finalPrice      = $_POST['final_price']           ?? null;

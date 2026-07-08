@@ -16,7 +16,7 @@ $msgType = '';
 
 // ── Load current user data ────────────────────────────────────
 $stmt = $conn->prepare(
-    "SELECT user_id, name, email, phone_number, user_role, account_status, registration_date
+    "SELECT user_id, name, email, phone_number, user_role, account_status, registration_date, password_hash
      FROM users WHERE user_id = ? LIMIT 1"
 );
 $stmt->bind_param('s', $userId);

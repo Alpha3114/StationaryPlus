@@ -271,8 +271,8 @@ if ($res && $res->num_rows > 0) {
         .user-info{display:flex;align-items:center;margin-bottom:15px;}
         .user-avatar{width:38px;height:38px;border-radius:50%;background:rgba(168,53,53,.1);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:600;font-size:15px;margin-right:12px;}
         .user-name{font-weight:600;font-size:14px;}
-        .logout-btn{width:100%;padding:9px;background:rgba(168,53,53,.1);color:var(--primary);border:1.5px solid var(--primary);border-radius:5px;font-weight:600;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;transition:all .2s;}
-        .logout-btn:hover{background:rgba(168,53,53,.2);}
+        .logout-link{width:100%;padding:9px;background:rgba(168,53,53,.1);color:var(--primary);border:1.5px solid var(--primary);border-radius:5px;font-weight:600;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;transition:all .2s;}
+        .logout-link:hover{background:rgba(168,53,53,.2);}
         .main-content{flex-grow:1;margin-left:var(--sidebar);min-height:100vh;display:flex;flex-direction:column;}
         .top-header{background:var(--white);padding:12px 22px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:20;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
         .header-title{font-size:19px;font-weight:700;}
@@ -445,8 +445,8 @@ if ($res && $res->num_rows > 0) {
             .nav-link{justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent;}
             .nav-link:hover,.nav-link.active{border-left:none;border-right-color:var(--primary);}
             .nav-icon{margin-right:0;}
-            .logout-btn span{display:none;}
-            .logout-btn{justify-content:center;padding:9px;}
+            .logout-link span{display:none;}
+            .logout-link{justify-content:center;padding:9px;}
             .ai-cols{grid-template-columns:1fr;}
         }
         @media(max-width:768px){.stat-grid{grid-template-columns:1fr 1fr;}}

@@ -9,8 +9,9 @@ require_once 'auth.php';
 require_role(['STAFF', 'ADMIN']);
 require_once 'db.php';
 
-$staffName = $_SESSION['user_name'] ?? 'Staff';
-$branchId  = $_SESSION['branch_id'] ?? null;
+$staffName    = $_SESSION['user_name'] ?? 'Staff';
+$branchId     = $_SESSION['branch_id'] ?? null;
+$branchActive = staff_branch_is_active($conn);
 
 // Branch name for receipt header
 $branchName = 'StationaryPlus';
@@ -588,6 +589,15 @@ if ($branchId) {
         </div>
     </div>
 
+    <?php if (!$branchActive): ?>
+    <div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:8px;
+                padding:12px 18px;margin:14px 20px 0;font-size:13px;color:#991b1b;
+                display:flex;align-items:center;gap:10px;">
+        <i class="fas fa-triangle-exclamation" style="font-size:16px;"></i>
+        <span>Your assigned branch is temporarily unavailable (inactive/under renovation). Sales cannot be processed here — contact an admin to be reassigned.</span>
+    </div>
+    <?php endif; ?>
+
     <div class="pos-body">
 
         <!-- ══ LEFT PANEL ══ -->
@@ -760,6 +770,9 @@ if ($branchId) {
             <button class="btn-print" onclick="window.print()">
                 <i class="fas fa-print"></i> Print Receipt
             </button>
+            <a class="btn-print" id="viewReceiptLink" href="#" target="_blank" rel="noopener" style="text-decoration:none;">
+                <i class="fas fa-receipt"></i> View Receipt
+            </a>
             <button class="btn-new-sale" onclick="newSale()">
                 <i class="fas fa-plus"></i> New Sale
             </button>
@@ -773,6 +786,7 @@ if ($branchId) {
 // ═══════════════════════════════════════════════════════
 
 // ── State ──────────────────────────────────────────────
+const BRANCH_ACTIVE = <?= $branchActive ? 'true' : 'false' ?>;
 const cart        = {};  // { product_id: { name, price, qty } }
 let selectedMethod  = 'CASH';
 let html5Scanner    = null;
@@ -1100,11 +1114,13 @@ function updateProcessBtn() {
         ready = hasCart && total > 0;
     }
 
-    btn.disabled = !ready;
+    btn.disabled = !ready || !BRANCH_ACTIVE;
 }
 
 // ── Process sale ───────────────────────────────────────
 async function processSale() {
+    if (!BRANCH_ACTIVE) { showToast('Your branch is inactive — sales cannot be processed.', 'warn'); return; }
+
     const btn    = document.getElementById('processBtn');
     const total  = getCartTotal();
     const items  = Object.entries(cart).map(([id, v]) => ({ product_id: id, quantity: v.qty }));
@@ -1154,6 +1170,7 @@ async function processSale() {
 // ── Receipt ────────────────────────────────────────────
 function showReceipt(data, custId) {
     document.getElementById('receiptOrderId').textContent = data.order_id;
+    document.getElementById('viewReceiptLink').href = 'receipt.php?id=' + encodeURIComponent(data.order_id);
 
     const custName = custId
         ? (document.getElementById('selectedCustomerName').textContent || 'Customer')

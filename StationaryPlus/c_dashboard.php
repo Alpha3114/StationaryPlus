@@ -51,18 +51,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['switch_branch'])) {
 }
 
 // ── Show branch popup if none selected ───────────────────────
-$showBranchPopup = empty($_SESSION['branch_id']);
-$currentBranch   = null;
+$currentBranch          = null;
+$branchBecameUnavailable = false;
 
 if (!empty($_SESSION['branch_id'])) {
+    // Only resolve against currently-ACTIVE branches — a branch saved
+    // earlier may have since gone INACTIVE/RENOVATION.
     $stmt = $conn->prepare(
-        "SELECT branch_name FROM branches WHERE branch_id = ? LIMIT 1"
+        "SELECT branch_name FROM branches WHERE branch_id = ? AND status = 'ACTIVE' LIMIT 1"
     );
     $stmt->bind_param('s', $_SESSION['branch_id']);
     $stmt->execute();
     $currentBranch = $stmt->get_result()->fetch_assoc()['branch_name'] ?? null;
     $stmt->close();
+
+    if ($currentBranch === null) {
+        // Stale selection — the branch is no longer active. Clear it so
+        // the customer isn't silently filtered against an unavailable branch.
+        unset($_SESSION['branch_id']);
+        $branchBecameUnavailable = true;
+    }
 }
+
+$showBranchPopup = empty($_SESSION['branch_id']);
 
 // ── 1. Active reservations ────────────────────────────────────
 // Customers only ever create PREORDERs (walk-in ORDERs come
@@ -533,10 +544,7 @@ function orderStatusBadge(string $status): string {
     </div><!-- /.dashboard-content -->
 
     <footer class="dashboard-footer">
-        &copy; <?= date('Y') ?> StationaryPlus — Stationery &amp; Printing Management System
-        <div class="footer-links">
-            <a href="#">Help Center</a> | <a href="#">Contact Support</a> | <a href="#">Privacy Policy</a>
-        </div>
+        &copy; <?= date('Y') ?> StationaryPlus &mdash; Stationery &amp; Printing Management System
     </footer>
 
 </main>
@@ -565,10 +573,18 @@ function orderStatusBadge(string $status): string {
                     font-size:24px;color:var(--primary);">
             <i class="fas fa-store"></i>
         </div>
+        <?php if ($branchBecameUnavailable): ?>
+        <h2 style="font-size:20px;font-weight:700;margin-bottom:8px;">Your Branch Is Unavailable</h2>
+        <p style="font-size:14px;color:var(--text-secondary);margin-bottom:6px;">
+            Your previously selected branch is temporarily closed (inactive or under renovation).
+            Please choose another branch to continue.
+        </p>
+        <?php else: ?>
         <h2 style="font-size:20px;font-weight:700;margin-bottom:8px;">Welcome! Choose Your Branch</h2>
         <p style="font-size:14px;color:var(--text-secondary);margin-bottom:6px;">
             Which branch will you be collecting from?
         </p>
+        <?php endif; ?>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:24px;
                   background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;">
             <i class="fas fa-star" style="color:#f59e0b;"></i>

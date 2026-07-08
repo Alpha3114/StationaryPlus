@@ -9,13 +9,19 @@ require_once 'auth.php';
 require_role(['STAFF', 'ADMIN']);
 require_once 'db.php';
 
-$userId   = $_SESSION['user_id'];
-$branchId = $_SESSION['branch_id'] ?? null;
+$userId       = $_SESSION['user_id'];
+$branchId     = $_SESSION['branch_id'] ?? null;
+$branchActive = staff_branch_is_active($conn);
 
 // ── Handle stock update (POST) ────────────────────────────────
 $successMsg = '';
 $isWarning  = false;
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_stock'])) {
+    if (!$branchActive) {
+        header('Location: s_inv.php?error=branch_inactive');
+        exit;
+    }
+
     $inventoryId = trim($_POST['inventory_id'] ?? '');
     $newQty      = (int)($_POST['new_qty'] ?? -1);
 
@@ -81,7 +87,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_stock'])) {
     exit;
 }
 
-if (isset($_GET['updated'])) {
+if (($_GET['error'] ?? '') === 'branch_inactive') {
+    $successMsg = "Your branch is inactive — stock updates are unavailable. Contact an admin to be reassigned.";
+    $isWarning  = true;
+} elseif (isset($_GET['updated'])) {
     if (!empty($_GET['warn']) && str_contains($_GET['warn'], ':')) {
         [$resv, $nq] = explode(':', $_GET['warn']);
         $resv = (int)$resv; $nq = (int)$nq;
@@ -102,7 +111,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_restock'])) {
     $staffNote = trim($_POST['staff_note'] ?? '') ?: null;
     $reqBranch = $branchId; // staff can only request for their own branch
 
-    if (!$reqBranch) {
+    if (!$branchActive) {
+        $rrMsg = "Your branch is inactive — restock requests are unavailable.";
+        $rrMsgType = 'error';
+    } elseif (!$reqBranch) {
         $rrMsg = "You must be assigned to a branch to request a restock.";
         $rrMsgType = 'error';
     } elseif (!$productId || $reqQty < 1) {
@@ -148,7 +160,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_restock'])) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_received'])) {
     $requestId = trim($_POST['request_id'] ?? '');
 
-    if ($requestId) {
+    if (!$branchActive) {
+        $rrMsg = "Your branch is inactive — restock actions are unavailable.";
+        $rrMsgType = 'error';
+    } elseif ($requestId) {
         $stmt = $conn->prepare(
             "SELECT product_id, branch_id, requested_qty FROM restock_requests
              WHERE request_id = ? AND status = 'ORDERED' LIMIT 1"
@@ -670,6 +685,15 @@ function reasonBadge(string $reason): string {
         </form>
     </header>
 
+    <?php if (!$branchActive): ?>
+    <div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:8px;
+                padding:12px 18px;margin-bottom:16px;font-size:13px;color:#991b1b;
+                display:flex;align-items:center;gap:10px;">
+        <i class="fas fa-triangle-exclamation" style="font-size:16px;"></i>
+        <span>Your assigned branch is temporarily unavailable (inactive/under renovation). Stock updates and restock requests are disabled — contact an admin to be reassigned.</span>
+    </div>
+    <?php endif; ?>
+
     <?php if ($successMsg): ?>
     <div class="success-banner<?= $isWarning ? ' warn' : '' ?>">
         <i class="fas <?= $isWarning ? 'fa-exclamation-triangle' : 'fa-check-circle' ?>"></i> <?= htmlspecialchars($successMsg) ?>
@@ -817,7 +841,7 @@ function reasonBadge(string $reason): string {
                                            class="qty-input <?= $qty <= $min ? 'below' : '' ?>"
                                            value="<?= $qty ?>" min="0"
                                            oninput="highlightQty(this, <?= $min ?>)">
-                                    <button type="submit" name="update_stock" class="save-btn">
+                                    <button type="submit" name="update_stock" class="save-btn" <?= $branchActive ? '' : 'disabled' ?>>
                                         <i class="fas fa-save"></i> Save
                                     </button>
                                 </form>
@@ -993,7 +1017,7 @@ function reasonBadge(string $reason): string {
                                 <form method="POST" action="s_inv.php" style="display:inline;"
                                       onsubmit="return confirm('Confirm that this stock has physically arrived? This will update inventory immediately.')">
                                     <input type="hidden" name="request_id" value="<?= htmlspecialchars($req['request_id']) ?>">
-                                    <button type="submit" name="mark_received" class="save-btn" style="background:#10b981;">
+                                    <button type="submit" name="mark_received" class="save-btn" style="background:#10b981;" <?= $branchActive ? '' : 'disabled' ?>>
                                         <i class="fas fa-check"></i> Mark as Received
                                     </button>
                                 </form>
@@ -1260,7 +1284,8 @@ function closeRestockModal() {
                 </button>
                 <button type="submit" name="submit_restock"
                         style="flex:1;padding:10px;background:#1d4ed8;color:white;border:none;
-                               border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">
+                               border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;"
+                        <?= $branchActive ? '' : 'disabled' ?>>
                     <i class="fas fa-paper-plane"></i> Submit Request
                 </button>
             </div>

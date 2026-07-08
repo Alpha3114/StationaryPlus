@@ -13,6 +13,11 @@ require_once 'db.php';
 
 header('Content-Type: application/json');
 
+if (!staff_branch_is_active($conn)) {
+    echo json_encode(['success' => false, 'error' => 'Your assigned branch is inactive — payment verification is disabled.']);
+    exit;
+}
+
 $paymentId       = trim($_POST['payment_id']       ?? '');
 $action          = trim($_POST['action']           ?? '');
 $rejectionReason = trim($_POST['rejection_reason'] ?? '');
@@ -83,17 +88,29 @@ if ($action === 'VALID') {
 
     if ($orderType === 'PREORDER') {
         $stmt = $conn->prepare(
-            "SELECT COUNT(*) AS cnt FROM print_files
-             WHERE order_id = ? AND file_status = 'RECEIVED'"
+            "SELECT
+                 COUNT(*) AS total,
+                 SUM(file_status = 'RECEIVED') AS unreviewed,
+                 SUM(file_status = 'REVIEWED') AS reviewed
+             FROM print_files
+             WHERE order_id = ?"
         );
         $stmt->bind_param('s', $orderId);
         $stmt->execute();
-        $unreviewedCount = (int)$stmt->get_result()->fetch_assoc()['cnt'];
+        $fileCounts      = $stmt->get_result()->fetch_assoc();
+        $totalFiles      = (int)$fileCounts['total'];
+        $unreviewedCount = (int)$fileCounts['unreviewed'];
+        $reviewedCount   = (int)$fileCounts['reviewed'];
         $stmt->close();
 
         if ($unreviewedCount > 0) {
             $blockedByFiles = true;
             $holdReason = "Payment verified. Order will move to Processing once the $unreviewedCount pending print file(s) are reviewed by staff.";
+        } elseif ($totalFiles > 0 && $reviewedCount === 0) {
+            // Every print file on this order was rejected and none has been
+            // replaced/approved yet — nothing to actually process.
+            $blockedByFiles = true;
+            $holdReason = "Payment verified, but all uploaded print file(s) were rejected. Order will move to Processing once the customer uploads and staff approve a replacement file.";
         }
     }
 

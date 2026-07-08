@@ -35,11 +35,6 @@ function callAI(string $prompt, int $maxTokens = 500): string {
     ]);
 }
 
-// Keep old name working so other files don't break
-function callClaude(string $prompt, int $maxTokens = 500): string {
-    return callAI($prompt, $maxTokens);
-}
-
 
 // ── Vision call — analyses a file (PDF or image) ──────────────
 // Accepts the Anthropic-style messages array used in upload_print.php

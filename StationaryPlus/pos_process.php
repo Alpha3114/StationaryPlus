@@ -11,6 +11,11 @@ require_once 'db.php';
 
 header('Content-Type: application/json');
 
+if (!staff_branch_is_active($conn)) {
+    echo json_encode(['success' => false, 'error' => 'Your assigned branch is inactive — sales cannot be processed.']);
+    exit;
+}
+
 // ── 1. Parse inputs ───────────────────────────────────────────
 $itemsRaw   = trim($_POST['items']       ?? '[]');
 $customerId = trim($_POST['customer_id'] ?? '') ?: null;
@@ -178,7 +183,10 @@ try {
     $stmt->close();
 
     $paymentId          = 'PAY-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
-    $verificationStatus = $method === 'CASH' ? 'VALID' : 'PENDING';
+    // POS payments are witnessed in person by staff at checkout (cash counted,
+    // transfer/e-wallet confirmation shown on the spot), so unlike online-order
+    // proofs they don't need a separate staff verification pass.
+    $verificationStatus = 'VALID';
     $payDate            = date('Y-m-d H:i:s');
     $stmt = $conn->prepare(
         "INSERT INTO payments

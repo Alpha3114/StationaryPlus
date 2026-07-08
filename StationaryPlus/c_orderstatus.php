@@ -110,8 +110,11 @@ if ($filterStatus !== 'all' && in_array($filterStatus, $validStatuses)) {
 }
 
 // ── Main query ────────────────────────────────────────────────
-// Correlated subqueries fetch the most recent payment status
-// without fanning out rows (avoids duplicates from multi-file orders).
+// Correlated subqueries fetch the most recent payment AND the most
+// recent print file for this order without fanning out rows — an
+// order can have more than one print_files row (e.g. after a customer
+// re-uploads a corrected file for a rejected one), and a plain JOIN
+// would duplicate the whole order row once per file.
 $sql = "SELECT
             o.order_id            AS id,
             o.order_date,
@@ -120,11 +123,21 @@ $sql = "SELECT
             o.order_type          AS type,
             o.notes,
             o.cancellation_reason AS cancellation_reason,
-            pf.file_id            AS pf_file_id,
-            pf.file_name          AS pf_file_name,
-            pf.file_status        AS pf_file_status,
-            pf.rejection_reason   AS pf_rejection_reason,
-            pf.duration_min       AS pf_duration_min,
+            (SELECT file_id FROM print_files
+             WHERE order_id = o.order_id
+             ORDER BY upload_date DESC LIMIT 1) AS pf_file_id,
+            (SELECT file_name FROM print_files
+             WHERE order_id = o.order_id
+             ORDER BY upload_date DESC LIMIT 1) AS pf_file_name,
+            (SELECT file_status FROM print_files
+             WHERE order_id = o.order_id
+             ORDER BY upload_date DESC LIMIT 1) AS pf_file_status,
+            (SELECT rejection_reason FROM print_files
+             WHERE order_id = o.order_id
+             ORDER BY upload_date DESC LIMIT 1) AS pf_rejection_reason,
+            (SELECT duration_min FROM print_files
+             WHERE order_id = o.order_id
+             ORDER BY upload_date DESC LIMIT 1) AS pf_duration_min,
             -- Most recent payment for this order
             (SELECT verification_status FROM payments
              WHERE order_id = o.order_id
@@ -133,7 +146,6 @@ $sql = "SELECT
              WHERE order_id = o.order_id
              ORDER BY record_date DESC LIMIT 1) AS pay_id
         FROM orders o
-        LEFT JOIN print_files pf ON pf.order_id = o.order_id
         WHERE o.user_id = ?
           $periodSQL
           $typeSQL
@@ -284,7 +296,10 @@ function paymentBadge(?string $status): string {
             <h1 class="page-title">Order Status</h1>
             <p class="page-subtitle">Track your pre-orders and orders in real time</p>
         </div>
-        <?php render_browsing_branch_bar(); ?>
+        <div style="display:flex;flex-direction:column;gap:3px;">
+            <?php render_browsing_branch_bar(); ?>
+            <?php render_branch_unavailable_notice(); ?>
+        </div>
     </header>
 
     <div class="content-container">
@@ -367,7 +382,7 @@ function paymentBadge(?string $status): string {
                             <?= paymentBadge($row['pay_status'] ?? null) ?>
                             <?php if (($row['pay_status'] ?? null) === 'INVALID'): ?>
                             <div>
-                                <a href="c_payment.php" class="resubmit-link">
+                                <a href="c_payment.php?order_id=<?= urlencode($row['id']) ?>" class="resubmit-link">
                                     <i class="fas fa-redo"></i> Resubmit payment
                                 </a>
                             </div>
@@ -380,7 +395,7 @@ function paymentBadge(?string $status): string {
                             if (($row['pay_status'] ?? null) === null && $row['status'] === 'NEW' && $pfReviewed):
                             ?>
                             <div style="margin-top:5px;">
-                                <a href="c_payment.php" style="font-size:11px;color:var(--primary);text-decoration:none;font-weight:600;">
+                                <a href="c_payment.php?order_id=<?= urlencode($row['id']) ?>" style="font-size:11px;color:var(--primary);text-decoration:none;font-weight:600;">
                                     <i class="fas fa-arrow-right"></i> Submit payment
                                 </a>
                             </div>
@@ -477,11 +492,7 @@ function paymentBadge(?string $status): string {
     </div>
 
     <footer class="page-footer">
-        <div>&copy; <?= date('Y') ?> StationaryPlus &mdash; Stationery &amp; Printing Management System</div>
-        <div class="footer-links">
-            <a href="c_payment.php">Make a Payment</a> |
-            <a href="c_dashboard.php">Dashboard</a>
-        </div>
+        &copy; <?= date('Y') ?> StationaryPlus &mdash; Stationery &amp; Printing Management System
     </footer>
 </main>
 
@@ -658,11 +669,11 @@ function renderReceipt(d) {
         ${d.pay_status === 'INVALID' ? `
         <div style="margin-top:14px;padding:10px 14px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:13px;color:#991b1b;">
             <i class="fas fa-exclamation-circle"></i>
-            Your payment was rejected. <a href="c_payment.php" style="color:#dc2626;font-weight:700;">Click here to resubmit.</a>
+            Your payment was rejected. <a href="c_payment.php?order_id=${encodeURIComponent(d.id)}" style="color:#dc2626;font-weight:700;">Click here to resubmit.</a>
         </div>` : ''}
         ${d.pay_status === null && d.status === 'NEW' ? `
         <div style="margin-top:14px;text-align:center;">
-            <a href="c_payment.php" style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;background:var(--primary);color:white;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;">
+            <a href="c_payment.php?order_id=${encodeURIComponent(d.id)}" style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;background:var(--primary);color:white;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;">
                 <i class="fas fa-paper-plane"></i> Submit Payment
             </a>
         </div>` : ''}

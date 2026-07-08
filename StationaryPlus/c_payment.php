@@ -13,6 +13,17 @@ $userId  = $_SESSION['user_id'];
 $message = '';
 $msgType = '';
 
+// Flash message surfaced after the post/redirect below
+if (!empty($_SESSION['payment_flash'])) {
+    $message = $_SESSION['payment_flash']['message'];
+    $msgType = $_SESSION['payment_flash']['type'];
+    unset($_SESSION['payment_flash']);
+}
+
+// ?order_id=PRE-xxx lets c_orderstatus.php send the customer here to
+// resubmit/submit payment for a specific order, pre-selected below.
+$linkOrderId = trim($_GET['order_id'] ?? '');
+
 function generate_payment_id(): string {
     return 'PAY-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
 }
@@ -33,7 +44,8 @@ $stmt = $conn->prepare(
          ) +
          COALESCE(
              (SELECT SUM(pf.estimated_price)
-              FROM print_files pf WHERE pf.order_id = o.order_id), 0
+              FROM print_files pf
+              WHERE pf.order_id = o.order_id AND pf.file_status != 'REJECTED'), 0
          ) AS amount
      FROM orders o
      WHERE o.user_id = ?
@@ -158,10 +170,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute();
         $stmt->close();
 
-        $message = "Payment record <strong>$paymentId</strong> submitted successfully. Staff will verify your payment shortly.";
-        $msgType = 'success';
+        $_SESSION['payment_flash'] = [
+            'message' => "Payment record <strong>$paymentId</strong> submitted successfully. Staff will verify your payment shortly.",
+            'type'    => 'success',
+        ];
 
-        header('Refresh: 0');
+        header('Location: c_payment.php');
+        exit;
     } else {
         $message = implode('<br>', $errors);
         $msgType = 'error';
@@ -350,7 +365,8 @@ function methodLabel(string $method): string {
                                     ?>
                                     <option value="<?= htmlspecialchars($r['id']) ?>"
                                             data-type="order"
-                                            data-amount="<?= $amt > 0 ? $amt : '' ?>">
+                                            data-amount="<?= $amt > 0 ? $amt : '' ?>"
+                                            <?= ($linkOrderId && $linkOrderId === $r['id']) ? 'selected' : '' ?>>
                                         <?= htmlspecialchars($r['id']) ?>
                                         <?= $amt > 0 ? '— RM ' . number_format($amt, 2) : '(amount pending)' ?>
                                     </option>
@@ -364,7 +380,8 @@ function methodLabel(string $method): string {
                                     ?>
                                     <option value="<?= htmlspecialchars($r['id']) ?>"
                                             data-type="preorder"
-                                            data-amount="<?= $amt > 0 ? $amt : '' ?>">
+                                            data-amount="<?= $amt > 0 ? $amt : '' ?>"
+                                            <?= ($linkOrderId && $linkOrderId === $r['id']) ? 'selected' : '' ?>>
                                         <?= htmlspecialchars($r['id']) ?>
                                         <?= $amt > 0 ? '— RM ' . number_format($amt, 2) : '(amount TBC by staff)' ?>
                                     </option>
@@ -375,6 +392,14 @@ function methodLabel(string $method): string {
                                 <option disabled>No pending orders found</option>
                                 <?php endif; ?>
                             </select>
+                            <?php if ($linkOrderId): ?>
+                            <div style="margin-top:7px;padding:8px 13px;background:#fffbeb;border:1px solid #fde68a;
+                                        border-radius:7px;font-size:12px;color:#92400e;display:flex;gap:7px;align-items:center;">
+                                <i class="fas fa-info-circle"></i>
+                                You're submitting payment for order
+                                <strong><?= htmlspecialchars($linkOrderId) ?></strong>.
+                            </div>
+                            <?php endif; ?>
                             <div style="margin-top:8px;padding:8px 12px;background:#fffbeb;
                                         border:1px solid #fde68a;border-radius:7px;
                                         font-size:12px;color:#92400e;display:flex;gap:7px;align-items:flex-start;">
@@ -524,15 +549,21 @@ function methodLabel(string $method): string {
     </div><!-- /.content-container -->
 
     <footer class="page-footer">
-        <div>&copy; <?= date('Y') ?> StationaryPlus &mdash; Stationery &amp; Printing Management System</div>
-        <div class="footer-links">
-            <a href="c_orderstatus.php">Order Status</a> |
-            <a href="c_dashboard.php">Dashboard</a>
-        </div>
+        &copy; <?= date('Y') ?> StationaryPlus &mdash; Stationery &amp; Printing Management System
     </footer>
 </main>
 
 <script>
+// If arriving via a resubmit/submit-payment link, the matching option is
+// already marked `selected` server-side — run the same onchange logic once
+// on load so the amount/method restrictions populate without a manual reselect.
+<?php if ($linkOrderId): ?>
+document.addEventListener('DOMContentLoaded', () => {
+    const sel = document.getElementById('recordSelect');
+    if (sel && sel.value) updateAmount(sel);
+});
+<?php endif; ?>
+
 // ── Order selector: auto-fill amount, filter methods ─────────
 function updateAmount(select) {
     const opt    = select.options[select.selectedIndex];
