@@ -32,12 +32,17 @@ $pendingPayments  = 0;
 $pendingPrintFiles = 0;
 $pendingRestock    = 0;
 if (isset($conn)) {
-    $r = $conn->query("SELECT COUNT(*) AS cnt FROM payments WHERE verification_status = 'PENDING'");
-    if ($r) $pendingPayments = (int)$r->fetch_assoc()['cnt'];
-    $r = $conn->query("SELECT COUNT(*) AS cnt FROM print_files WHERE file_status = 'RECEIVED'");
-    if ($r) $pendingPrintFiles = (int)$r->fetch_assoc()['cnt'];
-    $r = $conn->query("SELECT COUNT(*) AS cnt FROM restock_requests WHERE status = 'PENDING'");
-    if ($r) $pendingRestock = (int)$r->fetch_assoc()['cnt'];
+    $r = $conn->query(
+        "SELECT
+            (SELECT COUNT(*) FROM payments WHERE verification_status = 'PENDING') AS pending_payments,
+            (SELECT COUNT(*) FROM print_files WHERE file_status = 'RECEIVED') AS pending_print_files,
+            (SELECT COUNT(*) FROM restock_requests WHERE status = 'PENDING') AS pending_restock"
+    );
+    if ($r && ($row = $r->fetch_assoc())) {
+        $pendingPayments   = (int)$row['pending_payments'];
+        $pendingPrintFiles = (int)$row['pending_print_files'];
+        $pendingRestock    = (int)$row['pending_restock'];
+    }
 }
 ?>
 

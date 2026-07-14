@@ -18,58 +18,59 @@ $activePage  = $navMapping[$currentPage] ?? '';
 $userName    = $_SESSION['user_name']    ?? 'Staff';
 $userInitial = strtoupper(mb_substr($userName, 0, 1));
 
-// Branch name for display
-$branchName    = 'All Branches';
-$sidebarBranch = $_SESSION['branch_id'] ?? null;
-if ($sidebarBranch && isset($conn)) {
-    $stmt = $conn->prepare("SELECT branch_name FROM branches WHERE branch_id = ? LIMIT 1");
-    $stmt->bind_param('s', $sidebarBranch);
-    $stmt->execute();
-    $row        = $stmt->get_result()->fetch_assoc();
-    $branchName = $row['branch_name'] ?? 'All Branches';
-    $stmt->close();
-}
-
-// ── Pending counts for badges — scoped to branch ──────────────
-// Branch-assigned staff only see counts relevant to their branch.
-// Admin with no branch sees company-wide totals.
+// Branch name + pending counts for badges — scoped to branch when
+// staff has one assigned; company-wide totals otherwise. Combined into
+// a single query (per case) instead of separate round trips.
+$branchName        = 'All Branches';
+$sidebarBranch     = $_SESSION['branch_id'] ?? null;
 $pendingPayments   = 0;
 $pendingPrintFiles = 0;
 
 if (isset($conn)) {
     if ($sidebarBranch) {
-        $r = $conn->prepare(
-            "SELECT COUNT(*) AS cnt FROM payments p
-             JOIN orders o ON p.order_id = o.order_id
-             WHERE p.verification_status = 'PENDING'
-               AND o.branch_id = ?"
+        $stmt = $conn->prepare(
+            "SELECT b.branch_name,
+                    (SELECT COUNT(*) FROM payments p
+                     JOIN orders o ON p.order_id = o.order_id
+                     WHERE p.verification_status = 'PENDING' AND o.branch_id = b.branch_id) AS pending_payments,
+                    (SELECT COUNT(*) FROM print_files pf
+                     LEFT JOIN orders o ON pf.order_id = o.order_id
+                     WHERE pf.file_status = 'RECEIVED' AND o.branch_id = b.branch_id) AS pending_print_files
+             FROM branches b WHERE b.branch_id = ? LIMIT 1"
         );
-        $r->bind_param('s', $sidebarBranch);
-        $r->execute();
-        $pendingPayments = $r->get_result()->fetch_assoc()['cnt'] ?? 0;
-        $r->close();
-    } else {
-        $r = $conn->query("SELECT COUNT(*) AS cnt FROM payments WHERE verification_status = 'PENDING'");
-        $pendingPayments = $r->fetch_assoc()['cnt'] ?? 0;
-    }
+        $stmt->bind_param('s', $sidebarBranch);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
 
-    if ($sidebarBranch) {
-        $r = $conn->prepare(
-            "SELECT COUNT(*) AS cnt FROM print_files pf
-             LEFT JOIN orders o ON pf.order_id = o.order_id
-             WHERE pf.file_status = 'RECEIVED'
-               AND o.branch_id = ?"
-        );
-        $r->bind_param('s', $sidebarBranch);
-        $r->execute();
-        $pendingPrintFiles = $r->get_result()->fetch_assoc()['cnt'] ?? 0;
-        $r->close();
+        if ($row) {
+            $branchName        = $row['branch_name'] ?? 'All Branches';
+            $pendingPayments   = (int)$row['pending_payments'];
+            $pendingPrintFiles = (int)$row['pending_print_files'];
+        }
     } else {
-        $r = $conn->query("SELECT COUNT(*) AS cnt FROM print_files WHERE file_status = 'RECEIVED'");
-        $pendingPrintFiles = $r->fetch_assoc()['cnt'] ?? 0;
+        $r = $conn->query(
+            "SELECT
+                (SELECT COUNT(*) FROM payments WHERE verification_status = 'PENDING') AS pending_payments,
+                (SELECT COUNT(*) FROM print_files WHERE file_status = 'RECEIVED') AS pending_print_files"
+        );
+        if ($r && ($row = $r->fetch_assoc())) {
+            $pendingPayments   = (int)$row['pending_payments'];
+            $pendingPrintFiles = (int)$row['pending_print_files'];
+        }
     }
 }
 ?>
+
+<style>
+.ops-alert {
+    margin-left: auto;
+    background: #ef4444; color: white;
+    font-size: 10px; font-weight: 700;
+    padding: 1px 6px; border-radius: 10px;
+    min-width: 18px; text-align: center;
+}
+</style>
 
 <nav class="sidebar">
 

@@ -8,6 +8,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'auth.php';
 require_role('ADMIN');
 require_once 'db.php';
+require_once 'report_helper.php';
 
 // ── Period & tab ──────────────────────────────────────────────
 $period   = $_GET['period']    ?? 'month';
@@ -15,62 +16,14 @@ $tab      = $_GET['tab']       ?? 'overview';
 $dateFrom = $_GET['date_from'] ?? '';
 $dateTo   = $_GET['date_to']   ?? '';
 
-// Build date range SQL (orders table alias = o, payments alias = p)
-if ($period === 'custom' && $dateFrom && $dateTo) {
-    $rangeSQL    = "AND DATE(o.order_date) BETWEEN '$dateFrom' AND '$dateTo'";
-    $rangePaySQL = "AND DATE(p.record_date) BETWEEN '$dateFrom' AND '$dateTo'";
-    $periodLabel = date('d M Y', strtotime($dateFrom)) . ' – ' . date('d M Y', strtotime($dateTo));
-} else {
-    [$rangeSQL, $rangePaySQL, $periodLabel] = match($period) {
-        'today'     => [
-            "AND DATE(o.order_date)=CURDATE()",
-            "AND DATE(p.record_date)=CURDATE()",
-            'Today',
-        ],
-        'week'      => [
-            "AND o.order_date>=DATE_SUB(NOW(),INTERVAL 7 DAY)",
-            "AND p.record_date>=DATE_SUB(NOW(),INTERVAL 7 DAY)",
-            'Last 7 Days',
-        ],
-        'month'     => [
-            "AND MONTH(o.order_date)=MONTH(NOW()) AND YEAR(o.order_date)=YEAR(NOW())",
-            "AND MONTH(p.record_date)=MONTH(NOW()) AND YEAR(p.record_date)=YEAR(NOW())",
-            'This Month',
-        ],
-        'lastmonth' => [
-            "AND MONTH(o.order_date)=MONTH(DATE_SUB(NOW(),INTERVAL 1 MONTH)) AND YEAR(o.order_date)=YEAR(DATE_SUB(NOW(),INTERVAL 1 MONTH))",
-            "AND MONTH(p.record_date)=MONTH(DATE_SUB(NOW(),INTERVAL 1 MONTH)) AND YEAR(p.record_date)=YEAR(DATE_SUB(NOW(),INTERVAL 1 MONTH))",
-            'Last Month',
-        ],
-        'quarter'   => [
-            "AND o.order_date>=DATE_SUB(NOW(),INTERVAL 3 MONTH)",
-            "AND p.record_date>=DATE_SUB(NOW(),INTERVAL 3 MONTH)",
-            'This Quarter',
-        ],
-        'year'      => [
-            "AND YEAR(o.order_date)=YEAR(NOW())",
-            "AND YEAR(p.record_date)=YEAR(NOW())",
-            'This Year',
-        ],
-        'alltime'   => ["", "", 'All Time'],
-        default     => [
-            "AND MONTH(o.order_date)=MONTH(NOW()) AND YEAR(o.order_date)=YEAR(NOW())",
-            "AND MONTH(p.record_date)=MONTH(NOW()) AND YEAR(p.record_date)=YEAR(NOW())",
-            'This Month',
-        ],
-    };
-}
+// Build sargable date range boundaries (orders table alias = o)
+$range       = reportPeriodRange($period, $dateFrom, $dateTo);
+$rangeSQL    = reportRangeClause($range['start'], $range['end'], 'o.order_date');
+$periodLabel = $range['label'];
 
 // Previous period SQL (for growth %)
-$prevSQL = match($period) {
-    'today'     => "AND DATE(o.order_date)=DATE_SUB(CURDATE(),INTERVAL 1 DAY)",
-    'week'      => "AND o.order_date>=DATE_SUB(NOW(),INTERVAL 14 DAY) AND o.order_date<DATE_SUB(NOW(),INTERVAL 7 DAY)",
-    'month'     => "AND MONTH(o.order_date)=MONTH(DATE_SUB(NOW(),INTERVAL 1 MONTH)) AND YEAR(o.order_date)=YEAR(DATE_SUB(NOW(),INTERVAL 1 MONTH))",
-    'lastmonth' => "AND MONTH(o.order_date)=MONTH(DATE_SUB(NOW(),INTERVAL 2 MONTH)) AND YEAR(o.order_date)=YEAR(DATE_SUB(NOW(),INTERVAL 2 MONTH))",
-    'quarter'   => "AND o.order_date>=DATE_SUB(NOW(),INTERVAL 6 MONTH) AND o.order_date<DATE_SUB(NOW(),INTERVAL 3 MONTH)",
-    'year'      => "AND YEAR(o.order_date)=YEAR(NOW())-1",
-    default     => "",
-};
+$prev    = reportPrevPeriodRange($period);
+$prevSQL = reportRangeClause($prev['start'], $prev['end'], 'o.order_date');
 
 function growthPct(float $cur, float $prev): array {
     if ($prev == 0) { $pct = $cur > 0 ? 100 : 0; $dir = $cur > 0 ? 'up' : 'flat'; }

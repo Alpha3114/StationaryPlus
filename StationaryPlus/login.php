@@ -48,7 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $step  = 'login';
         } else {
             $stmt = $conn->prepare(
-                "SELECT user_id, name, password_hash, user_role, account_status, branch_id
+                "SELECT user_id, name, password_hash, user_role, account_status, branch_id, preferred_branch_id
                  FROM users WHERE email = ? LIMIT 1"
             );
             $stmt->bind_param('s', $email);
@@ -79,14 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 // For customers, load their preferred branch instead
                 if ($user['user_role'] === 'CUSTOMER') {
-                    $bStmt = $conn->prepare(
-                        "SELECT preferred_branch_id FROM users WHERE user_id = ? LIMIT 1"
-                    );
-                    $bStmt->bind_param('s', $user['user_id']);
-                    $bStmt->execute();
-                    $prefBranch = $bStmt->get_result()->fetch_assoc()['preferred_branch_id'] ?? null;
-                    $bStmt->close();
-                    $_SESSION['branch_id'] = $prefBranch;
+                    $_SESSION['branch_id'] = $user['preferred_branch_id'] ?? null;
                 }
 
                 $map = ['ADMIN' => 'a_dashboard.php', 'STAFF' => 's_dashboard.php', 'CUSTOMER' => 'c_dashboard.php'];

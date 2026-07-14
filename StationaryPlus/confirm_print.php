@@ -57,6 +57,9 @@ if (time() - ($pending['created_at'] ?? 0) > 7200) {
 // ── 2. Create an order if no pre-order was linked ────────────
 $orderId     = $pending['linked_order_id'];
 $orderBranch = $_SESSION['branch_id'] ?? null;
+$isNewOrder  = ($orderId === null);
+
+$conn->begin_transaction();
 
 if ($orderId === null) {
     $autoOrderId = 'PRE-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
@@ -105,10 +108,36 @@ $stmt->bind_param(
 );
 
 if (!$stmt->execute()) {
+    $conn->rollback();
     echo json_encode(['success' => false, 'error' => 'Failed to save print job. Please try again.']);
     exit;
 }
 $stmt->close();
+
+$conn->commit();
+
+// ── Order confirmation email — only for a newly auto-created order;
+// a print job attached to an existing pre-order was already confirmed.
+if ($isNewOrder) {
+    $cStmt = $conn->prepare("SELECT email, name FROM users WHERE user_id = ? LIMIT 1");
+    $cStmt->bind_param('s', $userId);
+    $cStmt->execute();
+    $customer = $cStmt->get_result()->fetch_assoc();
+    $cStmt->close();
+
+    if ($customer && !empty($customer['email'])) {
+        require_once 'mailer.php';
+        $subject = "StationaryPlus — Pre-order Confirmed ($orderId)";
+        $body    = "Hi {$customer['name']},\n\n"
+                 . "Your print job has been received and is now being processed.\n\n"
+                 . "Order ID: $orderId\n"
+                 . "File: {$pending['file_name']}\n"
+                 . "Estimated Total: RM " . number_format($pending['estimated_price'], 2) . "\n\n"
+                 . "Track your order status: c_orderstatus.php\n\n"
+                 . "— StationaryPlus Team";
+        sendAppEmail($customer['email'], $subject, $body);
+    }
+}
 
 // ── 4. Clear the session entry ────────────────────────────────
 unset($_SESSION['pending_prints'][$fileId]);

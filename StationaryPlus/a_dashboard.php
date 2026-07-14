@@ -11,138 +11,44 @@ require_once 'db.php';
 $userName = $_SESSION['user_name'];
 
 // ========================================
-// DASHBOARD STATISTICS
+// DASHBOARD STATISTICS — one combined query via scalar subqueries
+// instead of 8 separate round trips.
 // ========================================
 
-// TOTAL USERS
-$totalUsers = 0;
-
-$userQuery = mysqli_query($conn, "
-    SELECT COUNT(*) AS total 
-    FROM users
+$statsRes = $conn->query("
+    SELECT
+        (SELECT COUNT(*) FROM users) AS total_users,
+        (SELECT COUNT(*) FROM users
+         WHERE MONTH(registration_date) = MONTH(CURRENT_DATE())
+           AND YEAR(registration_date) = YEAR(CURRENT_DATE())) AS new_users,
+        (SELECT COUNT(*) FROM products WHERE product_status = 'ACTIVE') AS total_products,
+        (SELECT COUNT(*) FROM products
+         WHERE MONTH(last_updated) = MONTH(CURRENT_DATE())
+           AND YEAR(last_updated) = YEAR(CURRENT_DATE())) AS new_products,
+        (SELECT COUNT(*) FROM branches WHERE status = 'ACTIVE') AS total_branches,
+        (SELECT COUNT(*) FROM branches
+         WHERE MONTH(last_updated) = MONTH(CURRENT_DATE())
+           AND YEAR(last_updated) = YEAR(CURRENT_DATE())) AS updated_branches,
+        (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE verification_status = 'VALID') AS total_sales,
+        (SELECT COALESCE(SUM(amount), 0) FROM payments
+         WHERE verification_status = 'VALID'
+           AND MONTH(record_date) = MONTH(CURRENT_DATE - INTERVAL 1 MONTH)
+           AND YEAR(record_date) = YEAR(CURRENT_DATE - INTERVAL 1 MONTH)) AS last_month_sales,
+        (SELECT COUNT(*) FROM inventory WHERE stock_quantity = 0) AS out_of_stock,
+        (SELECT COUNT(*) FROM inventory WHERE stock_quantity > 0 AND stock_quantity <= minimum_level) AS low_stock
 ");
+$stats = $statsRes->fetch_assoc();
 
-if ($userQuery) {
-    $userData = mysqli_fetch_assoc($userQuery);
-    $totalUsers = $userData['total'];
-}
-
-// NEW USERS THIS MONTH
-$newUsers = 0;
-
-$newUsersQuery = mysqli_query($conn, "
-    SELECT COUNT(*) AS total
-    FROM users
-    WHERE MONTH(registration_date) = MONTH(CURRENT_DATE())
-    AND YEAR(registration_date) = YEAR(CURRENT_DATE())
-");
-
-if ($newUsersQuery) {
-    $newUsersData = mysqli_fetch_assoc($newUsersQuery);
-    $newUsers = $newUsersData['total'];
-}
-
-// ========================================
-// TOTAL PRODUCTS
-// ========================================
-
-$totalProducts = 0;
-
-$productQuery = mysqli_query($conn, "
-    SELECT COUNT(*) AS total
-    FROM products
-    WHERE product_status = 'ACTIVE'
-");
-
-if ($productQuery) {
-    $productData = mysqli_fetch_assoc($productQuery);
-    $totalProducts = $productData['total'];
-}
-
-// PRODUCTS UPDATED THIS MONTH
-$newProducts = 0;
-
-$newProductsQuery = mysqli_query($conn, "
-    SELECT COUNT(*) AS total
-    FROM products
-    WHERE MONTH(last_updated) = MONTH(CURRENT_DATE())
-    AND YEAR(last_updated) = YEAR(CURRENT_DATE())
-");
-
-if ($newProductsQuery) {
-    $newProductsData = mysqli_fetch_assoc($newProductsQuery);
-    $newProducts = $newProductsData['total'];
-}
-
-// ========================================
-// TOTAL BRANCHES
-// ========================================
-
-$totalBranches = 0;
-
-$branchQuery = mysqli_query($conn, "
-    SELECT COUNT(*) AS total
-    FROM branches
-    WHERE status = 'ACTIVE'
-");
-
-if ($branchQuery) {
-    $branchData = mysqli_fetch_assoc($branchQuery);
-    $totalBranches = $branchData['total'];
-}
-// ========================================
-// BRANCHES UPDATED THIS MONTH
-// ========================================
-
-$updatedBranches = 0;
-
-$updatedBranchesQuery = mysqli_query($conn, "
-    SELECT COUNT(*) AS total
-    FROM branches
-    WHERE MONTH(last_updated) = MONTH(CURRENT_DATE())
-    AND YEAR(last_updated) = YEAR(CURRENT_DATE())
-");
-
-if ($updatedBranchesQuery) {
-    $updatedBranchesData = mysqli_fetch_assoc($updatedBranchesQuery);
-    $updatedBranches = $updatedBranchesData['total'];
-}
-// ========================================
-// TOTAL SALES
-// ONLY VALID PAYMENTS
-// ========================================
-
-$totalSales = 0;
-
-$salesQuery = mysqli_query($conn, "
-    SELECT COALESCE(SUM(amount), 0) AS total
-    FROM payments
-    WHERE verification_status = 'VALID'
-");
-
-if ($salesQuery) {
-    $salesData = mysqli_fetch_assoc($salesQuery);
-    $totalSales = $salesData['total'];
-}
-
-// ========================================
-// SALES LAST MONTH
-// ========================================
-
-$lastMonthSales = 0;
-
-$lastMonthQuery = mysqli_query($conn, "
-    SELECT COALESCE(SUM(amount), 0) AS total
-    FROM payments
-    WHERE verification_status = 'VALID'
-    AND MONTH(record_date) = MONTH(CURRENT_DATE - INTERVAL 1 MONTH)
-    AND YEAR(record_date) = YEAR(CURRENT_DATE - INTERVAL 1 MONTH)
-");
-
-if ($lastMonthQuery) {
-    $lastMonthData = mysqli_fetch_assoc($lastMonthQuery);
-    $lastMonthSales = $lastMonthData['total'];
-}
+$totalUsers      = (int)$stats['total_users'];
+$newUsers        = (int)$stats['new_users'];
+$totalProducts   = (int)$stats['total_products'];
+$newProducts     = (int)$stats['new_products'];
+$totalBranches   = (int)$stats['total_branches'];
+$updatedBranches = (int)$stats['updated_branches'];
+$totalSales      = (float)$stats['total_sales'];
+$lastMonthSales  = (float)$stats['last_month_sales'];
+$outOfStock      = (int)$stats['out_of_stock'];
+$lowStock        = (int)$stats['low_stock'];
 
 // ========================================
 // SALES TREND PERCENTAGE
@@ -497,7 +403,79 @@ $salesTrend = number_format($salesTrend, 1);
         .trend-down {
             color: var(--primary);
         }
-        
+
+        /* Needs Your Attention Section */
+        .attention-section {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 25px;
+        }
+
+        .attention-card {
+            background-color: var(--white);
+            border-radius: 12px;
+            padding: 22px 24px;
+            box-shadow: var(--card-shadow);
+            border: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            text-decoration: none;
+            color: inherit;
+            transition: all 0.2s ease;
+        }
+
+        .attention-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+        }
+
+        .attention-card.has-alert {
+            border-color: rgba(168, 53, 53, 0.25);
+        }
+
+        .attention-icon {
+            width: 46px;
+            height: 46px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 19px;
+            flex-shrink: 0;
+            background-color: rgba(107, 114, 128, 0.1);
+            color: #6b7280;
+        }
+
+        .attention-card.has-alert .attention-icon {
+            background-color: rgba(168, 53, 53, 0.1);
+            color: var(--primary);
+        }
+
+        .attention-value {
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--text);
+            line-height: 1.2;
+        }
+
+        .attention-card.has-alert .attention-value {
+            color: var(--primary);
+        }
+
+        .attention-label {
+            font-size: 13px;
+            color: var(--light-text);
+            font-weight: 600;
+            margin-top: 2px;
+        }
+
+        .attention-sub {
+            font-size: 12px;
+            color: var(--light-text);
+            margin-top: 2px;
+        }
+
         /* Navigation Cards Section */
         .admin-navigation-section {
             flex-grow: 1;
@@ -589,7 +567,7 @@ $salesTrend = number_format($salesTrend, 1);
         
         /* Responsive adjustments */
         @media (max-width: 1400px) {
-            .overview-section, .navigation-grid {
+            .overview-section, .navigation-grid, .attention-section {
                 grid-template-columns: repeat(2, 1fr);
             }
         }
@@ -643,7 +621,7 @@ $salesTrend = number_format($salesTrend, 1);
         }
         
         @media (max-width: 768px) {
-            .overview-section, .navigation-grid {
+            .overview-section, .navigation-grid, .attention-section {
                 grid-template-columns: 1fr;
             }
             
@@ -742,7 +720,51 @@ $salesTrend = number_format($salesTrend, 1);
                     </div>
                 </div>
             </section>
-            
+
+            <!-- Needs Your Attention Section -->
+            <section>
+                <h2 class="section-title">
+                    <i class="fas fa-bell"></i> Needs Your Attention
+                </h2>
+                <div class="attention-section">
+                    <a href="s_payments.php?status=PENDING" class="attention-card <?= $pendingPayments > 0 ? 'has-alert' : '' ?>">
+                        <div class="attention-icon"><i class="fas fa-hourglass-half"></i></div>
+                        <div>
+                            <div class="attention-value"><?= number_format($pendingPayments) ?></div>
+                            <div class="attention-label">Pending Payments</div>
+                            <div class="attention-sub">awaiting verification</div>
+                        </div>
+                    </a>
+
+                    <a href="s_upload_review.php?status=RECEIVED" class="attention-card <?= $pendingPrintFiles > 0 ? 'has-alert' : '' ?>">
+                        <div class="attention-icon"><i class="fas fa-print"></i></div>
+                        <div>
+                            <div class="attention-value"><?= number_format($pendingPrintFiles) ?></div>
+                            <div class="attention-label">Print Files to Review</div>
+                            <div class="attention-sub">awaiting review</div>
+                        </div>
+                    </a>
+
+                    <a href="a_productmanagement.php" class="attention-card <?= $pendingRestock > 0 ? 'has-alert' : '' ?>">
+                        <div class="attention-icon"><i class="fas fa-dolly"></i></div>
+                        <div>
+                            <div class="attention-value"><?= number_format($pendingRestock) ?></div>
+                            <div class="attention-label">Restock Requests</div>
+                            <div class="attention-sub">pending approval</div>
+                        </div>
+                    </a>
+
+                    <a href="s_inv.php" class="attention-card <?= ($lowStock + $outOfStock) > 0 ? 'has-alert' : '' ?>">
+                        <div class="attention-icon"><i class="fas fa-exclamation-triangle"></i></div>
+                        <div>
+                            <div class="attention-value"><?= number_format($lowStock + $outOfStock) ?></div>
+                            <div class="attention-label">Stock Alerts</div>
+                            <div class="attention-sub"><?= $outOfStock ?> out of stock</div>
+                        </div>
+                    </a>
+                </div>
+            </section>
+
             <!-- Navigation Cards Section -->
             <section class="admin-navigation-section">
                 <h2 class="section-title">

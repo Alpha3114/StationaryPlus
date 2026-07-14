@@ -33,12 +33,15 @@ if ($action === 'INVALID' && $rejectionReason === '') {
 }
 
 // Confirm payment exists and is still PENDING
+$conn->begin_transaction();
+
 $stmt = $conn->prepare(
-    "SELECT p.payment_id, p.verification_status, p.order_id,
-            o.order_type, o.order_status
+    "SELECT p.payment_id, p.verification_status, p.order_id, p.amount,
+            o.order_type, o.order_status, u.email, u.name
      FROM payments p
      JOIN orders o ON p.order_id = o.order_id
-     WHERE p.payment_id = ? LIMIT 1"
+     LEFT JOIN users u ON o.user_id = u.user_id
+     WHERE p.payment_id = ? LIMIT 1 FOR UPDATE"
 );
 $stmt->bind_param('s', $paymentId);
 $stmt->execute();
@@ -46,11 +49,13 @@ $payment = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 
 if (!$payment) {
+    $conn->rollback();
     echo json_encode(['success' => false, 'error' => 'Payment not found.']);
     exit;
 }
 
 if ($payment['verification_status'] !== 'PENDING') {
+    $conn->rollback();
     echo json_encode([
         'success' => false,
         'error'   => 'Payment has already been ' . strtolower($payment['verification_status']) . '.',
@@ -128,6 +133,29 @@ if ($action === 'VALID') {
         $transitioned = ($stmt->affected_rows > 0);
         $stmt->close();
     }
+}
+
+$conn->commit();
+
+// ── Notify the customer, if this order has one linked ─────────
+if (!empty($payment['email'])) {
+    require_once 'mailer.php';
+    $orderId = $payment['order_id'];
+    if ($action === 'VALID') {
+        $subject = "StationaryPlus — Payment Verified ($orderId)";
+        $body    = "Hi {$payment['name']},\n\n"
+                 . "Your payment of RM " . number_format((float)$payment['amount'], 2) . " for order $orderId has been verified.\n\n"
+                 . "Track your order status: c_orderstatus.php\n\n"
+                 . "— StationaryPlus Team";
+    } else {
+        $subject = "StationaryPlus — Payment Rejected ($orderId)";
+        $body    = "Hi {$payment['name']},\n\n"
+                 . "Your payment for order $orderId could not be verified.\n\n"
+                 . "Reason: $rejectionReason\n\n"
+                 . "Please resubmit your payment: c_payment.php?order_id=" . urlencode($orderId) . "\n\n"
+                 . "— StationaryPlus Team";
+    }
+    sendAppEmail($payment['email'], $subject, $body);
 }
 
 $message = match(true) {

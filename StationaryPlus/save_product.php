@@ -104,17 +104,24 @@ function provisionInventoryAtActiveBranches(mysqli $conn, string $productId): vo
     $stmt->close();
 }
 
+$imagePath      = null;
+$transactionOpen = false;
+
 try {
     $imagePath = handleProductImageUpload(); // null = no new file chosen, leave existing image untouched on update
 
+    $conn->begin_transaction();
+    $transactionOpen = true;
+
     if ($product_id !== '') {
-        $check = $conn->prepare("SELECT 1 FROM products WHERE product_id = ?");
+        $check = $conn->prepare("SELECT image_path FROM products WHERE product_id = ?");
         $check->bind_param('s', $product_id);
         $check->execute();
-        $check->store_result();
+        $existingRow = $check->get_result()->fetch_assoc();
+        $check->close();
 
-        if ($check->num_rows > 0) {
-            $check->close();
+        if ($existingRow) {
+            $oldImagePath = $existingRow['image_path'] ?? null;
 
             if ($imagePath !== null) {
                 $stmt = $conn->prepare("UPDATE products SET product_name = ?, category = ?, price = ?, product_status = ?, last_updated = ?, image_path = ? WHERE product_id = ?");
@@ -126,10 +133,16 @@ try {
             $stmt->execute();
             $stmt->close();
 
+            $conn->commit();
+
+            // Clean up the replaced image only after a successful commit
+            if ($imagePath !== null && $oldImagePath && $oldImagePath !== $imagePath && file_exists($oldImagePath)) {
+                @unlink($oldImagePath);
+            }
+
             echo json_encode(['success' => true, 'action' => 'updated', 'product_id' => $product_id]);
             exit;
         } else {
-            $check->close();
             $stmt = $conn->prepare("INSERT INTO products (product_id, product_name, category, price, product_status, last_updated, image_path) VALUES (?,?,?,?,?,?,?)");
             $stmt->bind_param('sssdsss', $product_id, $product_name, $category, $price, $product_status, $now, $imagePath);
             $stmt->execute();
@@ -137,6 +150,7 @@ try {
 
             provisionInventoryAtActiveBranches($conn, $product_id);
 
+            $conn->commit();
             echo json_encode(['success' => true, 'action' => 'inserted', 'product_id' => $product_id]);
             exit;
         }
@@ -152,9 +166,12 @@ try {
 
         provisionInventoryAtActiveBranches($conn, $product_id);
 
+        $conn->commit();
         echo json_encode(['success' => true, 'action' => 'inserted', 'product_id' => $product_id]);
         exit;
     }
 } catch (Exception $e) {
+    if ($transactionOpen) $conn->rollback();
+    if ($imagePath !== null) @unlink($imagePath); // avoid an orphaned upload when the DB write failed
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
 }

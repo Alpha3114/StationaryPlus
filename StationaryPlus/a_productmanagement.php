@@ -97,10 +97,21 @@ if ($conn) {
     $stmt->close();
 }
 
-$pendingCountRes = $conn->query("SELECT COUNT(*) AS cnt FROM restock_requests WHERE status = 'PENDING'");
+// Both counts are scoped to requests whose product still exists, matching
+// the INNER JOIN the requests list below already uses — otherwise a
+// request left behind by a deleted product would inflate these counts
+// while never actually appearing in the list.
+$pendingCountRes = $conn->query(
+    "SELECT COUNT(*) AS cnt FROM restock_requests rr
+     JOIN products p ON rr.product_id = p.product_id
+     WHERE rr.status = 'PENDING'"
+);
 $pendingRequestCount = $pendingCountRes ? (int)$pendingCountRes->fetch_assoc()['cnt'] : 0;
 
-$totalRequestsRes = $conn->query("SELECT COUNT(*) AS cnt FROM restock_requests");
+$totalRequestsRes = $conn->query(
+    "SELECT COUNT(*) AS cnt FROM restock_requests rr
+     JOIN products p ON rr.product_id = p.product_id"
+);
 $totalRequestCount = $totalRequestsRes ? (int)$totalRequestsRes->fetch_assoc()['cnt'] : 0;
 
 // ── Restock requests list — filterable by status ──────────────
@@ -795,13 +806,29 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
         .form-header h2 i {
             font-size: 18px;
         }
-        
+
+        .form-mode-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
+        .badge-edit { background: rgba(168,53,53,0.1); color: var(--primary); }
+        .badge-new  { background: rgba(76,175,80,0.1); color: #2e7d32; }
+
         .form-container {
             flex-grow: 1;
             padding: 25px;
             display: flex;
             flex-direction: column;
         }
+
+        /* Placeholder state (shown before any selection) */
+        .form-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; flex-grow: 1; color: var(--light-text); text-align: center; padding: 30px; gap: 12px; }
+        .form-placeholder i { font-size: 38px; opacity: 0.2; }
+        .form-placeholder p { font-size: 14px; }
+
+        /* Status toggle buttons (edit mode only) */
+        .status-btn { flex: 1; padding: 12px; border-radius: 6px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .status-btn-activate { background-color: rgba(76,175,80,0.1); color: #4CAF50; border: 1.5px solid #4CAF50; }
+        .status-btn-activate:hover { background-color: rgba(76,175,80,0.2); }
+        .status-btn-deactivate { background-color: rgba(239,68,68,0.08); color: #c62828; border: 1.5px solid #ef9a9a; }
+        .status-btn-deactivate:hover { background-color: rgba(239,68,68,0.16); }
         
         .form-group {
             margin-bottom: 20px;
@@ -1166,7 +1193,8 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
                                 </td></tr>
                             <?php else: ?>
                                 <?php foreach ($products as $p): ?>
-                                    <tr data-image="<?php echo htmlspecialchars($p['image_path'] ?? ''); ?>">
+                                    <tr data-id="<?= htmlspecialchars($p['product_id']) ?>"
+                                        onclick="loadProduct(<?= htmlspecialchars(json_encode($p), ENT_QUOTES) ?>)">
                                         <td><?php echo htmlspecialchars($p['product_id']); ?></td>
                                         <td>
                                             <div class="product-info">
@@ -1195,70 +1223,79 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
             
             <!-- Right Section: Product Form -->
             <section class="form-section">
-                <div class="form-header">
-                    <h2><i class="fas fa-edit"></i> Product Details</h2>
+                <div class="form-header" style="display:flex;justify-content:space-between;align-items:center;">
+                    <h2><i class="fas fa-edit"></i> <span id="formTitle">Product Details</span></h2>
+                    <span class="form-mode-badge badge-new" id="modeBadge" style="display:none;">New</span>
                 </div>
-                
-                <div class="form-container">
-                    <div class="form-group">
-                        <label class="form-label">Product ID</label>
-                        <input type="text" class="form-input" placeholder="Auto-generated or enter ID">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">Product Name</label>
-                        <input type="text" class="form-input" placeholder="Enter product name">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Category</label>
-                        <select class="form-select">
-                            <option value="paper" selected>Paper Products</option>
-                            <option value="writing">Writing Tools</option>
-                            <option value="filing">Filing Supplies</option>
-                            <option value="binding">Binding Supplies</option>
-                            <option value="printer">Printer Supplies</option>
-                            <option value="office">Office Tools</option>
-                        </select>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">Product Image <span style="font-weight:400;color:var(--light-text);">(optional)</span></label>
-                        <div style="display:flex;align-items:center;gap:14px;">
-                            <div id="productImagePreviewWrap" style="width:64px;height:64px;border-radius:8px;background:var(--background);border:1.5px dashed var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;">
-                                <i class="fas fa-image" style="color:var(--light-text);font-size:20px;" id="productImagePlaceholderIcon"></i>
-                                <img id="productImagePreview" src="" alt="" style="display:none;width:100%;height:100%;object-fit:cover;">
-                            </div>
-                            <input type="file" id="productImageInput" accept="image/jpeg,image/png,image/webp" style="font-size:12px;">
-                        </div>
-                        <input type="hidden" id="productImageCurrent" value="">
+
+                <div class="form-container" id="formContainer">
+
+                    <!-- Placeholder (shown before any selection) -->
+                    <div class="form-placeholder" id="formPlaceholder">
+                        <i class="fas fa-box-open"></i>
+                        <p>Select a product from the table to edit,<br>or click <strong>Add New</strong> to create one.</p>
                     </div>
 
-                    <div class="form-group">
-                        <label class="form-label">Price (RM)</label>
-                        <div class="price-input-container">
-                            <span class="price-prefix">RM</span>
-                            <input type="text" class="form-input price-input" placeholder="0.00" >
+                    <div id="productFormFields" style="display:none; flex-direction:column; flex-grow:1;">
+                        <div class="form-group">
+                            <label class="form-label">Product ID</label>
+                            <input type="text" class="form-input" id="fieldProductId" placeholder="Auto-generated or enter ID">
                         </div>
-                    </div>
 
-                    <div class="form-group">
-                        <label class="form-label">Status</label>
-                        <div class="radio-group">
-                            <div class="radio-option">
-                                <input type="radio" id="active" name="status" checked>
-                                <label class="radio-label" for="active">Active</label>
+                        <div class="form-group">
+                            <label class="form-label">Product Name</label>
+                            <input type="text" class="form-input" id="fieldProductName" placeholder="Enter product name">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Category</label>
+                            <select class="form-select" id="fieldCategory">
+                                <option value="paper" selected>Paper Products</option>
+                                <option value="writing">Writing Tools</option>
+                                <option value="filing">Filing Supplies</option>
+                                <option value="binding">Binding Supplies</option>
+                                <option value="printer">Printer Supplies</option>
+                                <option value="office">Office Tools</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Product Image <span style="font-weight:400;color:var(--light-text);">(optional)</span></label>
+                            <div style="display:flex;align-items:center;gap:14px;">
+                                <div id="productImagePreviewWrap" style="width:64px;height:64px;border-radius:8px;background:var(--background);border:1.5px dashed var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;">
+                                    <i class="fas fa-image" style="color:var(--light-text);font-size:20px;" id="productImagePlaceholderIcon"></i>
+                                    <img id="productImagePreview" src="" alt="" style="display:none;width:100%;height:100%;object-fit:cover;">
+                                </div>
+                                <input type="file" id="productImageInput" accept="image/jpeg,image/png,image/webp" style="font-size:12px;">
                             </div>
-                            <div class="radio-option">
-                                <input type="radio" id="inactive" name="status">
-                                <label class="radio-label" for="inactive">Inactive</label>
+                            <input type="hidden" id="productImageCurrent" value="">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Price (RM)</label>
+                            <div class="price-input-container">
+                                <span class="price-prefix">RM</span>
+                                <input type="text" class="form-input price-input" id="fieldPrice" placeholder="0.00">
                             </div>
                         </div>
-                    </div>
-                    
-                    <div class="form-actions">
-                        <button class="primary-btn" id="saveBtn">
-                            <i class="fas fa-save"></i> Save Product
-                        </button>
+
+                        <!-- Status: hidden in Add mode (new products are always Active) -->
+                        <input type="hidden" id="fieldStatus" value="ACTIVE">
+                        <div class="form-group" id="statusFieldWrap" style="display:none;">
+                            <label class="form-label">Status</label>
+                            <div style="display:flex;align-items:center;gap:10px;">
+                                <span class="product-status" id="statusBadgeDisplay"></span>
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button class="primary-btn" id="saveBtn">
+                                <i class="fas fa-save"></i> <span id="submitLabel">Add Product</span>
+                            </button>
+                            <button type="button" class="status-btn status-btn-deactivate" id="statusToggleBtn" style="display:none;"
+                                    onclick="toggleProductStatus()">
+                                <i class="fas fa-ban" id="statusToggleIcon"></i> <span id="statusToggleLabel">Deactivate</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -1554,57 +1591,83 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
             });
         });
         
-        // Table row selection
-        document.querySelectorAll('.product-table tbody tr').forEach(row => {
-            row.addEventListener('click', function() {
-                // Remove selected class from all rows
-                document.querySelectorAll('.product-table tbody tr').forEach(r => {
-                    r.classList.remove('selected');
-                });
-                
-                // Add selected class to clicked row
-                this.classList.add('selected');
-                
-                // Get product data from the row
-                const productId = this.querySelector('td:nth-child(1)').textContent;
-                const productName = this.querySelector('.product-name').textContent;
-                const productCategory = this.querySelector('.product-category').textContent;
-                const productPrice = this.querySelector('.product-price').textContent.replace('RM ', '');
-                const productStatus = this.querySelector('.product-status').textContent;
-                
-                // Update form fields
-                const idInput = document.querySelector('.form-input[placeholder="Auto-generated or enter ID"]');
-                idInput.value = productId.trim();
-                idInput.setAttribute('readonly', 'readonly');
-                document.querySelector('.form-input[placeholder="Enter product name"]').value = productName;
-                
-                // Set category
-                const categorySelect = document.querySelector('.form-select');
-                if (productCategory === 'Paper Products') categorySelect.value = 'paper';
-                if (productCategory === 'Writing Tools') categorySelect.value = 'writing';
-                if (productCategory === 'Filing Supplies') categorySelect.value = 'filing';
-                if (productCategory === 'Binding Supplies') categorySelect.value = 'binding';
-                if (productCategory === 'Printer Supplies') categorySelect.value = 'printer';
-                if (productCategory === 'Office Tools') categorySelect.value = 'office';
-                
-                // Set price
-                document.querySelector('.price-input').value = productPrice.trim();
-                
-                // Set status (case-insensitive match — DB may store ACTIVE/INACTIVE uppercase)
-                const statusTrim = productStatus.trim().toUpperCase();
-                document.querySelectorAll('input[name="status"]').forEach(radio => {
-                    radio.checked = false;
-                    if (radio.nextElementSibling.textContent.trim().toUpperCase() === statusTrim) {
-                        radio.checked = true;
-                    }
-                });
+        // Show/hide the Details form vs. the placeholder
+        function showForm(show) {
+            document.getElementById('formPlaceholder').style.display   = show ? 'none'  : 'flex';
+            document.getElementById('productFormFields').style.display = show ? 'flex'  : 'none';
+        }
 
-                // Set image preview from the row's current image (if any)
-                document.getElementById('productImageInput').value = '';
-                document.getElementById('productImageCurrent').value = this.dataset.image || '';
-                showProductImagePreview(this.dataset.image || '');
-            });
-        });
+        // Category name (as rendered in the table) -> <select> value
+        const CATEGORY_VALUE = {
+            'Paper Products': 'paper', 'Writing Tools': 'writing', 'Filing Supplies': 'filing',
+            'Binding Supplies': 'binding', 'Printer Supplies': 'printer', 'Office Tools': 'office',
+        };
+
+        // Populate the form from a clicked table row's product data
+        function loadProduct(p) {
+            showForm(true);
+
+            const idInput = document.getElementById('fieldProductId');
+            idInput.value = p.product_id;
+            idInput.setAttribute('readonly', 'readonly');
+            document.getElementById('fieldProductName').value = p.product_name;
+            document.getElementById('fieldCategory').value = CATEGORY_VALUE[p.category] || p.category;
+            document.getElementById('fieldPrice').value = parseFloat(p.price).toFixed(2);
+
+            document.getElementById('productImageInput').value = '';
+            document.getElementById('productImageCurrent').value = p.image_path || '';
+            showProductImagePreview(p.image_path || '');
+
+            const status = (p.product_status || 'ACTIVE').toUpperCase();
+            document.getElementById('fieldStatus').value = status;
+            document.getElementById('statusFieldWrap').style.display = 'block';
+            const badge = document.getElementById('statusBadgeDisplay');
+            badge.textContent = status === 'ACTIVE' ? 'Active' : 'Inactive';
+            badge.className = 'product-status ' + (status === 'ACTIVE' ? 'status-active' : 'status-inactive');
+
+            const isActive = status === 'ACTIVE';
+            document.getElementById('statusToggleLabel').textContent = isActive ? 'Deactivate' : 'Activate';
+            document.getElementById('statusToggleIcon').className    = isActive ? 'fas fa-ban' : 'fas fa-check-circle';
+            document.getElementById('statusToggleBtn').className     = 'status-btn ' + (isActive ? 'status-btn-deactivate' : 'status-btn-activate');
+            document.getElementById('statusToggleBtn').style.display = 'flex';
+
+            document.getElementById('formTitle').textContent = 'Edit Product';
+            document.getElementById('modeBadge').textContent = 'Edit';
+            document.getElementById('modeBadge').className   = 'form-mode-badge badge-edit';
+            document.getElementById('modeBadge').style.display = 'inline-block';
+            document.getElementById('submitLabel').textContent = 'Update Product';
+
+            document.querySelectorAll('.product-table tbody tr').forEach(r => r.classList.remove('selected'));
+            const row = document.querySelector(`.product-table tbody tr[data-id="${p.product_id}"]`);
+            if (row) row.classList.add('selected');
+        }
+
+        // Instant status toggle (edit mode only)
+        async function toggleProductStatus() {
+            const id   = document.getElementById('fieldProductId').value;
+            const name = document.getElementById('fieldProductName').value;
+            const activating = document.getElementById('statusToggleLabel').textContent === 'Activate';
+            const verb = activating ? 'Activate' : 'Deactivate';
+
+            const ok = await customConfirm(`${verb} "${name}"?`, { danger: !activating, confirmText: verb });
+            if (!ok) return;
+
+            const formData = new FormData();
+            formData.append('product_id', id);
+
+            try {
+                const res = await fetch('toggle_product_status.php', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (data.success) {
+                    await customAlert(`Product ${data.new_status === 'ACTIVE' ? 'activated' : 'deactivated'} successfully.`, 'success');
+                    window.location.reload();
+                } else {
+                    await customAlert('Status change failed: ' + (data.error || 'unknown error'), 'error');
+                }
+            } catch (err) {
+                await customAlert('Request error: ' + err.message, 'error');
+            }
+        }
 
         // Show/hide the image preview vs. placeholder icon
         function showProductImagePreview(src) {
@@ -1632,11 +1695,11 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
         
         // Save product button (sends to save_product.php)
         document.getElementById('saveBtn').addEventListener('click', async function() {
-            const id = document.querySelector('.form-input[placeholder="Auto-generated or enter ID"]').value.trim();
-            const name = document.querySelector('.form-input[placeholder="Enter product name"]').value.trim();
-            const category = document.querySelector('.form-select').value;
-            const price = document.querySelector('.price-input').value.trim();
-            const status = document.querySelector('input[name="status"]:checked').nextElementSibling.textContent.trim();
+            const id = document.getElementById('fieldProductId').value.trim();
+            const name = document.getElementById('fieldProductName').value.trim();
+            const category = document.getElementById('fieldCategory').value;
+            const price = document.getElementById('fieldPrice').value.trim();
+            const status = document.getElementById('fieldStatus').value;
 
             const formData = new FormData();
             formData.append('product_id', id);
@@ -1661,56 +1724,50 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
                 await customAlert('Request error: ' + err.message, 'error');
             }
         });
-        
-        // Add New button
-        document.getElementById('addNewBtn').addEventListener('click', function() {
-            // Clear the form
-            const idInput = document.querySelector('.form-input[placeholder="Auto-generated or enter ID"]');
-            idInput.value = '';
-            idInput.removeAttribute('readonly');
-            document.querySelector('.form-input[placeholder="Enter product name"]').value = '';
-            document.querySelector('.form-select').value = 'paper';
-            document.querySelector('.price-input').value = '';
-            document.querySelector('input[name="status"][id="active"]').checked = true;
-            document.getElementById('productImageInput').value = '';
-            document.getElementById('productImageCurrent').value = '';
-            showProductImagePreview('');
 
-            // Deselect all table rows
-            document.querySelectorAll('.product-table tbody tr').forEach(r => {
-                r.classList.remove('selected');
-            });
-        });
-        
+        // Add New button — reveal the form in "new" mode (status hidden, defaults to Active)
+        document.getElementById('addNewBtn').addEventListener('click', clearForm);
+
         // Logout button (real link — no JS interception needed)
-        
+
         // Price input validation (numbers only with decimal)
-        document.querySelector('.price-input').addEventListener('input', function() {
+        document.getElementById('fieldPrice').addEventListener('input', function() {
             this.value = this.value.replace(/[^0-9.]/g, '');
-            
+
             // Ensure only one decimal point
             const parts = this.value.split('.');
             if (parts.length > 2) {
                 this.value = parts[0] + '.' + parts.slice(1).join('');
             }
         });
-        
-        // Initialize form with empty fields (placeholder only)
+
+        // New product mode: clear fields, hide status controls (new products are always Active)
         function clearForm() {
-            document.querySelector('.form-input[placeholder="Auto-generated or enter ID"]').value = '';
-            document.querySelector('.form-input[placeholder="Enter product name"]').value = '';
-            document.querySelector('.form-select').value = 'paper';
-            document.querySelector('.price-input').value = '';
-            document.querySelector('input[name="status"][id="active"]').checked = true;
+            showForm(true);
+
+            const idInput = document.getElementById('fieldProductId');
+            idInput.value = '';
+            idInput.removeAttribute('readonly');
+            document.getElementById('fieldProductName').value = '';
+            document.getElementById('fieldCategory').value = 'paper';
+            document.getElementById('fieldPrice').value = '';
+            document.getElementById('fieldStatus').value = 'ACTIVE';
+            document.getElementById('statusFieldWrap').style.display = 'none';
+            document.getElementById('statusToggleBtn').style.display = 'none';
             document.getElementById('productImageInput').value = '';
             document.getElementById('productImageCurrent').value = '';
             showProductImagePreview('');
+
+            document.getElementById('formTitle').textContent = 'Add New Product';
+            document.getElementById('modeBadge').textContent = 'New';
+            document.getElementById('modeBadge').className   = 'form-mode-badge badge-new';
+            document.getElementById('modeBadge').style.display = 'inline-block';
+            document.getElementById('submitLabel').textContent = 'Add Product';
+
             document.querySelectorAll('.product-table tbody tr').forEach(r => {
                 r.classList.remove('selected');
             });
         }
-        
-        clearForm();
     </script>
 </body>
 </html>

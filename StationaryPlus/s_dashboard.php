@@ -16,42 +16,51 @@ $userName     = $_SESSION['user_name'];
 $branchId     = $_SESSION['branch_id'] ?? null;
 $branchActive = staff_branch_is_active($conn);
  
-// ── Stat 1: Confirmed orders to process (NEW or PROCESSING) ───
+// ── Stats 1+4: orders-table counts, combined via conditional aggregation ──
 $stmt = $branchId
-    ? $conn->prepare("SELECT COUNT(*) AS cnt FROM orders WHERE order_type = 'ORDER' AND order_status IN ('NEW','PROCESSING') AND branch_id = ?")
-    : $conn->prepare("SELECT COUNT(*) AS cnt FROM orders WHERE order_type = 'ORDER' AND order_status IN ('NEW','PROCESSING')");
+    ? $conn->prepare(
+        "SELECT
+            SUM(CASE WHEN order_type='ORDER' AND order_status IN ('NEW','PROCESSING') THEN 1 ELSE 0 END) AS orders_to_process,
+            SUM(CASE WHEN order_type='ORDER' AND order_status='NEW' AND DATE(order_date)=CURDATE() THEN 1 ELSE 0 END) AS new_today,
+            SUM(CASE WHEN order_type='PREORDER' AND order_status='NEW' THEN 1 ELSE 0 END) AS pending_preorders
+         FROM orders WHERE branch_id = ?"
+    )
+    : $conn->prepare(
+        "SELECT
+            SUM(CASE WHEN order_type='ORDER' AND order_status IN ('NEW','PROCESSING') THEN 1 ELSE 0 END) AS orders_to_process,
+            SUM(CASE WHEN order_type='ORDER' AND order_status='NEW' AND DATE(order_date)=CURDATE() THEN 1 ELSE 0 END) AS new_today,
+            SUM(CASE WHEN order_type='PREORDER' AND order_status='NEW' THEN 1 ELSE 0 END) AS pending_preorders
+         FROM orders"
+    );
 if ($branchId) $stmt->bind_param('s', $branchId);
 $stmt->execute();
-$ordersToProcess = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
+$orderStats       = $stmt->get_result()->fetch_assoc();
+$ordersToProcess  = (int)($orderStats['orders_to_process'] ?? 0);
+$newToday         = (int)($orderStats['new_today'] ?? 0);
+$pendingPreorders = (int)($orderStats['pending_preorders'] ?? 0);
 $stmt->close();
 
+// ── Stat 2: Low stock + critical (out-of-stock) alerts, combined ──────
 $stmt = $branchId
-    ? $conn->prepare("SELECT COUNT(*) AS cnt FROM orders WHERE order_type = 'ORDER' AND order_status = 'NEW' AND DATE(order_date) = CURDATE() AND branch_id = ?")
-    : $conn->prepare("SELECT COUNT(*) AS cnt FROM orders WHERE order_type = 'ORDER' AND order_status = 'NEW' AND DATE(order_date) = CURDATE()");
+    ? $conn->prepare(
+        "SELECT
+            SUM(CASE WHEN stock_quantity <= minimum_level THEN 1 ELSE 0 END) AS low_stock_count,
+            SUM(CASE WHEN stock_quantity = 0 THEN 1 ELSE 0 END) AS critical_count
+         FROM inventory WHERE branch_id = ?"
+    )
+    : $conn->prepare(
+        "SELECT
+            SUM(CASE WHEN stock_quantity <= minimum_level THEN 1 ELSE 0 END) AS low_stock_count,
+            SUM(CASE WHEN stock_quantity = 0 THEN 1 ELSE 0 END) AS critical_count
+         FROM inventory"
+    );
 if ($branchId) $stmt->bind_param('s', $branchId);
 $stmt->execute();
-$newToday = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
+$invStats      = $stmt->get_result()->fetch_assoc();
+$lowStockCount = (int)($invStats['low_stock_count'] ?? 0);
+$criticalCount = (int)($invStats['critical_count'] ?? 0);
 $stmt->close();
- 
-// ── Stat 2: Low stock alerts (unchanged) ──────────────────────
-$branchSQL = $branchId ? "AND branch_id = ?" : '';
- 
-$stmt = $branchId
-    ? $conn->prepare("SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity <= minimum_level AND branch_id = ?")
-    : $conn->prepare("SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity <= minimum_level");
-if ($branchId) $stmt->bind_param('s', $branchId);
-$stmt->execute();
-$lowStockCount = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
-$stmt->close();
- 
-$stmt = $branchId
-    ? $conn->prepare("SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity = 0 AND branch_id = ?")
-    : $conn->prepare("SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity = 0");
-if ($branchId) $stmt->bind_param('s', $branchId);
-$stmt->execute();
-$criticalCount = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
-$stmt->close();
- 
+
 // ── Stat 3: Pending payments to verify (unchanged) ────────────
 $stmt = $branchId
     ? $conn->prepare("SELECT COUNT(*) AS cnt FROM payments p JOIN orders o ON p.order_id = o.order_id WHERE p.verification_status = 'PENDING' AND o.branch_id = ?")
@@ -59,17 +68,6 @@ $stmt = $branchId
 if ($branchId) $stmt->bind_param('s', $branchId);
 $stmt->execute();
 $pendingPayments = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
-$stmt->close();
- 
-// ── Stat 4: Pre-orders awaiting staff action ──────────────────
-//  Was: SELECT COUNT(*) FROM preorders WHERE order_status='SUBMITTED'
-//  Now: unified table, order_type='PREORDER', initial status is 'NEW'
-$stmt = $branchId
-    ? $conn->prepare("SELECT COUNT(*) AS cnt FROM orders WHERE order_type = 'PREORDER' AND order_status = 'NEW' AND branch_id = ?")
-    : $conn->prepare("SELECT COUNT(*) AS cnt FROM orders WHERE order_type = 'PREORDER' AND order_status = 'NEW'");
-if ($branchId) $stmt->bind_param('s', $branchId);
-$stmt->execute();
-$pendingPreorders = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
 $stmt->close();
  
 // ── Recent confirmed orders (last 8) ─────────────────────────

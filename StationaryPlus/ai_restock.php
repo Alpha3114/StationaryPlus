@@ -18,6 +18,7 @@ require_once 'config.php';
 require_once 'ai_helper.php';
 
 header('Content-Type: application/json');
+installJsonErrorGuard();
 
 $branchId = trim($_POST['branch_id'] ?? '') ?: ($_SESSION['branch_id'] ?? null);
 

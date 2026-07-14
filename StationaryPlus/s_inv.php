@@ -28,9 +28,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_stock'])) {
     if ($inventoryId !== '' && $newQty >= 0) {
 
         // Fetch current state before changing anything
+        $conn->begin_transaction();
+
         $stmt = $conn->prepare(
             "SELECT stock_quantity, reserved_quantity, product_id, branch_id
-             FROM inventory WHERE inventory_id = ? LIMIT 1"
+             FROM inventory WHERE inventory_id = ? LIMIT 1 FOR UPDATE"
         );
         $stmt->bind_param('s', $inventoryId);
         $stmt->execute();
@@ -69,11 +71,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_stock'])) {
                 $stmt->close();
             }
 
+            $conn->commit();
+
             // Warn (don't block) if the new stock level is now below what's reserved
             // for pending pre-orders — staff may be writing off damaged stock, but
             // should be aware some reservations may no longer be fulfillable.
             // Passed via query string since the redirect below loses in-memory state.
             $reservedWarning = ($reserved > 0 && $newQty < $reserved) ? "$reserved:$newQty" : '';
+        } else {
+            $conn->rollback();
         }
     }
 
@@ -164,9 +170,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_received'])) {
         $rrMsg = "Your branch is inactive — restock actions are unavailable.";
         $rrMsgType = 'error';
     } elseif ($requestId) {
+        $conn->begin_transaction();
+
         $stmt = $conn->prepare(
             "SELECT product_id, branch_id, requested_qty FROM restock_requests
-             WHERE request_id = ? AND status = 'ORDERED' LIMIT 1"
+             WHERE request_id = ? AND status = 'ORDERED' LIMIT 1 FOR UPDATE"
         );
         $stmt->bind_param('s', $requestId);
         $stmt->execute();
@@ -177,7 +185,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_received'])) {
             // Find the inventory row for this product+branch
             $invStmt = $conn->prepare(
                 "SELECT inventory_id, stock_quantity FROM inventory
-                 WHERE product_id = ? AND branch_id = ? LIMIT 1"
+                 WHERE product_id = ? AND branch_id = ? LIMIT 1 FOR UPDATE"
             );
             $invStmt->bind_param('ss', $rrRow['product_id'], $rrRow['branch_id']);
             $invStmt->execute();
@@ -223,8 +231,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_received'])) {
             $stmt->execute();
             $stmt->close();
 
+            $conn->commit();
+
             $rrMsg = "Stock received and updated successfully.";
             $rrMsgType = 'success';
+        } else {
+            $conn->rollback();
         }
     }
 }
@@ -234,25 +246,28 @@ $search       = trim($_GET['search'] ?? '');
 $filterView   = $_GET['filter']      ?? 'all';
 $filterBranch = $_GET['branch']      ?? 'all';
 
-// ── Stats ─────────────────────────────────────────────────────
-$res = $conn->query("SELECT COUNT(*) AS cnt FROM products WHERE product_status = 'ACTIVE'");
-$totalProducts = $res->fetch_assoc()['cnt'] ?? 0;
-
-$res = $conn->query("SELECT COUNT(*) AS cnt FROM branches WHERE status = 'ACTIVE'");
-$totalBranches = $res->fetch_assoc()['cnt'] ?? 0;
-
+// ── Stats — combined into one query via scalar subqueries ─────
 if ($branchId) {
     $stmt = $conn->prepare(
-        "SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity <= minimum_level AND branch_id = ?"
+        "SELECT
+            (SELECT COUNT(*) FROM products WHERE product_status = 'ACTIVE') AS total_products,
+            (SELECT COUNT(*) FROM branches WHERE status = 'ACTIVE') AS total_branches,
+            (SELECT COUNT(*) FROM inventory WHERE stock_quantity <= minimum_level AND branch_id = ?) AS low_stock_count"
     );
     $stmt->bind_param('s', $branchId);
 } else {
     $stmt = $conn->prepare(
-        "SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity <= minimum_level"
+        "SELECT
+            (SELECT COUNT(*) FROM products WHERE product_status = 'ACTIVE') AS total_products,
+            (SELECT COUNT(*) FROM branches WHERE status = 'ACTIVE') AS total_branches,
+            (SELECT COUNT(*) FROM inventory WHERE stock_quantity <= minimum_level) AS low_stock_count"
     );
 }
 $stmt->execute();
-$lowStockCount = $stmt->get_result()->fetch_assoc()['cnt'] ?? 0;
+$statsRow      = $stmt->get_result()->fetch_assoc();
+$totalProducts = (int)($statsRow['total_products'] ?? 0);
+$totalBranches = (int)($statsRow['total_branches'] ?? 0);
+$lowStockCount = (int)($statsRow['low_stock_count'] ?? 0);
 $stmt->close();
 
 // ── Branch list for admin filter dropdown ─────────────────────

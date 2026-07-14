@@ -20,8 +20,10 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'auth.php';
 require_role('CUSTOMER');
 require_once 'db.php';
+require_once 'ai_helper.php';
 
 header('Content-Type: application/json');
+installJsonErrorGuard();
 
 $userId   = $_SESSION['user_id'];
 $branchId = $_SESSION['branch_id'] ?? null;
@@ -45,7 +47,7 @@ if ($historyCount > 0) {
     // Branch-aware JOIN if branch is selected
     $branchJoin  = $branchId
         ? "JOIN inventory inv ON oi_other.product_id = inv.product_id
-           AND inv.branch_id = '$branchId' AND inv.stock_quantity > 0"
+           AND inv.branch_id = ? AND inv.stock_quantity > 0"
         : "JOIN inventory inv ON oi_other.product_id = inv.product_id
            AND inv.stock_quantity > 0";
 
@@ -70,21 +72,28 @@ if ($historyCount > 0) {
                      JOIN orders o3 ON oi3.order_id = o3.order_id
                      WHERE o3.user_id = ?
                        AND o3.order_status != 'CANCELLED'
+                     LIMIT 500
                  )
                  AND o2.user_id != ?
+                 LIMIT 500
              )
              AND oi_other.product_id NOT IN (
                  SELECT DISTINCT oi4.product_id
                  FROM order_items oi4
                  JOIN orders o4 ON oi4.order_id = o4.order_id
                  WHERE o4.user_id = ?
+                 LIMIT 500
              )
              AND p.product_status = 'ACTIVE'
          GROUP BY p.product_id
          ORDER BY frequency DESC, p.product_name ASC
          LIMIT ?"
     );
-    $stmt->bind_param('ssssi', $userId, $userId, $userId, $userId, $limit);
+    $params = $branchId ? [$branchId, $userId, $userId, $userId, $userId] : [$userId, $userId, $userId, $userId];
+    $types  = $branchId ? 'sssss' : 'ssss';
+    $params[] = $limit;
+    $types   .= 'i';
+    $stmt->bind_param($types, ...$params);
     $stmt->execute();
     $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
@@ -113,7 +122,7 @@ if ($historyCount > 0) {
 // Shown when customer has no history OR collaborative returned nothing
 $branchJoin = $branchId
     ? "JOIN inventory inv ON oi.product_id = inv.product_id
-       AND inv.branch_id = '$branchId' AND inv.stock_quantity > 0"
+       AND inv.branch_id = ? AND inv.stock_quantity > 0"
     : "JOIN inventory inv ON oi.product_id = inv.product_id
        AND inv.stock_quantity > 0";
 
@@ -123,7 +132,8 @@ $excludeClause = $historyCount > 0
            SELECT DISTINCT oi_me.product_id
            FROM order_items oi_me
            JOIN orders o_me ON oi_me.order_id = o_me.order_id
-           WHERE o_me.user_id = '$userId'
+           WHERE o_me.user_id = ?
+           LIMIT 500
        )"
     : '';
 
@@ -145,7 +155,13 @@ $stmt = $conn->prepare(
      ORDER BY frequency DESC, p.product_name ASC
      LIMIT ?"
 );
-$stmt->bind_param('i', $limit);
+$params = [];
+$types  = '';
+if ($branchId) { $params[] = $branchId; $types .= 's'; }
+if ($historyCount > 0) { $params[] = $userId; $types .= 's'; }
+$params[] = $limit;
+$types   .= 'i';
+$stmt->bind_param($types, ...$params);
 $stmt->execute();
 $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();

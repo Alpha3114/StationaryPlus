@@ -35,12 +35,14 @@ if ($status === 'REJECTED' && $rejectionReason === '') {
 }
 
 // Fetch file + its linked order in one query
+$conn->begin_transaction();
+
 $stmt = $conn->prepare(
     "SELECT pf.file_id, pf.file_status, pf.order_id,
             o.order_status, o.order_type
      FROM print_files pf
      LEFT JOIN orders o ON pf.order_id = o.order_id
-     WHERE pf.file_id = ? LIMIT 1"
+     WHERE pf.file_id = ? LIMIT 1 FOR UPDATE"
 );
 $stmt->bind_param('s', $fileId);
 $stmt->execute();
@@ -48,6 +50,7 @@ $file = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 
 if (!$file) {
+    $conn->rollback();
     echo json_encode(['success' => false, 'error' => 'Print file not found.']);
     exit;
 }
@@ -165,6 +168,8 @@ if ($status === 'REVIEWED'
         }
     }
 }
+
+$conn->commit();
 
 $message = 'Print file marked as ' . ucfirst(strtolower($status)) . '.';
 if ($orderTransitioned) {

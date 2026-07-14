@@ -15,9 +15,9 @@
 //  saved preference.
 // ============================================================
 
-$branchList = $conn->query(
+$branchList = session_cache_get('active_branches', 60, fn() => $conn->query(
     "SELECT branch_id, branch_name FROM branches WHERE status = 'ACTIVE' ORDER BY branch_name"
-)->fetch_all(MYSQLI_ASSOC);
+)->fetch_all(MYSQLI_ASSOC));
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['switch_branch'])) {
     $newBranch = trim($_POST['branch_id'] ?? '');

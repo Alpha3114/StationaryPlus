@@ -23,6 +23,44 @@ function generate_preorder_id(): string {
     return 'PRE-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -5));
 }
 
+// Batch-fetches inventory rows for a set of product IDs in one query,
+// mirroring the per-product "best branch by availability" fallback used
+// when no branch is selected. Returns
+// [product_id => ['inventory_id'=>, 'stock_quantity'=>, 'reserved_quantity'=>]].
+function fetchInventoryForProducts(mysqli $conn, array $pids, ?string $branchId): array {
+    if (empty($pids)) return [];
+    $ph = implode(',', array_fill(0, count($pids), '?'));
+
+    if ($branchId) {
+        $stmt = $conn->prepare(
+            "SELECT product_id, inventory_id, stock_quantity, reserved_quantity
+             FROM inventory WHERE product_id IN ($ph) AND branch_id = ?"
+        );
+        $params = $pids;
+        $params[] = $branchId;
+        $stmt->bind_param(str_repeat('s', count($pids)) . 's', ...$params);
+    } else {
+        $stmt = $conn->prepare(
+            "SELECT i.product_id, i.inventory_id, i.stock_quantity, i.reserved_quantity
+             FROM inventory i
+             WHERE i.product_id IN ($ph)
+               AND i.inventory_id = (
+                   SELECT i2.inventory_id FROM inventory i2
+                   WHERE i2.product_id = i.product_id
+                   ORDER BY (i2.stock_quantity - i2.reserved_quantity) DESC LIMIT 1
+               )"
+        );
+        $stmt->bind_param(str_repeat('s', count($pids)), ...$pids);
+    }
+    $stmt->execute();
+    $byProduct = [];
+    foreach ($stmt->get_result()->fetch_all(MYSQLI_ASSOC) as $row) {
+        $byProduct[$row['product_id']] = $row;
+    }
+    $stmt->close();
+    return $byProduct;
+}
+
 // ── GET actions ───────────────────────────────────────────────
 $action    = $_GET['action']     ?? '';
 $productId = trim($_GET['product_id'] ?? '');
@@ -115,31 +153,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_preorder'])) {
         // creating the order, then reserve it inside the same transaction
         // so no other customer can claim the same units in the meantime.
         $stockErrors  = [];
-        $invRowsToUse = []; // pid => [inventory_id, available]
+        $invRowsToUse = []; // pid => inventory_id
+
+        $invByProduct = fetchInventoryForProducts($conn, array_keys($_SESSION['cart']), $branchId);
 
         foreach ($_SESSION['cart'] as $pid => $qty) {
             if (!isset($priceMap[$pid])) continue;
 
-            if ($branchId) {
-                $iStmt = $conn->prepare(
-                    "SELECT inventory_id, stock_quantity, reserved_quantity
-                     FROM inventory WHERE product_id = ? AND branch_id = ? LIMIT 1"
-                );
-                $iStmt->bind_param('ss', $pid, $branchId);
-            } else {
-                // No branch context — pick the branch with the most available stock
-                $iStmt = $conn->prepare(
-                    "SELECT inventory_id, stock_quantity, reserved_quantity
-                     FROM inventory WHERE product_id = ?
-                     ORDER BY (stock_quantity - reserved_quantity) DESC LIMIT 1"
-                );
-                $iStmt->bind_param('s', $pid);
-            }
-            $iStmt->execute();
-            $invRow = $iStmt->get_result()->fetch_assoc();
-            $iStmt->close();
-
-            $available  = $invRow ? ((int)$invRow['stock_quantity'] - (int)$invRow['reserved_quantity']) : 0;
+            $invRow      = $invByProduct[$pid] ?? null;
+            $available   = $invRow ? ((int)$invRow['stock_quantity'] - (int)$invRow['reserved_quantity']) : 0;
             $productName = $nameMap[$pid] ?? $pid;
 
             if (!$invRow || $available < $qty) {
@@ -184,16 +206,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_preorder'])) {
             $stmt->close();
 
             // Reserve stock for every item — physical stock is untouched
-            // until the order is actually COLLECTED.
-            $rStmt = $conn->prepare(
-                "UPDATE inventory SET reserved_quantity = reserved_quantity + ? WHERE inventory_id = ?"
-            );
+            // until the order is actually COLLECTED. Batched into one
+            // UPDATE via CASE instead of one round trip per cart item.
+            $caseParts  = [];
+            $caseParams = [];
+            $reserveIds = [];
             foreach ($_SESSION['cart'] as $pid => $qty) {
                 if (!isset($invRowsToUse[$pid])) continue;
-                $rStmt->bind_param('is', $qty, $invRowsToUse[$pid]);
-                $rStmt->execute();
+                $invId = $invRowsToUse[$pid];
+                $caseParts[]  = "WHEN ? THEN reserved_quantity + ?";
+                $caseParams[] = $invId;
+                $caseParams[] = $qty;
+                $reserveIds[] = $invId;
             }
-            $rStmt->close();
+
+            if (!empty($reserveIds)) {
+                $idPh  = implode(',', array_fill(0, count($reserveIds), '?'));
+                $rSql  = "UPDATE inventory SET reserved_quantity = CASE inventory_id "
+                       . implode(' ', $caseParts)
+                       . " END WHERE inventory_id IN ($idPh)";
+                $rStmt  = $conn->prepare($rSql);
+                $rTypes = str_repeat('si', count($reserveIds)) . str_repeat('s', count($reserveIds));
+                $rStmt->bind_param($rTypes, ...array_merge($caseParams, $reserveIds));
+                $rStmt->execute();
+                $rStmt->close();
+            }
 
             $conn->commit();
         } catch (Throwable $e) {
@@ -203,7 +240,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_preorder'])) {
         }
 
         if ($msgType !== 'error') {
+            $itemCount = count(array_intersect_key($_SESSION['cart'], $priceMap));
             $_SESSION['cart'] = [];
+
+            // ── Order confirmation email ───────────────────────────
+            $cStmt = $conn->prepare("SELECT email, name FROM users WHERE user_id = ? LIMIT 1");
+            $cStmt->bind_param('s', $userId);
+            $cStmt->execute();
+            $customer = $cStmt->get_result()->fetch_assoc();
+            $cStmt->close();
+
+            if ($customer && !empty($customer['email'])) {
+                require_once 'mailer.php';
+                $subject = "StationaryPlus — Pre-order Confirmed ($orderId)";
+                $body    = "Hi {$customer['name']},\n\n"
+                         . "Your pre-order has been received and is now being processed.\n\n"
+                         . "Order ID: $orderId\n"
+                         . "Items: $itemCount\n"
+                         . "Estimated Total: RM " . number_format($estimatedTotal, 2) . "\n\n"
+                         . "Track your order status: c_orderstatus.php\n\n"
+                         . "— StationaryPlus Team";
+                sendAppEmail($customer['email'], $subject, $body);
+            }
 
             // FIX #3: remove the "We'll notify you" lie — link to order status instead
             $message = "Pre-order <strong>$orderId</strong> submitted! "
@@ -236,30 +294,19 @@ if (!empty($_SESSION['cart'])) {
 
     $cartBranchId = $_SESSION['branch_id'] ?? null;
 
+    // Available stock, used only to cap the qty input in the UI —
+    // the authoritative check still happens server-side at submit time.
+    $invByProduct = fetchInventoryForProducts($conn, array_column($rows, 'product_id'), $cartBranchId);
+
     foreach ($rows as $row) {
         $qty             = $_SESSION['cart'][$row['product_id']] ?? 1;
         $row['qty']      = $qty;
         $row['subtotal'] = $row['price'] * $qty;
 
-        // Available stock, used only to cap the qty input in the UI —
-        // the authoritative check still happens server-side at submit time.
-        if ($cartBranchId) {
-            $sStmt = $conn->prepare(
-                "SELECT GREATEST(0, stock_quantity - reserved_quantity) AS avail
-                 FROM inventory WHERE product_id = ? AND branch_id = ? LIMIT 1"
-            );
-            $sStmt->bind_param('ss', $row['product_id'], $cartBranchId);
-        } else {
-            $sStmt = $conn->prepare(
-                "SELECT GREATEST(0, stock_quantity - reserved_quantity) AS avail
-                 FROM inventory WHERE product_id = ?
-                 ORDER BY (stock_quantity - reserved_quantity) DESC LIMIT 1"
-            );
-            $sStmt->bind_param('s', $row['product_id']);
-        }
-        $sStmt->execute();
-        $row['available_stock'] = (int)($sStmt->get_result()->fetch_assoc()['avail'] ?? 0);
-        $sStmt->close();
+        $invRow = $invByProduct[$row['product_id']] ?? null;
+        $row['available_stock'] = $invRow
+            ? max(0, (int)$invRow['stock_quantity'] - (int)$invRow['reserved_quantity'])
+            : 0;
 
         $cartItems[]     = $row;
         $orderTotal     += $row['subtotal'];

@@ -17,6 +17,7 @@ require_once 'config.php';
 require_once 'ai_helper.php';
 
 header('Content-Type: application/json');
+installJsonErrorGuard();
 
 $query = trim($_POST['query'] ?? '');
 
@@ -95,14 +96,26 @@ If fewer than 3 products are relevant, still return exactly 3 by picking the clo
 // ── Call Gemini ───────────────────────────────────────────────
 $aiRaw = callAI($prompt, 400);
 
+// A network/API failure looks like JSON to a naive scanner — check
+// for callGemini()'s own error shape before trying to parse it as
+// the expected recommendations array.
+if (($geminiError = isGeminiErrorResponse($aiRaw)) !== null) {
+    error_log("ai_recommend.php: Gemini error: $geminiError");
+    echo json_encode([
+        'success' => false,
+        'error'   => "AI Product Advisor is temporarily unavailable — please try again in a moment.",
+    ]);
+    exit;
+}
+
 // ── Parse response ────────────────────────────────────────────
+// Balanced-bracket scan (not a naive first-[/last-]) so stray
+// brackets in any surrounding prose can't corrupt the extracted JSON.
 $clean  = preg_replace('/```(?:json)?\s*([\s\S]*?)```/', '$1', trim($aiRaw));
-$start  = strpos($clean, '[');
-$end    = strrpos($clean, ']');
 $parsed = null;
 
-if ($start !== false && $end !== false) {
-    $parsed = json_decode(substr($clean, $start, $end - $start + 1), true);
+if (preg_match('/\[(?:[^\[\]]|(?R))*\]/s', $clean, $m)) {
+    $parsed = json_decode($m[0], true);
 }
 
 // If the AI response couldn't be parsed at all, be honest about it rather

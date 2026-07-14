@@ -33,8 +33,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
     if ($orderId && in_array($newStatus, $validStatuses)) {
 
         // Fetch current order state before making any changes
+        $conn->begin_transaction();
+
         $stmt = $conn->prepare(
-            "SELECT order_status, order_type, branch_id FROM orders WHERE order_id = ? LIMIT 1"
+            "SELECT order_status, order_type, branch_id FROM orders WHERE order_id = ? LIMIT 1 FOR UPDATE"
         );
         $stmt->bind_param('s', $orderId);
         $stmt->execute();
@@ -64,6 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
                 $pStmt->close();
 
                 if (!$hasValidPayment) {
+                    $conn->rollback();
                     $qs = http_build_query(array_filter([
                         'error'  => 'payment_required',
                         'search' => $_GET['search'] ?? '',
@@ -213,6 +216,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
             $stmt->execute();
             $stmt->close();
 
+            $conn->commit();
+
             // ── Notify customer when order moves to READY ─────────────────
             // Only fires on the NEW → READY transition, never on repeat saves.
             // Skipped for walk-in orders (NULL user_id = no customer account).
@@ -264,6 +269,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
                     sendAppEmail($notif['email'], $subject, $body);
                 }
             }
+        } else {
+            $conn->rollback();
         }
     }
 

@@ -14,37 +14,22 @@ require_role('ADMIN');
 require_once 'db.php';
 require_once 'config.php';
 require_once 'ai_helper.php';
+require_once 'report_helper.php';
 
 header('Content-Type: application/json');
+installJsonErrorGuard();
 
-// ── Resolve period → SQL range ─────────────────────────────────
+// ── Resolve period → sargable SQL range ────────────────────────
 $period   = trim($_POST['period']    ?? 'month');
 $dateFrom = trim($_POST['date_from'] ?? '');
 $dateTo   = trim($_POST['date_to']   ?? '');
 
-if ($period === 'custom' && $dateFrom && $dateTo) {
-    $rangeSQL = "AND DATE(o.order_date) BETWEEN '$dateFrom' AND '$dateTo'";
-    $prevSQL  = '';
-    $label    = "$dateFrom to $dateTo";
-} else {
-    [$rangeSQL, $label] = match($period) {
-        'today'     => ["AND DATE(o.order_date)=CURDATE()", 'Today'],
-        'week'      => ["AND o.order_date>=DATE_SUB(NOW(),INTERVAL 7 DAY)", 'Last 7 Days'],
-        'lastmonth' => ["AND MONTH(o.order_date)=MONTH(DATE_SUB(NOW(),INTERVAL 1 MONTH)) AND YEAR(o.order_date)=YEAR(DATE_SUB(NOW(),INTERVAL 1 MONTH))", 'Last Month'],
-        'quarter'   => ["AND o.order_date>=DATE_SUB(NOW(),INTERVAL 3 MONTH)", 'This Quarter'],
-        'year'      => ["AND YEAR(o.order_date)=YEAR(NOW())", 'This Year'],
-        'alltime'   => ['', 'All Time'],
-        default     => ["AND MONTH(o.order_date)=MONTH(NOW()) AND YEAR(o.order_date)=YEAR(NOW())", 'This Month'],
-    };
+$range    = reportPeriodRange($period, $dateFrom, $dateTo);
+$rangeSQL = reportRangeClause($range['start'], $range['end'], 'o.order_date');
+$label    = $range['label'];
 
-    $prevSQL = match($period) {
-        'today'     => "AND DATE(o.order_date)=DATE_SUB(CURDATE(),INTERVAL 1 DAY)",
-        'week'      => "AND o.order_date>=DATE_SUB(NOW(),INTERVAL 14 DAY) AND o.order_date<DATE_SUB(NOW(),INTERVAL 7 DAY)",
-        'quarter'   => "AND o.order_date>=DATE_SUB(NOW(),INTERVAL 6 MONTH) AND o.order_date<DATE_SUB(NOW(),INTERVAL 3 MONTH)",
-        'year'      => "AND YEAR(o.order_date)=YEAR(NOW())-1",
-        default     => "AND MONTH(o.order_date)=MONTH(DATE_SUB(NOW(),INTERVAL 1 MONTH)) AND YEAR(o.order_date)=YEAR(DATE_SUB(NOW(),INTERVAL 1 MONTH))",
-    };
-}
+$prev    = reportPrevPeriodRange($period);
+$prevSQL = reportRangeClause($prev['start'], $prev['end'], 'o.order_date');
 
 // ── Fetch key stats ────────────────────────────────────────────
 
@@ -149,14 +134,22 @@ Be specific and data-driven. Reference actual figures from the data above.";
 // ── Call Gemini ────────────────────────────────────────────────
 $aiRaw = callAI($prompt, 1500);
 
+// A network/API failure looks like JSON to a naive scanner — check
+// for callGemini()'s own error shape before trying to parse it as
+// the expected report-insights response.
+if (($geminiError = isGeminiErrorResponse($aiRaw)) !== null) {
+    echo json_encode(['success' => false, 'error' => $geminiError]);
+    exit;
+}
+
 // ── Parse response ─────────────────────────────────────────────
+// Balanced-brace scan (not a naive first-{/last-}) so stray braces
+// in any surrounding prose can't corrupt the extracted JSON.
 $clean  = preg_replace('/```(?:json)?\s*([\s\S]*?)```/', '$1', trim($aiRaw));
-$start  = strpos($clean, '{');
-$end    = strrpos($clean, '}');
 $parsed = null;
 
-if ($start !== false && $end !== false) {
-    $parsed = json_decode(substr($clean, $start, $end - $start + 1), true);
+if (preg_match('/\{(?:[^{}]|(?R))*\}/s', $clean, $m)) {
+    $parsed = json_decode($m[0], true);
 }
 
 if (!$parsed || !isset($parsed['summary'])) {

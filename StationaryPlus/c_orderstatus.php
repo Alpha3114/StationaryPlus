@@ -109,6 +109,25 @@ if ($filterStatus !== 'all' && in_array($filterStatus, $validStatuses)) {
     $statusParam = $filterStatus;
 }
 
+// ── Pagination ───────────────────────────────────────────────
+$perPage = 20;
+$page    = max(1, (int)($_GET['page'] ?? 1));
+
+$countSql = "SELECT COUNT(*) AS cnt FROM orders o WHERE o.user_id = ? $periodSQL $typeSQL $statusSQL";
+$countStmt = $conn->prepare($countSql);
+if ($statusParam) {
+    $countStmt->bind_param('ss', $userId, $statusParam);
+} else {
+    $countStmt->bind_param('s', $userId);
+}
+$countStmt->execute();
+$totalRows  = (int)$countStmt->get_result()->fetch_assoc()['cnt'];
+$countStmt->close();
+
+$totalPages = max(1, (int)ceil($totalRows / $perPage));
+if ($page > $totalPages) $page = $totalPages;
+$offset = ($page - 1) * $perPage;
+
 // ── Main query ────────────────────────────────────────────────
 // Correlated subqueries fetch the most recent payment AND the most
 // recent print file for this order without fanning out rows — an
@@ -150,13 +169,14 @@ $sql = "SELECT
           $periodSQL
           $typeSQL
           $statusSQL
-        ORDER BY o.order_date DESC";
+        ORDER BY o.order_date DESC
+        LIMIT ? OFFSET ?";
 
 $stmt = $conn->prepare($sql);
 if ($statusParam) {
-    $stmt->bind_param('ss', $userId, $statusParam);
+    $stmt->bind_param('ssii', $userId, $statusParam, $perPage, $offset);
 } else {
-    $stmt->bind_param('s', $userId);
+    $stmt->bind_param('sii', $userId, $perPage, $offset);
 }
 $stmt->execute();
 $allRows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -242,6 +262,11 @@ function paymentBadge(?string $status): string {
         .reset-link { font-size:13px;color:var(--text-secondary);text-decoration:none;padding:8px 12px;border-radius:8px;transition:all 0.2s; }
         .reset-link:hover { color:var(--primary);background:rgba(168,53,53,0.06); }
         .table-wrap { overflow-x:auto; }
+        .pagination-bar { display:flex;align-items:center;justify-content:center;gap:18px;padding:16px 24px;border-top:1px solid var(--border); }
+        .page-link { display:inline-flex;align-items:center;gap:6px;padding:7px 14px;background:var(--white);color:var(--primary);border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;transition:all 0.2s; }
+        .page-link:hover { border-color:var(--primary);background:rgba(168,53,53,0.05); }
+        .page-link.disabled { color:var(--text-secondary);pointer-events:none;opacity:0.5; }
+        .page-info { font-size:13px;color:var(--text-secondary);font-weight:600; }
         .orders-table { width:100%;border-collapse:collapse; }
         .orders-table thead { background:rgba(168,53,53,0.03);border-bottom:2px solid var(--border); }
         .orders-table th { padding:13px 20px;text-align:left;font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap; }
@@ -306,7 +331,7 @@ function paymentBadge(?string $status): string {
         <div class="section-card">
             <div class="section-header">
                 <div class="section-title"><i class="fas fa-clipboard-list"></i> My Orders &amp; Pre-orders</div>
-                <span class="result-count"><?= count($allRows) ?> record<?= count($allRows) !== 1 ? 's' : '' ?> found</span>
+                <span class="result-count"><?= $totalRows ?> record<?= $totalRows !== 1 ? 's' : '' ?> found</span>
             </div>
 
             <form method="GET" action="c_orderstatus.php">
@@ -488,6 +513,27 @@ function paymentBadge(?string $status): string {
                 </table>
                 <?php endif; ?>
             </div>
+
+            <?php if ($totalPages > 1):
+                $pageQS = fn($p) => '?' . http_build_query(array_filter([
+                    'type'   => $filterType   !== 'all' ? $filterType   : null,
+                    'status' => $filterStatus !== 'all' ? $filterStatus : null,
+                    'period' => $filterPeriod !== '30'  ? $filterPeriod : null,
+                    'page'   => $p,
+                ]));
+            ?>
+            <div class="pagination-bar">
+                <a href="<?= $pageQS(max(1, $page - 1)) ?>"
+                   class="page-link <?= $page <= 1 ? 'disabled' : '' ?>">
+                    <i class="fas fa-chevron-left"></i> Prev
+                </a>
+                <span class="page-info">Page <?= $page ?> of <?= $totalPages ?></span>
+                <a href="<?= $pageQS(min($totalPages, $page + 1)) ?>"
+                   class="page-link <?= $page >= $totalPages ? 'disabled' : '' ?>">
+                    Next <i class="fas fa-chevron-right"></i>
+                </a>
+            </div>
+            <?php endif; ?>
         </div>
     </div>
 

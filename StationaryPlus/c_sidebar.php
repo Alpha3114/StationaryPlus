@@ -20,37 +20,41 @@ $userName    = $_SESSION['user_name']   ?? 'Customer';
 $userInitial = strtoupper(mb_substr($userName, 0, 1));
 
 // ── Live counts for nav badges ─────────────────────────────────
+// Combined into one query instead of two separate round trips.
+// needsPayment mirrors c_payment.php's "unpaid orders" eligibility,
+// as a COUNT — keeps the badge number consistent with what actually
+// shows up there.
 $readyForCollection = 0;
 $needsPayment       = 0;
 if (isset($conn) && !empty($_SESSION['user_id'])) {
     $uid = $_SESSION['user_id'];
 
-    $stmt = $conn->prepare("SELECT COUNT(*) AS cnt FROM orders WHERE user_id = ? AND order_status = 'READY'");
-    $stmt->bind_param('s', $uid);
+    $stmt = $conn->prepare(
+        "SELECT
+            (SELECT COUNT(*) FROM orders WHERE user_id = ? AND order_status = 'READY') AS ready_for_collection,
+            (SELECT COUNT(*) FROM orders o
+             WHERE o.user_id = ?
+               AND o.order_status NOT IN ('CANCELLED','COLLECTED')
+               AND o.order_id NOT IN (
+                   SELECT p.order_id FROM payments p
+                   WHERE p.verification_status IN ('VALID','PENDING')
+               )
+               AND o.order_id NOT IN (
+                   SELECT DISTINCT pf.order_id FROM print_files pf
+                   WHERE pf.file_status = 'RECEIVED'
+                     AND pf.order_id IS NOT NULL
+               )
+            ) AS needs_payment"
+    );
+    $stmt->bind_param('ss', $uid, $uid);
     $stmt->execute();
-    $readyForCollection = (int)($stmt->get_result()->fetch_assoc()['cnt'] ?? 0);
+    $row = $stmt->get_result()->fetch_assoc();
     $stmt->close();
 
-    // Same eligibility as c_payment.php's "unpaid orders" query, as a COUNT —
-    // keeps the badge number consistent with what actually shows up there.
-    $stmt = $conn->prepare(
-        "SELECT COUNT(*) AS cnt FROM orders o
-         WHERE o.user_id = ?
-           AND o.order_status NOT IN ('CANCELLED','COLLECTED')
-           AND o.order_id NOT IN (
-               SELECT p.order_id FROM payments p
-               WHERE p.verification_status IN ('VALID','PENDING')
-           )
-           AND o.order_id NOT IN (
-               SELECT DISTINCT pf.order_id FROM print_files pf
-               WHERE pf.file_status = 'RECEIVED'
-                 AND pf.order_id IS NOT NULL
-           )"
-    );
-    $stmt->bind_param('s', $uid);
-    $stmt->execute();
-    $needsPayment = (int)($stmt->get_result()->fetch_assoc()['cnt'] ?? 0);
-    $stmt->close();
+    if ($row) {
+        $readyForCollection = (int)$row['ready_for_collection'];
+        $needsPayment       = (int)$row['needs_payment'];
+    }
 }
 ?>
 

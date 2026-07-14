@@ -27,11 +27,11 @@ $perPage  = 9;
 $offset   = ($page - 1) * $perPage;
 
 // ── Fetch distinct categories for filter dropdown ────────────
-$categories = $conn->query(
+$categories = session_cache_get('active_categories', 60, fn() => $conn->query(
     "SELECT DISTINCT category FROM products
      WHERE product_status = 'ACTIVE' AND category IS NOT NULL
      ORDER BY category ASC"
-)->fetch_all(MYSQLI_ASSOC);
+)->fetch_all(MYSQLI_ASSOC));
 
 // ── Build dynamic query ──────────────────────────────────────
 $where  = ["p.product_status = 'ACTIVE'"];
@@ -99,14 +99,21 @@ if ($activeBranchId) {
     $dataTypes  = 's' . $types . 'ii';
     $dataParams = array_merge([$activeBranchId], $params, [$perPage, $offset]);
 } else {
+    // Wrapped in a derived table so total_stock (an aggregate expression
+    // here) is a plain column by the time $orderSQL references it —
+    // MySQL rejects re-wrapping a group-function alias directly in
+    // ORDER BY (e.g. "(total_stock > 0)"), but that's fine once it's
+    // just a column of an already-grouped subquery.
     $dataSQL = "
-        SELECT p.product_id, p.product_name, p.category, p.price, p.image_path,
-               GREATEST(0, COALESCE(SUM(i.stock_quantity), 0) - COALESCE(SUM(i.reserved_quantity), 0)) AS total_stock
-        FROM products p
-        LEFT JOIN inventory i ON p.product_id = i.product_id
-        $whereSQL
-        GROUP BY p.product_id
-        $orderSQL
+        SELECT * FROM (
+            SELECT p.product_id, p.product_name, p.category, p.price, p.image_path,
+                   GREATEST(0, COALESCE(SUM(i.stock_quantity), 0) - COALESCE(SUM(i.reserved_quantity), 0)) AS total_stock
+            FROM products p
+            LEFT JOIN inventory i ON p.product_id = i.product_id
+            $whereSQL
+            GROUP BY p.product_id
+        ) t
+        " . str_replace('p.', '', $orderSQL) . "
         LIMIT ? OFFSET ?
     ";
     $dataTypes  = $types . 'ii';

@@ -24,6 +24,46 @@ const DURATION_PER_PAGE = [
 ];
 
 
+// ── JSON error guard ───────────────────────────────────────────
+// Call at the top of any endpoint that must always respond with JSON.
+// Suppresses HTML error output and converts uncaught exceptions AND
+// fatal errors (e.g. max_execution_time timeouts) into a clean JSON
+// error response instead of broken/partial output.
+function installJsonErrorGuard(): void {
+    ini_set('display_errors', 0);
+
+    set_exception_handler(function (Throwable $e) {
+        if (!headers_sent()) header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        exit;
+    });
+
+    register_shutdown_function(function () {
+        $err = error_get_last();
+        if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+            if (ob_get_length()) ob_clean();
+            if (!headers_sent()) header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'error' => 'The request took too long or failed unexpectedly. Please try again.']);
+        }
+    });
+}
+
+
+// ── Detect a callGemini() failure response ────────────────────
+// callGemini() returns json_encode(['error' => ...]) on network/API
+// failure — this looks superficially like valid JSON to a naive
+// bracket-scanner, so callers must check for this shape *before*
+// attempting to parse $raw as their expected response format.
+// Returns the error message, or null if $raw isn't an error response.
+function isGeminiErrorResponse(string $raw): ?string {
+    $decoded = json_decode(trim($raw), true);
+    if (is_array($decoded) && isset($decoded['error']) && count($decoded) === 1) {
+        return (string)$decoded['error'];
+    }
+    return null;
+}
+
+
 // ── Text-only AI call ─────────────────────────────────────────
 // Use this for report insights, recommendations, restock suggestions
 function callAI(string $prompt, int $maxTokens = 500): string {
@@ -89,13 +129,19 @@ function callGemini(array $payload): string {
     }
 
     // temperature 0 = deterministic output (less preamble, more reliable JSON)
-    // enforce minimum 512 tokens so JSON responses never get truncated
+    // enforce minimum 1024 tokens so JSON responses never get truncated
     if (!isset($payload['generationConfig'])) $payload['generationConfig'] = [];
     $payload['generationConfig']['temperature']     = 0;
     $payload['generationConfig']['maxOutputTokens'] = max(
-        $payload['generationConfig']['maxOutputTokens'] ?? 512,
-        512
+        $payload['generationConfig']['maxOutputTokens'] ?? 1024,
+        1024
     );
+    // Gemini 2.5+ models support extended "thinking" tokens that count
+    // against maxOutputTokens — for these structured JSON-extraction
+    // tasks we want the full budget spent on the actual answer, not
+    // invisible reasoning, so disable thinking outright. Ignored by
+    // models that don't support it.
+    $payload['generationConfig']['thinkingConfig'] = ['thinkingBudget' => 0];
 
     // Primary model first, then fallback models if bz/failed
     $primaryModel  = defined('GEMINI_MODEL') ? GEMINI_MODEL : 'gemini-3.5-flash';
@@ -106,8 +152,8 @@ function callGemini(array $payload): string {
     $modelsToTry = array_unique(array_merge([$primaryModel], $fallbackModels));
 
     foreach ($modelsToTry as $modelIndex => $model) {
-        // Retry each model up to 3 times if bz
-        $maxAttempts = 3;
+        // Retry each model up to 2 times if bz
+        $maxAttempts = 2;
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             $endpoint = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key=" . GEMINI_API_KEY;
 
@@ -117,7 +163,8 @@ function callGemini(array $payload): string {
                 CURLOPT_POST           => true,
                 CURLOPT_POSTFIELDS     => json_encode($payload),
                 CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
-                CURLOPT_TIMEOUT        => 90,
+                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_TIMEOUT        => 15,
                 CURLOPT_SSL_VERIFYPEER => true,
             ]);
 
@@ -127,8 +174,13 @@ function callGemini(array $payload): string {
             curl_close($ch);
 
             if ($errno) {
-                error_log("Gemini cURL error $errno: $error");
-                return json_encode(['error' => "Network error: $error"]);
+                error_log("Gemini cURL error (model: $model, attempt: $attempt): $errno $error");
+                if ($attempt < $maxAttempts) {
+                    sleep($attempt * 2);
+                    continue;   // retry same model
+                }
+                error_log("Gemini model $model exhausted after network errors. Trying next fallback...");
+                continue 2;   // move to next fallback model
             }
 
             $data = json_decode($raw, true);
@@ -146,7 +198,7 @@ function callGemini(array $payload): string {
                 );
 
                 if ($isRetryable) {
-                    $wait = $attempt * 3;   // 3s, 6s, 9s
+                    $wait = $attempt * 2;   // 2s, 4s
                     error_log("Gemini busy (model: $model, attempt: $attempt). Waiting {$wait}s...");
                     if ($attempt < $maxAttempts) {
                         sleep($wait);

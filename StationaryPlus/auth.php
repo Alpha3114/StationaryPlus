@@ -41,6 +41,23 @@ function require_role(string|array $roles): void {
 }
 
 /**
+ * Cache a cheap-to-stale, expensive-to-requery value in $_SESSION for
+ * $ttlSeconds. Used for data that changes rarely (branch status, active
+ * branch list, product categories) but would otherwise be re-queried on
+ * every single page load.
+ */
+function session_cache_get(string $key, int $ttlSeconds, callable $loader): mixed {
+    $cached = $_SESSION['_cache'][$key] ?? null;
+    if ($cached && (time() - $cached['at']) < $ttlSeconds) {
+        return $cached['value'];
+    }
+
+    $value = $loader();
+    $_SESSION['_cache'][$key] = ['value' => $value, 'at' => time()];
+    return $value;
+}
+
+/**
  * Whether the logged-in staff member's assigned branch is still ACTIVE.
  * Returns true for ADMIN / unassigned STAFF (no branch_id in session) —
  * this guard only concerns staff tied to a specific branch that may have
@@ -52,11 +69,14 @@ function staff_branch_is_active(mysqli $conn): bool {
         return true;
     }
 
-    $stmt = $conn->prepare("SELECT status FROM branches WHERE branch_id = ? LIMIT 1");
-    $stmt->bind_param('s', $branchId);
-    $stmt->execute();
-    $status = $stmt->get_result()->fetch_assoc()['status'] ?? null;
-    $stmt->close();
+    $status = session_cache_get("branch_status_$branchId", 60, function () use ($conn, $branchId) {
+        $stmt = $conn->prepare("SELECT status FROM branches WHERE branch_id = ? LIMIT 1");
+        $stmt->bind_param('s', $branchId);
+        $stmt->execute();
+        $status = $stmt->get_result()->fetch_assoc()['status'] ?? null;
+        $stmt->close();
+        return $status;
+    });
 
     return $status === 'ACTIVE';
 }

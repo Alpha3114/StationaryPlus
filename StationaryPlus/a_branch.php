@@ -480,13 +480,31 @@ if ($conn) {
         .form-header h2 i {
             font-size: 18px;
         }
-        
+
+        .form-mode-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
+        .badge-edit { background: rgba(168,53,53,0.1); color: var(--primary); }
+        .badge-new  { background: rgba(76,175,80,0.1); color: #2e7d32; }
+
         .form-container {
             flex-grow: 1;
             padding: 25px;
             display: flex;
             flex-direction: column;
         }
+
+        /* Placeholder state (shown before any selection) */
+        .form-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; flex-grow: 1; color: var(--light-text); text-align: center; padding: 30px; gap: 12px; }
+        .form-placeholder i { font-size: 38px; opacity: 0.2; }
+        .form-placeholder p { font-size: 14px; }
+
+        /* Status toggle buttons (edit mode only) */
+        .status-btn { flex: 1; padding: 12px; border-radius: 6px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .status-btn-activate { background-color: rgba(76,175,80,0.1); color: #4CAF50; border: 1.5px solid #4CAF50; }
+        .status-btn-activate:hover { background-color: rgba(76,175,80,0.2); }
+        .status-btn-deactivate { background-color: rgba(239,68,68,0.08); color: #c62828; border: 1.5px solid #ef9a9a; }
+        .status-btn-deactivate:hover { background-color: rgba(239,68,68,0.16); }
+        .renovation-link { font-size: 12px; color: var(--light-text); text-decoration: underline; cursor: pointer; background: none; border: none; padding: 0; }
+        .renovation-link:hover { color: var(--secondary); }
         
         .form-group {
             margin-bottom: 20px;
@@ -765,7 +783,8 @@ if ($conn) {
                                 </td></tr>
                             <?php else: ?>
                                 <?php foreach ($branches as $branch): ?>
-                                    <tr>
+                                    <tr data-id="<?= htmlspecialchars($branch['branch_id']) ?>"
+                                        onclick="loadBranch(<?= htmlspecialchars(json_encode($branch), ENT_QUOTES) ?>)">
                                         <td>
                                             <div class="branch-info">
                                                 <div class="branch-icon">
@@ -797,44 +816,65 @@ if ($conn) {
             
             <!-- Right Section: Branch Form -->
             <section class="form-section">
-                <div class="form-header">
-                    <h2><i class="fas fa-edit"></i> Branch Details</h2>
+                <div class="form-header" style="display:flex;justify-content:space-between;align-items:center;">
+                    <h2><i class="fas fa-edit"></i> <span id="formTitle">Branch Details</span></h2>
+                    <span class="form-mode-badge badge-new" id="modeBadge" style="display:none;">New</span>
                 </div>
-                
-                <div class="form-container">
-                    <div class="form-group">
-                        <label class="form-label">Branch ID</label>
-                        <input type="text" name="branch_id" class="form-input" placeholder="Auto-generated or enter ID">
+
+                <div class="form-container" id="formContainer">
+
+                    <!-- Placeholder (shown before any selection) -->
+                    <div class="form-placeholder" id="formPlaceholder">
+                        <i class="fas fa-store"></i>
+                        <p>Select a branch from the table to edit,<br>or click <strong>Add New</strong> to create one.</p>
                     </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">Branch Name</label>
-                        <input type="text" class="form-input" placeholder="Enter branch name">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">Address</label>
-                        <textarea class="form-textarea" placeholder="Enter branch address"></textarea>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">Phone Number</label>
-                        <input type="text" class="form-input" placeholder="Enter phone number">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">Status</label>
-                        <select class="form-input" id="statusSelect" name="status">
-                            <option value="ACTIVE">Active</option>
-                            <option value="INACTIVE">Inactive</option>
-                            <option value="RENOVATION">Renovation</option>
-                        </select>
-                    </div>
-                    
-                    <div class="form-actions">
-                        <button class="primary-btn" id="saveBtn">
-                            <i class="fas fa-save"></i> Save Branch
-                        </button>
+
+                    <div id="branchFormFields" style="display:none; flex-direction:column; flex-grow:1;">
+                        <div class="form-group">
+                            <label class="form-label">Branch ID</label>
+                            <input type="text" name="branch_id" id="fieldBranchId" class="form-input" placeholder="Auto-generated or enter ID">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Branch Name</label>
+                            <input type="text" class="form-input" id="fieldBranchName" placeholder="Enter branch name">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Address</label>
+                            <textarea class="form-textarea" id="fieldAddress" placeholder="Enter branch address"></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Phone Number</label>
+                            <input type="text" class="form-input" id="fieldPhone" placeholder="Enter phone number">
+                        </div>
+
+                        <!-- Status: hidden in Add mode (new branches are always Active) -->
+                        <input type="hidden" id="fieldStatus" value="ACTIVE">
+                        <div class="form-group" id="statusFieldWrap" style="display:none;">
+                            <label class="form-label">Status</label>
+                            <div style="display:flex;align-items:center;gap:10px;">
+                                <span class="branch-status" id="statusBadgeDisplay"></span>
+                                <button type="button" class="renovation-link" id="renovationLink" onclick="toggleBranchStatus('RENOVATION')">
+                                    Set to Renovation
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button class="primary-btn" id="saveBtn">
+                                <i class="fas fa-save"></i> <span id="submitLabel">Add Branch</span>
+                            </button>
+                            <button type="button" class="status-btn status-btn-activate" id="activateBtn" style="display:none;"
+                                    onclick="toggleBranchStatus('ACTIVE')">
+                                <i class="fas fa-check-circle"></i> Activate
+                            </button>
+                            <button type="button" class="status-btn status-btn-deactivate" id="deactivateBtn" style="display:none;"
+                                    onclick="toggleBranchStatus('INACTIVE')">
+                                <i class="fas fa-ban"></i> Deactivate
+                            </button>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -911,51 +951,86 @@ if ($conn) {
 
     <script>
         // Navigation is handled dynamically - links work normally
-        
-        // Table row selection
-        document.querySelectorAll('.branch-table tbody tr').forEach(row => {
-            row.addEventListener('click', function() {
-                // Remove selected class from all rows
-                document.querySelectorAll('.branch-table tbody tr').forEach(r => {
-                    r.classList.remove('selected');
-                });
-                
-                // Add selected class to clicked row
-                this.classList.add('selected');
-                
-                // Get branch data from the row
-                const branchId = this.querySelector('.branch-code').textContent.replace('ID: ', '').trim();
-                const branchName = this.querySelector('.branch-name').textContent;
-                const branchAddress = this.querySelector('.branch-address').textContent;
-                const branchPhone = this.querySelector('.branch-contact').textContent;
-                const branchStatus = this.querySelector('.branch-status').textContent.trim();
-                
-                // Update form fields
-                const idInput = document.querySelector('input[name="branch_id"]');
-                idInput.value = branchId;
-                idInput.setAttribute('readonly', 'readonly');
-                document.querySelector('.form-input[placeholder="Enter branch name"]').value = branchName;
-                document.querySelector('.form-textarea[placeholder="Enter branch address"]').value = branchAddress;
-                document.querySelector('.form-input[placeholder="Enter phone number"]').value = branchPhone;
-                
-                // Set status — match case-insensitively, dropdown values are UPPERCASE
-                const statusSelect = document.getElementById('statusSelect');
-                const normalizedStatus = branchStatus.toUpperCase();
-                if ([...statusSelect.options].some(o => o.value === normalizedStatus)) {
-                    statusSelect.value = normalizedStatus;
+
+        // Show/hide the Details form vs. the placeholder
+        function showForm(show) {
+            document.getElementById('formPlaceholder').style.display  = show ? 'none' : 'flex';
+            document.getElementById('branchFormFields').style.display = show ? 'flex' : 'none';
+        }
+
+        function updateStatusControls(status) {
+            document.getElementById('fieldStatus').value = status;
+            document.getElementById('statusFieldWrap').style.display = 'block';
+
+            const badge = document.getElementById('statusBadgeDisplay');
+            const cls = status === 'ACTIVE' ? 'status-active' : (status === 'RENOVATION' ? 'status-renovation' : 'status-inactive');
+            badge.textContent = status.charAt(0) + status.slice(1).toLowerCase();
+            badge.className = 'branch-status ' + cls;
+
+            document.getElementById('activateBtn').style.display   = status === 'ACTIVE'   ? 'none' : 'flex';
+            document.getElementById('deactivateBtn').style.display = status === 'INACTIVE' ? 'none' : 'flex';
+            document.getElementById('renovationLink').style.display = status === 'RENOVATION' ? 'none' : 'inline';
+        }
+
+        // Populate the form from a clicked table row's branch data
+        function loadBranch(b) {
+            showForm(true);
+
+            const idInput = document.getElementById('fieldBranchId');
+            idInput.value = b.branch_id;
+            idInput.setAttribute('readonly', 'readonly');
+            document.getElementById('fieldBranchName').value = b.branch_name;
+            document.getElementById('fieldAddress').value = b.address;
+            document.getElementById('fieldPhone').value = b.phone_number;
+
+            updateStatusControls((b.status || 'ACTIVE').toUpperCase());
+
+            document.getElementById('formTitle').textContent = 'Edit Branch';
+            document.getElementById('modeBadge').textContent = 'Edit';
+            document.getElementById('modeBadge').className   = 'form-mode-badge badge-edit';
+            document.getElementById('modeBadge').style.display = 'inline-block';
+            document.getElementById('submitLabel').textContent = 'Update Branch';
+
+            document.querySelectorAll('.branch-table tbody tr').forEach(r => r.classList.remove('selected'));
+            const row = document.querySelector(`.branch-table tbody tr[data-id="${b.branch_id}"]`);
+            if (row) row.classList.add('selected');
+        }
+
+        // Instant status change (edit mode only) — Activate / Deactivate / Set to Renovation
+        async function toggleBranchStatus(targetStatus) {
+            const id   = document.getElementById('fieldBranchId').value;
+            const name = document.getElementById('fieldBranchName').value;
+            const labels = { ACTIVE: 'Activate', INACTIVE: 'Deactivate', RENOVATION: 'set to Renovation' };
+            const verb = labels[targetStatus];
+
+            const ok = await customConfirm(`${verb} "${name}"?`, { danger: targetStatus !== 'ACTIVE', confirmText: verb.charAt(0).toUpperCase() + verb.slice(1) });
+            if (!ok) return;
+
+            const formData = new FormData();
+            formData.append('branch_id', id);
+            formData.append('target_status', targetStatus);
+
+            try {
+                const res = await fetch('toggle_branch_status.php', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (data.success) {
+                    await customAlert('Branch status updated successfully.', 'success');
+                    window.location.reload();
                 } else {
-                    statusSelect.value = 'ACTIVE'; // fallback if status doesn't match known options
+                    await customAlert('Status change failed: ' + (data.error || 'unknown error'), 'error');
                 }
-            });
-        });
-        
+            } catch (err) {
+                await customAlert('Request error: ' + err.message, 'error');
+            }
+        }
+
         // Save branch button (sends to save_branch.php)
         document.getElementById('saveBtn').addEventListener('click', async function() {
-            const id = document.querySelector('input[name="branch_id"]').value.trim();
-            const name = document.querySelector('.form-input[placeholder="Enter branch name"]').value.trim();
-            const address = document.querySelector('.form-textarea[placeholder="Enter branch address"]').value.trim();
-            const phone = document.querySelector('.form-input[placeholder="Enter phone number"]').value.trim();
-            const status = document.getElementById('statusSelect').value;
+            const id = document.getElementById('fieldBranchId').value.trim();
+            const name = document.getElementById('fieldBranchName').value.trim();
+            const address = document.getElementById('fieldAddress').value.trim();
+            const phone = document.getElementById('fieldPhone').value.trim();
+            const status = document.getElementById('fieldStatus').value;
 
             const formData = new FormData();
             formData.append('branch_id', id);
@@ -977,49 +1052,46 @@ if ($conn) {
                 await customAlert('Request error: ' + err.message, 'error');
             }
         });
-        
-        // New branch button
-        document.getElementById('newBtn').addEventListener('click', function() {
-            const idInput = document.querySelector('input[name="branch_id"]');
-            idInput.value = '';
-            idInput.removeAttribute('readonly');
-            document.querySelector('.form-input[placeholder="Enter branch name"]').value = '';
-            document.querySelector('.form-textarea[placeholder="Enter branch address"]').value = '';
-            document.querySelector('.form-input[placeholder="Enter phone number"]').value = '';
-            document.getElementById('statusSelect').value = 'ACTIVE';
 
-            // Deselect all table rows
-            document.querySelectorAll('.branch-table tbody tr').forEach(r => {
-                r.classList.remove('selected');
-            });
-        });
-        
+        // New branch button — reveal the form in "new" mode (status hidden, defaults to Active)
+        document.getElementById('newBtn').addEventListener('click', clearForm);
+
         // Logout button (real link via a_sidebar.php — no JS interception needed)
-        
+
         // Phone number input validation (optional formatting)
-        const contactInput = document.querySelector('.form-input[placeholder="Enter phone number"]');
+        const contactInput = document.getElementById('fieldPhone');
         if (contactInput) {
             contactInput.addEventListener('input', function() {
                 // Allow numbers, hyphens, spaces, and parentheses
                 this.value = this.value.replace(/[^0-9\s\-()]/g, '');
             });
         }
-        
-        // Initialize form with empty fields
+
+        // New branch mode: clear fields, hide status controls (new branches are always Active)
         function clearForm() {
-            const idInput = document.querySelector('input[name="branch_id"]');
+            showForm(true);
+
+            const idInput = document.getElementById('fieldBranchId');
             idInput.value = '';
             idInput.removeAttribute('readonly');
-            document.querySelector('.form-input[placeholder="Enter branch name"]').value = '';
-            document.querySelector('.form-textarea[placeholder="Enter branch address"]').value = '';
-            document.querySelector('.form-input[placeholder="Enter phone number"]').value = '';
-            document.getElementById('statusSelect').value = 'ACTIVE';
+            document.getElementById('fieldBranchName').value = '';
+            document.getElementById('fieldAddress').value = '';
+            document.getElementById('fieldPhone').value = '';
+            document.getElementById('fieldStatus').value = 'ACTIVE';
+            document.getElementById('statusFieldWrap').style.display = 'none';
+            document.getElementById('activateBtn').style.display = 'none';
+            document.getElementById('deactivateBtn').style.display = 'none';
+
+            document.getElementById('formTitle').textContent = 'Add New Branch';
+            document.getElementById('modeBadge').textContent = 'New';
+            document.getElementById('modeBadge').className   = 'form-mode-badge badge-new';
+            document.getElementById('modeBadge').style.display = 'inline-block';
+            document.getElementById('submitLabel').textContent = 'Add Branch';
+
             document.querySelectorAll('.branch-table tbody tr').forEach(r => {
                 r.classList.remove('selected');
             });
         }
-        
-        clearForm();
     </script>
 </body>
 </html>

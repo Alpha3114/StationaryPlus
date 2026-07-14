@@ -23,8 +23,10 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'auth.php';
 require_role('CUSTOMER');
 require_once 'db.php';
+require_once 'ai_helper.php';
 
 header('Content-Type: application/json');
+installJsonErrorGuard();
 
 $branchId = $_SESSION['branch_id'] ?? null;
 $limit    = 4;
