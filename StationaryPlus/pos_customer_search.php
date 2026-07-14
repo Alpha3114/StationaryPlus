@@ -22,7 +22,7 @@ if (strlen($q) < 2) {
 
 $like = "%$q%";
 $stmt = $conn->prepare(
-    "SELECT user_id, name, phone_number, email
+    "SELECT user_id, name, phone_number, email, loyalty_points
      FROM users
      WHERE user_role = 'CUSTOMER'
        AND account_status = 'ACTIVE'

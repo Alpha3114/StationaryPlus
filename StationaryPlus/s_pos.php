@@ -653,6 +653,10 @@ if ($branchId) {
                     <span>Items <span class="item-count-pill" id="itemCountPill">0</span></span>
                     <span id="subtotalDisplay">RM 0.00</span>
                 </div>
+                <div class="totals-row" id="posDiscountRow" style="display:none;color:#2e7d32;font-weight:600;">
+                    <span>Loyalty discount</span>
+                    <span id="posDiscountAmount">− RM 0.00</span>
+                </div>
                 <div class="totals-row grand">
                     <span>Total</span>
                     <span id="grandTotalDisplay">RM 0.00</span>
@@ -688,6 +692,18 @@ if ($branchId) {
                     <i class="fas fa-walking"></i> Walk-in / Guest (no account)
                 </div>
                 <input type="hidden" id="selectedCustomerId" value="">
+                <input type="hidden" id="selectedCustomerPoints" value="0">
+
+                <!-- Loyalty points redemption (shown only when a customer with points is selected) -->
+                <div id="posLoyaltySection" style="display:none;margin-top:10px;">
+                    <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(76,175,80,0.05);border:1.5px solid rgba(76,175,80,0.25);border-radius:8px;cursor:pointer;">
+                        <input type="checkbox" id="posRedeemCheckbox" style="width:16px;height:16px;accent-color:#2e7d32;" onchange="updateTotals(getCartItemCount(), getCartTotal()); updateChange();">
+                        <span style="font-size:12px;color:var(--text-primary);">
+                            <strong>Redeem points</strong>
+                            <span style="color:var(--text-secondary);" id="posPointsLabel"></span>
+                        </span>
+                    </label>
+                </div>
             </div>
 
             <!-- Payment section -->
@@ -1004,7 +1020,20 @@ function renderCart() {
 function updateTotals(count, total) {
     document.getElementById('itemCountPill').textContent    = count;
     document.getElementById('subtotalDisplay').textContent  = `RM ${total.toFixed(2)}`;
-    document.getElementById('grandTotalDisplay').textContent = `RM ${total.toFixed(2)}`;
+
+    const discount = getRedemptionDiscount();
+    const finalTotal = Math.max(0, total - discount);
+    document.getElementById('grandTotalDisplay').textContent = `RM ${finalTotal.toFixed(2)}`;
+
+    const discRow = document.getElementById('posDiscountRow');
+    if (discRow) {
+        if (discount > 0) {
+            discRow.style.display = 'flex';
+            document.getElementById('posDiscountAmount').textContent = `− RM ${discount.toFixed(2)}`;
+        } else {
+            discRow.style.display = 'none';
+        }
+    }
 }
 
 function getCartTotal() {
@@ -1013,6 +1042,27 @@ function getCartTotal() {
 
 function getCartItemCount() {
     return Object.keys(cart).length;
+}
+
+// ── Loyalty points redemption (POS) ─────────────────────
+// Client-side is a preview only — pos_process.php recomputes and clamps
+// against the customer's live balance and the server-computed total.
+function getRedemptionDiscount() {
+    const checkbox = document.getElementById('posRedeemCheckbox');
+    if (!checkbox || !checkbox.checked) return 0;
+    const points = parseInt(document.getElementById('selectedCustomerPoints').value) || 0;
+    const total  = getCartTotal();
+    if (points <= 0 || total <= 0) return 0;
+    const maxRedeemable = Math.max(0, Math.min(points, Math.floor((total - 0.01) * 100)));
+    return maxRedeemable / 100;
+}
+
+function getRedeemedPoints() {
+    return Math.round(getRedemptionDiscount() * 100);
+}
+
+function getFinalTotal() {
+    return Math.max(0, getCartTotal() - getRedemptionDiscount());
 }
 
 // ── Payment method ─────────────────────────────────────
@@ -1029,7 +1079,7 @@ function selectMethod(method) {
 }
 
 function updateChange() {
-    const total   = getCartTotal();
+    const total   = getFinalTotal();
     const tendered = parseFloat(document.getElementById('amountPaid').value) || 0;
     const changeBox = document.getElementById('changeDisplay');
 
@@ -1091,6 +1141,20 @@ function selectCustomer(c) {
     document.getElementById('guestBadge').style.display   = 'none';
     document.getElementById('customerSearch').style.display = 'none';
     closeCustomerDropdown();
+
+    const points = parseInt(c.loyalty_points) || 0;
+    document.getElementById('selectedCustomerPoints').value = points;
+    const section = document.getElementById('posLoyaltySection');
+    if (points > 0) {
+        document.getElementById('posPointsLabel').textContent = `— ${points} pt${points === 1 ? '' : 's'} available (worth RM ${(points / 100).toFixed(2)})`;
+        section.style.display = 'block';
+    } else {
+        section.style.display = 'none';
+    }
+    document.getElementById('posRedeemCheckbox').checked = false;
+    updateTotals(getCartItemCount(), getCartTotal());
+    updateChange();
+    updateProcessBtn();
 }
 
 function clearCustomer() {
@@ -1099,6 +1163,12 @@ function clearCustomer() {
     document.getElementById('customerSearch').style.display = 'block';
     document.getElementById('customerSearch').value         = '';
     document.getElementById('guestBadge').style.display   = 'inline-flex';
+    document.getElementById('selectedCustomerPoints').value = '0';
+    document.getElementById('posLoyaltySection').style.display = 'none';
+    document.getElementById('posRedeemCheckbox').checked = false;
+    updateTotals(getCartItemCount(), getCartTotal());
+    updateChange();
+    updateProcessBtn();
     refocusScan();
 }
 
@@ -1110,7 +1180,7 @@ function closeCustomerDropdown() {
 function updateProcessBtn() {
     const btn     = document.getElementById('processBtn');
     const hasCart = getCartItemCount() > 0;
-    const total   = getCartTotal();
+    const total   = getFinalTotal();
     let ready = hasCart;
 
     if (selectedMethod === 'CASH') {
@@ -1130,7 +1200,7 @@ async function processSale() {
     if (!BRANCH_ACTIVE) { showToast('Your branch is inactive — sales cannot be processed.', 'warn'); return; }
 
     const btn    = document.getElementById('processBtn');
-    const total  = getCartTotal();
+    const total  = getFinalTotal();
     const items  = Object.entries(cart).map(([id, v]) => ({ product_id: id, quantity: v.qty }));
     const custId = document.getElementById('selectedCustomerId').value.trim() || '';
 
@@ -1145,6 +1215,7 @@ async function processSale() {
     form.append('customer_id', custId);
     form.append('method',      selectedMethod);
     form.append('amount_paid', document.getElementById('amountPaid').value || '0');
+    form.append('points_redeemed', getRedeemedPoints());
 
     if (selectedMethod === 'TRANSFER') {
         form.append('reference', document.getElementById('refNumber').value.trim());
@@ -1197,6 +1268,15 @@ function showReceipt(data, custId) {
         ? `<div class="receipt-row change"><span>Change</span><span>RM ${parseFloat(data.change).toFixed(2)}</span></div>`
         : '';
 
+    const subtotalRow = data.points_discount > 0
+        ? `<div class="receipt-row"><span>Subtotal</span><span>RM ${parseFloat(data.subtotal).toFixed(2)}</span></div>
+           <div class="receipt-row"><span>Loyalty discount (${data.points_redeemed} pts)</span><span>− RM ${parseFloat(data.points_discount).toFixed(2)}</span></div>`
+        : '';
+
+    const pointsEarnedRow = data.points_earned > 0
+        ? `<div class="receipt-row"><span>Points earned</span><span>+${data.points_earned}</span></div>`
+        : '';
+
     document.getElementById('receiptBody').innerHTML = `
         <div class="receipt-header">
             <h2><?= htmlspecialchars($branchName) ?></h2>
@@ -1211,9 +1291,11 @@ function showReceipt(data, custId) {
         <hr class="receipt-divider">
         <div class="receipt-items">${itemRows}</div>
         <hr class="receipt-divider">
+        ${subtotalRow}
         <div class="receipt-row total"><span>TOTAL</span><span>RM ${parseFloat(data.total).toFixed(2)}</span></div>
         <div class="receipt-row bold"><span>Paid (${esc(methodLabel)})</span><span>RM ${parseFloat(data.total).toFixed(2)}</span></div>
         ${changeRow}
+        ${pointsEarnedRow}
         <div class="receipt-footer">
             <p>Thank you for shopping at StationaryPlus!</p>
             <p>Please keep this receipt for your records.</p>

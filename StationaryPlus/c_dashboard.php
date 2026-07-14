@@ -123,6 +123,10 @@ $stmt->execute();
 $pendingPayment = $stmt->get_result()->fetch_assoc()['total'] ?? 0;
 $stmt->close();
 
+// ── Loyalty points balance ────────────────────────────────────
+require_once 'loyalty.php';
+$loyaltyPoints = get_loyalty_balance($conn, $userId);
+
 // ── 5. Recent pre-orders (last 5) ────────────────────────────
 $stmt = $conn->prepare(
     "SELECT order_id AS preorder_id, order_date, order_status, notes, estimated_total
@@ -409,6 +413,11 @@ function orderStatusBadge(string $status): string {
                 <div class="stat-title"><i class="fas fa-receipt"></i> Payment Pending</div>
                 <div class="stat-value">RM <?= number_format($pendingPayment, 2) ?></div>
                 <div class="stat-detail">Awaiting verification</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title"><i class="fas fa-coins"></i> Loyalty Points</div>
+                <div class="stat-value"><?= $loyaltyPoints ?></div>
+                <div class="stat-detail">Worth RM <?= number_format($loyaltyPoints / 100, 2) ?> &mdash; <a href="c_payment.php" style="color:var(--primary);font-weight:600;">redeem at payment</a></div>
             </div>
         </div>
 

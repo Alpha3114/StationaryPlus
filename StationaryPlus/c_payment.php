@@ -8,6 +8,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'auth.php';
 require_role('CUSTOMER');
 require_once 'db.php';
+require_once 'loyalty.php';
 
 $userId  = $_SESSION['user_id'];
 $message = '';
@@ -156,39 +157,85 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($errors)) {
         $paymentId = generate_payment_id();
 
-        $stmt = $conn->prepare(
-            "INSERT INTO payments
-                (payment_id, order_id, payment_method, amount,
-                 record_date, verification_status, reference_number, proof_path)
-             VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?)"
-        );
-        $stmt->bind_param(
-            'sssdsss',
-            $paymentId, $selectedId, $method, $amount,
-            $payDate, $reference, $proofPath
-        );
-        $stmt->execute();
-        $stmt->close();
+        // ── Loyalty point redemption ───────────────────────────
+        // $amount is the true order amount — never trust a client-reduced
+        // value. Recompute the max redeemable from the customer's live
+        // balance and clamp whatever was submitted to it.
+        $pointsRedeemedRaw = max(0, (int)($_POST['points_redeemed'] ?? 0));
+        $pointsRedeemed    = 0;
+        $pointsDiscount    = 0.0;
+        $finalAmount       = (float)$amount;
 
-        $_SESSION['payment_flash'] = [
-            'message' => "Payment record <strong>$paymentId</strong> submitted successfully. Staff will verify your payment shortly.",
-            'type'    => 'success',
-        ];
+        if ($pointsRedeemedRaw > 0) {
+            $userBalance    = get_loyalty_balance($conn, $userId);
+            $maxRedeemable  = min($userBalance, max(0, (int)floor(((float)$amount - 0.01) * 100)));
+            $pointsRedeemed = min($pointsRedeemedRaw, $maxRedeemable);
+            if ($pointsRedeemed > 0) {
+                $pointsDiscount = round($pointsRedeemed / 100, 2);
+                $finalAmount    = round((float)$amount - $pointsDiscount, 2);
+            }
+        }
 
-        header('Location: c_payment.php');
-        exit;
+        $conn->begin_transaction();
+        $submitted = false;
+        try {
+            $stmt = $conn->prepare(
+                "INSERT INTO payments
+                    (payment_id, order_id, payment_method, amount,
+                     record_date, verification_status, reference_number, proof_path,
+                     points_redeemed, points_discount)
+                 VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?)"
+            );
+            $stmt->bind_param(
+                'sssdsssid',
+                $paymentId, $selectedId, $method, $finalAmount,
+                $payDate, $reference, $proofPath, $pointsRedeemed, $pointsDiscount
+            );
+            $stmt->execute();
+            $stmt->close();
+
+            if ($pointsRedeemed > 0) {
+                $ok = redeem_loyalty_points($conn, $userId, $pointsRedeemed, $selectedId, $paymentId, "Redeemed at payment $paymentId");
+                if (!$ok) {
+                    throw new Exception('Your points balance changed — please try again.');
+                }
+            }
+
+            $conn->commit();
+            $submitted = true;
+        } catch (Throwable $e) {
+            $conn->rollback();
+            $message = $e->getMessage() ?: 'Something went wrong submitting your payment. Please try again.';
+            $msgType = 'error';
+        }
+
+        if ($submitted) {
+            $_SESSION['payment_flash'] = [
+                'message' => "Payment record <strong>$paymentId</strong> submitted successfully"
+                           . ($pointsRedeemed > 0 ? " (redeemed $pointsRedeemed points for RM " . number_format($pointsDiscount, 2) . " off)" : "")
+                           . ". Staff will verify your payment shortly.",
+                'type'    => 'success',
+            ];
+
+            header('Location: c_payment.php');
+            exit;
+        }
     } else {
         $message = implode('<br>', $errors);
         $msgType = 'error';
     }
 }
 
+// ── Loyalty points balance (for the redeem checkbox) ───────────
+$userPoints = get_loyalty_balance($conn, $userId);
+
 // ── Payment history ───────────────────────────────────────────
 $stmt = $conn->prepare(
     "SELECT
          p.payment_id, p.payment_method, p.amount,
          p.record_date, p.verification_status, p.rejection_reason,
-         p.reference_number, p.order_id, o.order_type
+         p.reference_number, p.order_id, o.order_type,
+         p.points_redeemed, p.points_discount
      FROM payments p
      JOIN orders o ON p.order_id = o.order_id
      WHERE o.user_id = ?
@@ -441,6 +488,19 @@ function methodLabel(string $method): string {
                                    placeholder="0.00" step="0.01" min="0.01" required>
                         </div>
 
+                        <!-- Loyalty points redemption -->
+                        <div class="full" id="loyaltySection" style="display:<?= $userPoints > 0 ? 'block' : 'none' ?>;">
+                            <label style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:rgba(76,175,80,0.05);border:1.5px solid rgba(76,175,80,0.25);border-radius:8px;cursor:pointer;">
+                                <input type="checkbox" id="redeemPointsCheckbox" style="width:17px;height:17px;accent-color:#2e7d32;">
+                                <span style="font-size:13px;color:var(--text-primary);">
+                                    <strong>Redeem loyalty points</strong>
+                                    <span style="color:var(--text-secondary);">— you have <strong id="pointsBalanceLabel"><?= $userPoints ?></strong> point<?= $userPoints === 1 ? '' : 's' ?> (worth RM <?= number_format($userPoints / 100, 2) ?>)</span>
+                                </span>
+                            </label>
+                            <div id="loyaltyDiscountNote" style="display:none;margin-top:7px;padding:8px 13px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:7px;font-size:12px;color:#2e7d32;font-weight:600;"></div>
+                            <input type="hidden" name="points_redeemed" id="pointsRedeemedInput" value="0">
+                        </div>
+
                         <!-- Reference -->
                         <div>
                             <label class="form-label">
@@ -512,6 +572,7 @@ function methodLabel(string $method): string {
                             <th>Linked To</th>
                             <th>Method</th>
                             <th>Amount</th>
+                            <th>Points</th>
                             <th>Reference</th>
                             <th>Status</th>
                         </tr>
@@ -529,6 +590,16 @@ function methodLabel(string $method): string {
                             </td>
                             <td><?= methodLabel($pay['payment_method']) ?></td>
                             <td style="font-weight:600;">RM <?= number_format($pay['amount'],2) ?></td>
+                            <td style="font-size:12px;">
+                                <?php if ((int)$pay['points_redeemed'] > 0): ?>
+                                    <span style="color:#2e7d32;font-weight:600;">−<?= (int)$pay['points_redeemed'] ?> pts</span>
+                                    <div style="color:var(--text-secondary);">(RM <?= number_format($pay['points_discount'], 2) ?> off)</div>
+                                <?php elseif ($pay['verification_status'] === 'VALID'): ?>
+                                    <span style="color:#2e7d32;">+<?= (int)floor((float)$pay['amount']) ?> pts</span>
+                                <?php else: ?>
+                                    <span style="color:var(--text-secondary);">—</span>
+                                <?php endif; ?>
+                            </td>
                             <td style="color:var(--text-secondary);"><?= htmlspecialchars($pay['reference_number'] ?? '—') ?></td>
                             <td>
                                 <?= verificationBadge($pay['verification_status']) ?>
@@ -614,7 +685,43 @@ function updateAmount(select) {
         cashOpt.disabled = false;
         cashOpt.textContent = 'Cash';
     }
+
+    computeRedemption();
 }
+
+// ── Loyalty points redemption ──────────────────────────────────
+const USER_POINTS = <?= (int)$userPoints ?>;
+
+function computeRedemption() {
+    const checkbox = document.getElementById('redeemPointsCheckbox');
+    const hidden   = document.getElementById('pointsRedeemedInput');
+    const note     = document.getElementById('loyaltyDiscountNote');
+    if (!checkbox || !hidden || !note) return;
+
+    const amount = parseFloat(document.getElementById('amountInput').value) || 0;
+
+    if (!checkbox.checked || amount <= 0 || USER_POINTS <= 0) {
+        hidden.value = 0;
+        note.style.display = 'none';
+        return;
+    }
+
+    const maxRedeemable = Math.max(0, Math.min(USER_POINTS, Math.floor((amount - 0.01) * 100)));
+    hidden.value = maxRedeemable;
+
+    if (maxRedeemable > 0) {
+        const discount = maxRedeemable / 100;
+        const finalAmt = (amount - discount).toFixed(2);
+        note.textContent = `Redeeming ${maxRedeemable} points = − RM ${discount.toFixed(2)}. You pay RM ${finalAmt}.`;
+        note.style.display = 'block';
+    } else {
+        note.style.display = 'none';
+    }
+}
+
+document.getElementById('amountInput').addEventListener('input', computeRedemption);
+const redeemCheckboxEl = document.getElementById('redeemPointsCheckbox');
+if (redeemCheckboxEl) redeemCheckboxEl.addEventListener('change', computeRedemption);
 
 // ── Payment method: show/hide proof section ───────────────────
 function toggleProof(method) {

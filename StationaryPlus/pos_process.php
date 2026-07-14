@@ -9,6 +9,7 @@ require_once 'auth.php';
 require_role(['STAFF', 'ADMIN']);
 require_once 'db.php';
 require_once 'pricing.php';
+require_once 'loyalty.php';
 
 header('Content-Type: application/json');
 
@@ -23,6 +24,7 @@ $customerId = trim($_POST['customer_id'] ?? '') ?: null;
 $method     = trim($_POST['method']      ?? '');
 $amountPaid = (float)($_POST['amount_paid'] ?? 0);
 $reference  = trim($_POST['reference']   ?? '') ?: null;
+$pointsRedeemedRaw = max(0, (int)($_POST['points_redeemed'] ?? 0));
 $branchId   = $_SESSION['branch_id']     ?? null;
 $staffId    = $_SESSION['user_id'];
 
@@ -152,8 +154,23 @@ if (empty($validatedItems)) {
     exit;
 }
 
-if ($method === 'CASH' && $amountPaid < $total) {
-    echo json_encode(['success' => false, 'error' => sprintf('Amount paid (RM %.2f) is less than total (RM %.2f).', $amountPaid, $total)]);
+// ── Loyalty point redemption ────────────────────────────────
+// Clamp against the customer's live balance and the server-computed cart
+// total — the client's requested value is only a starting point.
+$pointsRedeemed = 0;
+$pointsDiscount = 0.0;
+if ($pointsRedeemedRaw > 0 && $customerId) {
+    $custBalance    = get_loyalty_balance($conn, $customerId);
+    $maxRedeemable  = min($custBalance, max(0, (int)floor(($total - 0.01) * 100)));
+    $pointsRedeemed = min($pointsRedeemedRaw, $maxRedeemable);
+    if ($pointsRedeemed > 0) {
+        $pointsDiscount = round($pointsRedeemed / 100, 2);
+    }
+}
+$finalTotal = round($total - $pointsDiscount, 2);
+
+if ($method === 'CASH' && $amountPaid < $finalTotal) {
+    echo json_encode(['success' => false, 'error' => sprintf('Amount paid (RM %.2f) is less than total (RM %.2f).', $amountPaid, $finalTotal)]);
     exit;
 }
 
@@ -169,7 +186,7 @@ try {
             (order_id, user_id, order_type, order_status, estimated_total, notes, branch_id)
          VALUES (?, ?, 'ORDER', ?, ?, ?, ?)"
     );
-    $stmt->bind_param('sssdss', $orderId, $customerId, $orderStatus, $total, $notes, $branchId);
+    $stmt->bind_param('sssdss', $orderId, $customerId, $orderStatus, $finalTotal, $notes, $branchId);
     $stmt->execute();
     $stmt->close();
 
@@ -194,16 +211,31 @@ try {
     $stmt = $conn->prepare(
         "INSERT INTO payments
             (payment_id, order_id, payment_method, amount,
-             record_date, verification_status, reference_number, proof_path)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+             record_date, verification_status, reference_number, proof_path,
+             points_redeemed, points_discount)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     $stmt->bind_param(
-        'sssdssss',
-        $paymentId, $orderId, $method, $total,
-        $payDate, $verificationStatus, $reference, $proofPath
+        'sssdssssid',
+        $paymentId, $orderId, $method, $finalTotal,
+        $payDate, $verificationStatus, $reference, $proofPath,
+        $pointsRedeemed, $pointsDiscount
     );
     $stmt->execute();
     $stmt->close();
+
+    // ── Loyalty points: redeem what was applied, then earn on the final
+    //    (post-discount) amount actually paid — same rules as online orders.
+    $pointsEarned = 0;
+    if ($customerId) {
+        if ($pointsRedeemed > 0) {
+            $redeemedOk = redeem_loyalty_points($conn, $customerId, $pointsRedeemed, $orderId, $paymentId, "Redeemed at POS sale $orderId");
+            if (!$redeemedOk) {
+                throw new Exception('Customer points balance changed — please retry the sale.');
+            }
+        }
+        $pointsEarned = award_loyalty_points($conn, $customerId, $finalTotal, $orderId, $paymentId, "Earned from POS sale $orderId");
+    }
 
     foreach ($validatedItems as $vi) {
         $oldQty    = $vi['old_stock'];
@@ -248,17 +280,21 @@ try {
 
     $conn->commit();
 
-    $change = $method === 'CASH' ? round($amountPaid - $total, 2) : 0.00;
+    $change = $method === 'CASH' ? round($amountPaid - $finalTotal, 2) : 0.00;
 
     echo json_encode([
-        'success'    => true,
-        'order_id'   => $orderId,
-        'payment_id' => $paymentId,
-        'total'      => $total,
-        'change'     => $change,
-        'method'     => $method,
-        'items'      => $validatedItems,
-        'timestamp'  => date('d M Y, h:i A'),
+        'success'         => true,
+        'order_id'        => $orderId,
+        'payment_id'      => $paymentId,
+        'total'           => $finalTotal,
+        'subtotal'        => $total,
+        'points_redeemed' => $pointsRedeemed,
+        'points_discount' => $pointsDiscount,
+        'points_earned'   => $pointsEarned,
+        'change'          => $change,
+        'method'          => $method,
+        'items'           => $validatedItems,
+        'timestamp'       => date('d M Y, h:i A'),
     ]);
 
 } catch (Throwable $e) {

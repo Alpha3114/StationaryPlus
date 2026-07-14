@@ -11,6 +11,7 @@ require_once 'auth.php';
 require_role(['STAFF', 'ADMIN']);
 require_once 'db.php';
 require_once 'audit.php';
+require_once 'loyalty.php';
 
 header('Content-Type: application/json');
 
@@ -37,8 +38,8 @@ if ($action === 'INVALID' && $rejectionReason === '') {
 $conn->begin_transaction();
 
 $stmt = $conn->prepare(
-    "SELECT p.payment_id, p.verification_status, p.order_id, p.amount,
-            o.order_type, o.order_status, u.email, u.name
+    "SELECT p.payment_id, p.verification_status, p.order_id, p.amount, p.points_redeemed,
+            o.order_type, o.order_status, o.user_id, u.email, u.name
      FROM payments p
      JOIN orders o ON p.order_id = o.order_id
      LEFT JOIN users u ON o.user_id = u.user_id
@@ -136,6 +137,22 @@ if ($action === 'VALID') {
     }
 }
 
+// ── Loyalty points: earn on VALID, refund any redeemed points on INVALID ──
+$pointsEarned = 0;
+if (!empty($payment['user_id'])) {
+    if ($action === 'VALID') {
+        $pointsEarned = award_loyalty_points(
+            $conn, $payment['user_id'], (float)$payment['amount'],
+            $payment['order_id'], $paymentId, "Earned from payment $paymentId"
+        );
+    } elseif ((int)$payment['points_redeemed'] > 0) {
+        refund_loyalty_points(
+            $conn, $payment['user_id'], (int)$payment['points_redeemed'],
+            $payment['order_id'], $paymentId, "Refund — payment $paymentId rejected"
+        );
+    }
+}
+
 $conn->commit();
 
 log_audit(
@@ -153,6 +170,7 @@ if (!empty($payment['email'])) {
         $subject = "StationaryPlus — Payment Verified ($orderId)";
         $body    = "Hi {$payment['name']},\n\n"
                  . "Your payment of RM " . number_format((float)$payment['amount'], 2) . " for order $orderId has been verified.\n\n"
+                 . ($pointsEarned > 0 ? "You earned $pointsEarned loyalty point(s) from this payment.\n\n" : "")
                  . "Track your order status: c_orderstatus.php\n\n"
                  . "— StationaryPlus Team";
     } else {
