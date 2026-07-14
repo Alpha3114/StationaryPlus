@@ -871,14 +871,18 @@ function renderSearchResults(products) {
             : (p.stock <= 5
                 ? `<span class="sri-stock-low"><i class="fas fa-exclamation-triangle"></i> Low: ${p.stock} left</span>`
                 : `<span style="color:var(--success);font-size:11px;"><i class="fas fa-check-circle"></i> ${p.stock} in stock</span>`);
+        const hasDiscount = parseFloat(p.discount_percent) > 0;
+        const priceHtml = hasDiscount
+            ? `<span style="text-decoration:line-through;color:var(--text-secondary);font-size:11px;opacity:0.75;">RM ${parseFloat(p.price).toFixed(2)}</span><br>RM ${parseFloat(p.discounted_price).toFixed(2)}`
+            : `RM ${parseFloat(p.price).toFixed(2)}`;
         return `
             <div class="search-result-item" onclick="pickProduct(${JSON.stringify(p).replace(/"/g, '&quot;')})">
                 <div class="sri-icon"><i class="fas fa-box"></i></div>
                 <div style="flex:1;min-width:0;">
-                    <div class="sri-name">${esc(p.product_name)}</div>
+                    <div class="sri-name">${esc(p.product_name)} ${hasDiscount ? `<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:rgba(244,162,97,0.2);color:#b45309;">-${parseFloat(p.discount_percent)}%</span>` : ''}</div>
                     <div class="sri-meta">${esc(p.product_id)} &bull; ${esc(p.category)} &bull; ${stockLabel}</div>
                 </div>
-                <div class="sri-price">RM ${parseFloat(p.price).toFixed(2)}</div>
+                <div class="sri-price">${priceHtml}</div>
             </div>`;
     }).join('');
     box.classList.add('open');
@@ -902,11 +906,15 @@ function addToCart(product) {
     if (cart[id]) {
         cart[id].qty++;
     } else {
+        // Cart carries the discounted (actually-charged) price — pos_process.php
+        // recomputes and validates it server-side, but the on-screen total
+        // must match what the customer is actually charged.
         cart[id] = {
-            name:  product.product_name,
-            price: parseFloat(product.price),
-            qty:   1,
-            stock: parseInt(product.stock),
+            name:     product.product_name,
+            price:    parseFloat(product.discounted_price ?? product.price),
+            discount: parseFloat(product.discount_percent ?? 0),
+            qty:      1,
+            stock:    parseInt(product.stock),
         };
     }
     renderCart();
@@ -967,7 +975,7 @@ function renderCart() {
         return `
         <tr>
             <td>
-                <div class="cart-prod-name">${esc(item.name)}</div>
+                <div class="cart-prod-name">${esc(item.name)} ${item.discount > 0 ? `<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:rgba(244,162,97,0.2);color:#b45309;">-${item.discount}%</span>` : ''}</div>
                 <div class="cart-prod-id">${esc(id)}</div>
             </td>
             <td>

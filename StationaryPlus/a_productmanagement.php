@@ -87,7 +87,7 @@ if ($filterStatus !== 'all') {
 
 $products = [];
 if ($conn) {
-    $sql  = "SELECT product_id, product_name, category, price, product_status, last_updated, image_path
+    $sql  = "SELECT product_id, product_name, category, price, product_status, last_updated, image_path, discount_percent
               FROM products WHERE " . implode(' AND ', $where) . "
               ORDER BY FIELD(product_status, 'ACTIVE', 'INACTIVE'), product_id";
     $stmt = $conn->prepare($sql);
@@ -967,23 +967,37 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
         
         /* Table column widths for product table */
         .product-table th:nth-child(1), .product-table td:nth-child(1) {
-            width: 12%;
+            width: 10%;
         }
-        
+
         .product-table th:nth-child(2), .product-table td:nth-child(2) {
-            width: 33%;
+            width: 28%;
         }
-        
+
         .product-table th:nth-child(3), .product-table td:nth-child(3) {
+            width: 13%;
+        }
+
+        .product-table th:nth-child(4), .product-table td:nth-child(4) {
             width: 15%;
         }
-        
-        .product-table th:nth-child(4), .product-table td:nth-child(4) {
-            width: 20%;
-        }
-        
+
         .product-table th:nth-child(5), .product-table td:nth-child(5) {
-            width: 20%;
+            width: 12%;
+        }
+
+        .product-table th:nth-child(6), .product-table td:nth-child(6) {
+            width: 22%;
+        }
+
+        .discount-badge {
+            display: inline-block;
+            padding: 3px 9px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            background: rgba(244,162,97,0.18);
+            color: #b45309;
         }
         
         /* Table column widths for requests table */
@@ -1181,12 +1195,13 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
                                 <th>Product Name</th>
                                 <th>Category</th>
                                 <th>Price</th>
+                                <th>Discount</th>
                                 <th>Status</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php if (empty($products)): ?>
-                                <tr><td colspan="5" style="color:var(--light-text); padding:18px;">
+                                <tr><td colspan="6" style="color:var(--light-text); padding:18px;">
                                     <?= ($search !== '' || $filterCategory !== 'all' || $filterStatus !== 'all')
                                         ? 'No products match your filters.'
                                         : 'No products found in the database.' ?>
@@ -1209,6 +1224,13 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
                                         </td>
                                         <td class="product-category"><?php echo htmlspecialchars($p['category']); ?></td>
                                         <td class="product-price">RM <?php echo number_format((float)$p['price'], 2); ?></td>
+                                        <td><?php $pDiscount = (float)($p['discount_percent'] ?? 0); ?>
+                                            <?php if ($pDiscount > 0): ?>
+                                                <span class="discount-badge">-<?php echo rtrim(rtrim(number_format($pDiscount, 2), '0'), '.'); ?>%</span>
+                                            <?php else: ?>
+                                                <span style="color:var(--light-text);">—</span>
+                                            <?php endif; ?>
+                                        </td>
                                         <td><?php
                                             $pStatusVal = strtoupper(trim($p['product_status']));
                                             $pStatusClass = ($pStatusVal === 'ACTIVE') ? 'status-active' : 'status-inactive';
@@ -1276,6 +1298,11 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
                                 <span class="price-prefix">RM</span>
                                 <input type="text" class="form-input price-input" id="fieldPrice" placeholder="0.00">
                             </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Discount % <span style="font-weight:400;color:var(--light-text);">(optional, 0–100)</span></label>
+                            <input type="text" class="form-input" id="fieldDiscount" placeholder="0">
                         </div>
 
                         <!-- Status: hidden in Add mode (new products are always Active) -->
@@ -1613,6 +1640,7 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
             document.getElementById('fieldProductName').value = p.product_name;
             document.getElementById('fieldCategory').value = CATEGORY_VALUE[p.category] || p.category;
             document.getElementById('fieldPrice').value = parseFloat(p.price).toFixed(2);
+            document.getElementById('fieldDiscount').value = parseFloat(p.discount_percent || 0).toString();
 
             document.getElementById('productImageInput').value = '';
             document.getElementById('productImageCurrent').value = p.image_path || '';
@@ -1699,6 +1727,7 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
             const name = document.getElementById('fieldProductName').value.trim();
             const category = document.getElementById('fieldCategory').value;
             const price = document.getElementById('fieldPrice').value.trim();
+            const discount = document.getElementById('fieldDiscount').value.trim();
             const status = document.getElementById('fieldStatus').value;
 
             const formData = new FormData();
@@ -1706,6 +1735,7 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
             formData.append('product_name', name);
             formData.append('category', category);
             formData.append('price', price);
+            formData.append('discount_percent', discount);
             formData.append('product_status', status);
 
             const imageFile = document.getElementById('productImageInput').files[0];
@@ -1741,6 +1771,20 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
             }
         });
 
+        // Discount % input validation (numbers only, clamped 0–100)
+        document.getElementById('fieldDiscount').addEventListener('input', function() {
+            this.value = this.value.replace(/[^0-9.]/g, '');
+            const parts = this.value.split('.');
+            if (parts.length > 2) {
+                this.value = parts[0] + '.' + parts.slice(1).join('');
+            }
+        });
+        document.getElementById('fieldDiscount').addEventListener('blur', function() {
+            if (this.value === '') return;
+            const v = Math.max(0, Math.min(100, parseFloat(this.value) || 0));
+            this.value = v.toString();
+        });
+
         // New product mode: clear fields, hide status controls (new products are always Active)
         function clearForm() {
             showForm(true);
@@ -1751,6 +1795,7 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
             document.getElementById('fieldProductName').value = '';
             document.getElementById('fieldCategory').value = 'paper';
             document.getElementById('fieldPrice').value = '';
+            document.getElementById('fieldDiscount').value = '';
             document.getElementById('fieldStatus').value = 'ACTIVE';
             document.getElementById('statusFieldWrap').style.display = 'none';
             document.getElementById('statusToggleBtn').style.display = 'none';

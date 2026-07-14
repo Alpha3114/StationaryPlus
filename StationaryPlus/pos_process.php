@@ -8,6 +8,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'auth.php';
 require_role(['STAFF', 'ADMIN']);
 require_once 'db.php';
+require_once 'pricing.php';
 
 header('Content-Type: application/json');
 
@@ -73,7 +74,7 @@ $types        = str_repeat('s', count($productIds));
 
 if ($branchId) {
     $stmt = $conn->prepare(
-        "SELECT p.product_id, p.product_name, p.price,
+        "SELECT p.product_id, p.product_name, p.price, p.discount_percent,
                 COALESCE(i.stock_quantity, 0)    AS raw_stock,
                 COALESCE(i.reserved_quantity, 0) AS reserved,
                 i.inventory_id
@@ -86,7 +87,7 @@ if ($branchId) {
     $stmt->bind_param('s' . $types, $branchId, ...$productIds);
 } else {
     $stmt = $conn->prepare(
-        "SELECT p.product_id, p.product_name, p.price,
+        "SELECT p.product_id, p.product_name, p.price, p.discount_percent,
                 COALESCE(SUM(i.stock_quantity), 0)    AS raw_stock,
                 COALESCE(SUM(i.reserved_quantity), 0) AS reserved,
                 MIN(i.inventory_id) AS inventory_id
@@ -127,7 +128,9 @@ foreach ($items as $item) {
         exit;
     }
 
-    $unitPrice = (float)$prod['price'];
+    // Same discounted price a customer would see/pay in the online catalog,
+    // so a walk-in POS sale never charges more (or less) for the same product.
+    $unitPrice = discounted_price((float)$prod['price'], (float)$prod['discount_percent']);
     $subtotal  = round($unitPrice * $qty, 2);
     $total    += $subtotal;
 

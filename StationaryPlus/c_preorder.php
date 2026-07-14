@@ -8,6 +8,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'auth.php';
 require_role('CUSTOMER');
 require_once 'db.php';
+require_once 'pricing.php';
 require_once 'branch_browse.php';
 
 $userId = $_SESSION['user_id'];
@@ -123,7 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_preorder'])) {
         $types        = str_repeat('s', count($pids));
 
         $stmt = $conn->prepare(
-            "SELECT product_id, price, product_name FROM products
+            "SELECT product_id, price, discount_percent, product_name FROM products
              WHERE product_id IN ($placeholders) AND product_status = 'ACTIVE'"
         );
         $stmt->bind_param($types, ...$pids);
@@ -131,10 +132,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_preorder'])) {
         $priceRows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
 
+        // priceMap holds the discounted (actually-charged) unit price — the
+        // customer catalog only ever displays and charges this price, never
+        // the raw base price, so the two can't drift apart.
         $priceMap = [];
         $nameMap  = [];
         foreach ($priceRows as $row) {
-            $priceMap[$row['product_id']] = (float)$row['price'];
+            $priceMap[$row['product_id']] = discounted_price((float)$row['price'], (float)$row['discount_percent']);
             $nameMap[$row['product_id']]  = $row['product_name'];
         }
 
@@ -284,7 +288,7 @@ if (!empty($_SESSION['cart'])) {
     $types        = str_repeat('s', count($pids));
 
     $stmt = $conn->prepare(
-        "SELECT product_id, product_name, price, category
+        "SELECT product_id, product_name, price, discount_percent, category
          FROM products WHERE product_id IN ($placeholders) AND product_status = 'ACTIVE'"
     );
     $stmt->bind_param($types, ...$pids);
@@ -299,9 +303,12 @@ if (!empty($_SESSION['cart'])) {
     $invByProduct = fetchInventoryForProducts($conn, array_column($rows, 'product_id'), $cartBranchId);
 
     foreach ($rows as $row) {
-        $qty             = $_SESSION['cart'][$row['product_id']] ?? 1;
-        $row['qty']      = $qty;
-        $row['subtotal'] = $row['price'] * $qty;
+        $qty                 = $_SESSION['cart'][$row['product_id']] ?? 1;
+        $row['qty']          = $qty;
+        $row['orig_price']   = (float)$row['price'];
+        $row['discount_pct'] = (float)$row['discount_percent'];
+        $row['price']        = discounted_price((float)$row['price'], (float)$row['discount_percent']);
+        $row['subtotal']     = $row['price'] * $qty;
 
         $invRow = $invByProduct[$row['product_id']] ?? null;
         $row['available_stock'] = $invRow
@@ -364,6 +371,7 @@ if (!empty($_SESSION['cart'])) {
         .item-name{font-weight:600;font-size:14px;color:var(--text-primary);}
         .item-cat{font-size:12px;color:var(--text-secondary);margin-top:2px;}
         .item-price{font-size:14px;color:var(--text-secondary);}
+        .discount-tag{display:inline-block;margin-left:6px;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;background:rgba(244,162,97,0.18);color:#b45309;vertical-align:middle;}
         .item-subtotal{font-weight:700;font-size:15px;color:var(--primary);}
         .qty-wrap{display:flex;align-items:center;}
         .qty-btn{width:30px;height:30px;background:var(--white);border:1.5px solid var(--border);color:var(--text-primary);font-size:16px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s ease;}
@@ -487,7 +495,12 @@ if (!empty($_SESSION['cart'])) {
             <?php foreach ($cartItems as $item): ?>
             <div class="cart-row">
                 <div>
-                    <div class="item-name"><?= htmlspecialchars($item['product_name']) ?></div>
+                    <div class="item-name">
+                        <?= htmlspecialchars($item['product_name']) ?>
+                        <?php if ($item['discount_pct'] > 0): ?>
+                        <span class="discount-tag">-<?= rtrim(rtrim(number_format($item['discount_pct'], 2), '0'), '.') ?>%</span>
+                        <?php endif; ?>
+                    </div>
                     <?php if ($item['category']): ?>
                         <div class="item-cat"><?= htmlspecialchars($item['category']) ?></div>
                     <?php endif; ?>
@@ -495,7 +508,12 @@ if (!empty($_SESSION['cart'])) {
                         RM <?= number_format($item['subtotal'], 2) ?>
                     </div>
                 </div>
-                <div class="item-price">RM <?= number_format($item['price'], 2) ?></div>
+                <div class="item-price">
+                    <?php if ($item['discount_pct'] > 0): ?>
+                    <span style="text-decoration:line-through;color:var(--text-secondary);opacity:0.7;">RM <?= number_format($item['orig_price'], 2) ?></span><br>
+                    <?php endif; ?>
+                    RM <?= number_format($item['price'], 2) ?>
+                </div>
                 <div class="qty-wrap">
                     <?php $qtyCap = max(1, min(99, (int)$item['available_stock'])); ?>
                     <button type="button" class="qty-btn dec" data-pid="<?= htmlspecialchars($item['product_id']) ?>">−</button>

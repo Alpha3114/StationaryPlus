@@ -10,6 +10,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'auth.php';
 require_role(['STAFF', 'ADMIN']);
 require_once 'db.php';
+require_once 'audit.php';
 
 header('Content-Type: application/json');
 
@@ -136,6 +137,13 @@ if ($action === 'VALID') {
 }
 
 $conn->commit();
+
+log_audit(
+    $conn, $action === 'VALID' ? 'PAYMENT_VERIFIED' : 'PAYMENT_REJECTED', 'payment', $paymentId,
+    $action === 'VALID'
+        ? "Verified payment of RM " . number_format((float)$payment['amount'], 2) . " for order {$payment['order_id']}"
+        : "Rejected: $rejectionReason"
+);
 
 // ── Notify the customer, if this order has one linked ─────────
 if (!empty($payment['email'])) {

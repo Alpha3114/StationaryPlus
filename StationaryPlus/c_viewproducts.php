@@ -8,6 +8,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'auth.php';
 require_role('CUSTOMER');
 require_once 'db.php';
+require_once 'pricing.php';
 
 $userId = $_SESSION['user_id'];  // FIX: was missing — needed for "remember branch"
 
@@ -87,7 +88,7 @@ $countStmt->close();
 // another pending pre-order.
 if ($activeBranchId) {
     $dataSQL = "
-        SELECT p.product_id, p.product_name, p.category, p.price, p.image_path,
+        SELECT p.product_id, p.product_name, p.category, p.price, p.discount_percent, p.image_path,
                GREATEST(0, COALESCE(i.stock_quantity, 0) - COALESCE(i.reserved_quantity, 0)) AS total_stock
         FROM products p
         LEFT JOIN inventory i ON p.product_id = i.product_id AND i.branch_id = ?
@@ -106,7 +107,7 @@ if ($activeBranchId) {
     // just a column of an already-grouped subquery.
     $dataSQL = "
         SELECT * FROM (
-            SELECT p.product_id, p.product_name, p.category, p.price, p.image_path,
+            SELECT p.product_id, p.product_name, p.category, p.price, p.discount_percent, p.image_path,
                    GREATEST(0, COALESCE(SUM(i.stock_quantity), 0) - COALESCE(SUM(i.reserved_quantity), 0)) AS total_stock
             FROM products p
             LEFT JOIN inventory i ON p.product_id = i.product_id
@@ -379,6 +380,21 @@ function pageUrl(int $p): string {
         .stock-low   { background: rgba(245,158,11,0.12); color: #d97706; border: 1px solid #fde68a; }
         .stock-out   { background: rgba(239,68,68,0.12);  color: #dc2626; border: 1px solid #fecaca; }
 
+        .discount-corner-badge {
+            position: absolute; bottom: 10px; left: 12px;
+            background-color: var(--secondary);
+            color: white; padding: 4px 10px;
+            border-radius: 20px; font-size: 12px; font-weight: 700;
+        }
+        .price-strike {
+            display: block;
+            text-decoration: line-through;
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 500;
+            opacity: 0.75;
+        }
+
         .product-info { padding: 20px; flex-grow: 1; display: flex; flex-direction: column; }
         .product-name { font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; line-height: 1.4; }
         .product-category { font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; }
@@ -612,13 +628,23 @@ function pageUrl(int $p): string {
                         <span class="category-badge"><?= htmlspecialchars($p['category']) ?></span>
                     <?php endif; ?>
                     <span class="stock-badge <?= $stockClass ?>"><?= $stockLabel ?></span>
+                    <?php $pDiscount = (float)($p['discount_percent'] ?? 0); if ($pDiscount > 0): ?>
+                        <span class="discount-corner-badge">-<?= rtrim(rtrim(number_format($pDiscount, 2), '0'), '.') ?>%</span>
+                    <?php endif; ?>
                 </div>
                 <div class="product-info">
                     <h3 class="product-name"><?= htmlspecialchars($p['product_name']) ?></h3>
                     <?php if ($p['category']): ?>
                         <div class="product-category"><i class="fas fa-tag"></i> <?= htmlspecialchars($p['category']) ?></div>
                     <?php endif; ?>
+                    <?php if ($pDiscount > 0): ?>
+                    <div class="product-price">
+                        <span class="price-strike">RM <?= number_format($p['price'], 2) ?></span>
+                        RM <?= number_format(discounted_price((float)$p['price'], $pDiscount), 2) ?>
+                    </div>
+                    <?php else: ?>
                     <div class="product-price">RM <?= number_format($p['price'], 2) ?></div>
+                    <?php endif; ?>
                     <div class="product-actions">
                         <?php
                         // Adds directly to session cart, then redirects back to products

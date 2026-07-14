@@ -10,6 +10,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'auth.php';
 require_role(['STAFF', 'ADMIN']);
 require_once 'db.php';
+require_once 'pricing.php';
 
 header('Content-Type: application/json');
 
@@ -25,7 +26,7 @@ if (strlen($q) < 1) {
 // Also returns branch stock so the UI can warn about low stock.
 if ($branchId) {
     $stmt = $conn->prepare(
-        "SELECT p.product_id, p.product_name, p.category, p.price,
+        "SELECT p.product_id, p.product_name, p.category, p.price, p.discount_percent,
                 COALESCE(i.stock_quantity, 0) AS stock
          FROM products p
          LEFT JOIN inventory i
@@ -39,7 +40,7 @@ if ($branchId) {
     $stmt->bind_param('ssss', $branchId, $q, $like, $q);
 } else {
     $stmt = $conn->prepare(
-        "SELECT p.product_id, p.product_name, p.category, p.price,
+        "SELECT p.product_id, p.product_name, p.category, p.price, p.discount_percent,
                 COALESCE(SUM(i.stock_quantity), 0) AS stock
          FROM products p
          LEFT JOIN inventory i ON p.product_id = i.product_id
@@ -58,8 +59,16 @@ $products = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
 
 if (empty($products)) {
-    echo json_encode(['success' => false, 'error' => "No product found for \"$q\"."]); 
+    echo json_encode(['success' => false, 'error' => "No product found for \"$q\"."]);
     exit;
 }
+
+// Adds the actually-charged price alongside the base price, so the POS UI
+// can show a discount the same way the customer catalog does.
+foreach ($products as &$p) {
+    $p['discount_percent']  = (float)$p['discount_percent'];
+    $p['discounted_price']  = discounted_price((float)$p['price'], $p['discount_percent']);
+}
+unset($p);
 
 echo json_encode(['success' => true, 'products' => $products]);
