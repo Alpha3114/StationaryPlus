@@ -5,6 +5,7 @@ require_once 'auth.php';
 require_role(['STAFF', 'ADMIN']);
 
 include 'db.php';
+require_once 'audit.php';
 header('Content-Type: application/json');
 
 if (!$conn) {
@@ -12,12 +13,13 @@ if (!$conn) {
     exit;
 }
 
-$product_id     = trim($_POST['product_id'] ?? '');
-$product_name   = trim($_POST['product_name'] ?? '');
-$category       = trim($_POST['category'] ?? '');
-$price          = floatval($_POST['price'] ?? 0);
-$product_status = trim($_POST['product_status'] ?? 'Inactive');
-$now            = date('Y-m-d H:i:s');
+$product_id       = trim($_POST['product_id'] ?? '');
+$product_name     = trim($_POST['product_name'] ?? '');
+$category         = trim($_POST['category'] ?? '');
+$price            = floatval($_POST['price'] ?? 0);
+$discount_percent = max(0, min(100, floatval($_POST['discount_percent'] ?? 0)));
+$product_status   = trim($_POST['product_status'] ?? 'Inactive');
+$now              = date('Y-m-d H:i:s');
 
 if ($product_name === '') {
     echo json_encode(['success' => false, 'error' => 'Product name is required']);
@@ -114,7 +116,7 @@ try {
     $transactionOpen = true;
 
     if ($product_id !== '') {
-        $check = $conn->prepare("SELECT image_path FROM products WHERE product_id = ?");
+        $check = $conn->prepare("SELECT image_path, discount_percent FROM products WHERE product_id = ?");
         $check->bind_param('s', $product_id);
         $check->execute();
         $existingRow = $check->get_result()->fetch_assoc();
@@ -122,18 +124,24 @@ try {
 
         if ($existingRow) {
             $oldImagePath = $existingRow['image_path'] ?? null;
+            $oldDiscount  = (float)($existingRow['discount_percent'] ?? 0);
 
             if ($imagePath !== null) {
-                $stmt = $conn->prepare("UPDATE products SET product_name = ?, category = ?, price = ?, product_status = ?, last_updated = ?, image_path = ? WHERE product_id = ?");
-                $stmt->bind_param('ssdssss', $product_name, $category, $price, $product_status, $now, $imagePath, $product_id);
+                $stmt = $conn->prepare("UPDATE products SET product_name = ?, category = ?, price = ?, discount_percent = ?, product_status = ?, last_updated = ?, image_path = ? WHERE product_id = ?");
+                $stmt->bind_param('ssddssss', $product_name, $category, $price, $discount_percent, $product_status, $now, $imagePath, $product_id);
             } else {
-                $stmt = $conn->prepare("UPDATE products SET product_name = ?, category = ?, price = ?, product_status = ?, last_updated = ? WHERE product_id = ?");
-                $stmt->bind_param('ssdsss', $product_name, $category, $price, $product_status, $now, $product_id);
+                $stmt = $conn->prepare("UPDATE products SET product_name = ?, category = ?, price = ?, discount_percent = ?, product_status = ?, last_updated = ? WHERE product_id = ?");
+                $stmt->bind_param('ssddsss', $product_name, $category, $price, $discount_percent, $product_status, $now, $product_id);
             }
             $stmt->execute();
             $stmt->close();
 
             $conn->commit();
+
+            log_audit($conn, 'PRODUCT_UPDATE', 'product', $product_id, "Updated \"$product_name\" (price RM $price, status $product_status)");
+            if (abs($oldDiscount - $discount_percent) > 0.001) {
+                log_audit($conn, 'PRODUCT_DISCOUNT_CHANGE', 'product', $product_id, "Discount $oldDiscount% -> $discount_percent%");
+            }
 
             // Clean up the replaced image only after a successful commit
             if ($imagePath !== null && $oldImagePath && $oldImagePath !== $imagePath && file_exists($oldImagePath)) {
@@ -143,14 +151,17 @@ try {
             echo json_encode(['success' => true, 'action' => 'updated', 'product_id' => $product_id]);
             exit;
         } else {
-            $stmt = $conn->prepare("INSERT INTO products (product_id, product_name, category, price, product_status, last_updated, image_path) VALUES (?,?,?,?,?,?,?)");
-            $stmt->bind_param('sssdsss', $product_id, $product_name, $category, $price, $product_status, $now, $imagePath);
+            $stmt = $conn->prepare("INSERT INTO products (product_id, product_name, category, price, discount_percent, product_status, last_updated, image_path) VALUES (?,?,?,?,?,?,?,?)");
+            $stmt->bind_param('sssddsss', $product_id, $product_name, $category, $price, $discount_percent, $product_status, $now, $imagePath);
             $stmt->execute();
             $stmt->close();
 
             provisionInventoryAtActiveBranches($conn, $product_id);
 
             $conn->commit();
+
+            log_audit($conn, 'PRODUCT_CREATE', 'product', $product_id, "Created \"$product_name\" (price RM $price, status $product_status)");
+
             echo json_encode(['success' => true, 'action' => 'inserted', 'product_id' => $product_id]);
             exit;
         }
@@ -159,14 +170,17 @@ try {
         // omitting product_id from the INSERT entirely — see function docblock)
         $product_id = generateProductId($conn);
 
-        $stmt = $conn->prepare("INSERT INTO products (product_id, product_name, category, price, product_status, last_updated, image_path) VALUES (?,?,?,?,?,?,?)");
-        $stmt->bind_param('sssdsss', $product_id, $product_name, $category, $price, $product_status, $now, $imagePath);
+        $stmt = $conn->prepare("INSERT INTO products (product_id, product_name, category, price, discount_percent, product_status, last_updated, image_path) VALUES (?,?,?,?,?,?,?,?)");
+        $stmt->bind_param('sssddsss', $product_id, $product_name, $category, $price, $discount_percent, $product_status, $now, $imagePath);
         $stmt->execute();
         $stmt->close();
 
         provisionInventoryAtActiveBranches($conn, $product_id);
 
         $conn->commit();
+
+        log_audit($conn, 'PRODUCT_CREATE', 'product', $product_id, "Created \"$product_name\" (price RM $price, status $product_status)");
+
         echo json_encode(['success' => true, 'action' => 'inserted', 'product_id' => $product_id]);
         exit;
     }

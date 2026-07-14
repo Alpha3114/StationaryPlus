@@ -14,6 +14,7 @@ $navMapping = [
     'a_productmanagement.php'=> 'products',
     'a_branch.php'          => 'branches',
     'a_report.php'          => 'sales',
+    'a_auditlog.php'        => 'audit',
     // Staff/Ops pages accessed by admin
     's_ordermanagement.php' => 'ops_orders',
     's_payments.php'        => 'ops_payments',
@@ -138,6 +139,12 @@ if (isset($conn)) {
                 <a href="a_report.php" class="nav-link <?= $activePage==='sales'?'active':'' ?>">
                     <div class="nav-icon"><i class="fas fa-chart-bar"></i></div>
                     <div class="nav-text">Sales Report</div>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="a_auditlog.php" class="nav-link <?= $activePage==='audit'?'active':'' ?>">
+                    <div class="nav-icon"><i class="fas fa-clipboard-list"></i></div>
+                    <div class="nav-text">Audit Log</div>
                 </a>
             </li>
         </ul>

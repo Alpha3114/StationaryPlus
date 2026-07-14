@@ -8,6 +8,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'auth.php';
 require_role('ADMIN');
 require_once 'db.php';
+require_once 'audit.php';
 
 // ── Helpers ───────────────────────────────────────────────────
 function generate_user_id(): string {
@@ -68,6 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->bind_param('ssssssss', $newId, $name, $email, $hash, $phone, $role, $status, $branchId);
                 $stmt->execute();
                 $stmt->close();
+                log_audit($conn, 'USER_CREATE', 'user', $newId, "Created \"$name\" ($email) as $role");
                 $message = "User <strong>$name</strong> added successfully (ID: $newId).";
                 $msgType = 'success';
             }
@@ -111,6 +113,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $stmt->execute();
             $stmt->close();
+            $roleChanged = $existing['user_role'] !== $role;
+            log_audit(
+                $conn, 'USER_UPDATE', 'user', $userId,
+                $roleChanged
+                    ? "Role changed {$existing['user_role']} -> $role" . ($applyPassword ? ' (password reset)' : '')
+                    : "Updated" . ($applyPassword ? ' (password reset)' : '')
+            );
             $message = "User <strong>{$existing['name']}</strong> updated successfully.";
             $msgType = 'success';
         }
@@ -137,6 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->bind_param('ss', $newStatus, $userId);
                 $stmt->execute();
                 $stmt->close();
+                log_audit($conn, 'USER_STATUS_TOGGLE', 'user', $userId, "Status changed to $newStatus");
                 $message = $newStatus === 'ACTIVE' ? 'User activated successfully.' : 'User deactivated successfully.';
                 $msgType = 'success';
             }

@@ -5,6 +5,7 @@ require_once 'auth.php';
 require_role(['STAFF', 'ADMIN']);
 
 include 'db.php';
+require_once 'audit.php';
 header('Content-Type: application/json');
 
 if (!$conn) {
@@ -73,6 +74,8 @@ try {
             $stmt->execute();
             $stmt->close();
 
+            log_audit($conn, 'BRANCH_UPDATE', 'branch', $branch_id, "Updated \"$branch_name\" (status $status)");
+
             echo json_encode(['success' => true, 'action' => 'updated', 'branch_id' => $branch_id]);
             exit;
         } else {
@@ -81,6 +84,8 @@ try {
             $stmt->bind_param('sssss', $branch_id, $branch_name, $address, $phone_number, $status);
             $stmt->execute();
             $stmt->close();
+
+            log_audit($conn, 'BRANCH_CREATE', 'branch', $branch_id, "Created \"$branch_name\" (status $status)");
 
             echo json_encode(['success' => true, 'action' => 'inserted', 'branch_id' => $branch_id]);
             exit;
@@ -91,6 +96,8 @@ try {
         $stmt->execute();
         $newId = $conn->insert_id;
         $stmt->close();
+
+        log_audit($conn, 'BRANCH_CREATE', 'branch', (string)$newId, "Created \"$branch_name\" (status $status)");
 
         echo json_encode(['success' => true, 'action' => 'inserted', 'insert_id' => $newId]);
         exit;

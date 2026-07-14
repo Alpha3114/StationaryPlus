@@ -5,6 +5,7 @@ require_once 'auth.php';
 require_role(['STAFF', 'ADMIN']);
 
 include 'db.php';
+require_once 'audit.php';
 header('Content-Type: application/json');
 
 if (!$conn) {
@@ -37,5 +38,7 @@ $stmt = $conn->prepare("UPDATE products SET product_status = ?, last_updated = ?
 $stmt->bind_param('sss', $newStatus, $now, $product_id);
 $stmt->execute();
 $stmt->close();
+
+log_audit($conn, 'PRODUCT_STATUS_TOGGLE', 'product', $product_id, "Status changed to $newStatus");
 
 echo json_encode(['success' => true, 'new_status' => $newStatus]);

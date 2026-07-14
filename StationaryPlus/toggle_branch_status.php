@@ -5,6 +5,7 @@ require_once 'auth.php';
 require_role(['STAFF', 'ADMIN']);
 
 include 'db.php';
+require_once 'audit.php';
 header('Content-Type: application/json');
 
 if (!$conn) {
@@ -66,5 +67,7 @@ $stmt = $conn->prepare("UPDATE branches SET status = ? WHERE branch_id = ?");
 $stmt->bind_param('ss', $target_status, $branch_id);
 $stmt->execute();
 $stmt->close();
+
+log_audit($conn, 'BRANCH_STATUS_TOGGLE', 'branch', $branch_id, "Status changed to $target_status");
 
 echo json_encode(['success' => true, 'new_status' => $target_status]);
