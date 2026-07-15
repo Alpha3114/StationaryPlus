@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // ============================================================
 //  a_report.php — Admin Analytics Dashboard (Full Live Data)
 // ============================================================
@@ -144,7 +144,7 @@ $brMaxRev    = max(array_column($branchRows,'branch_revenue')) ?: 1;
 $res = $conn->query("SELECT order_status, COUNT(*) AS cnt FROM orders o WHERE 1=1 $rangeSQL GROUP BY order_status ORDER BY cnt DESC");
 $orderStatuses = $res->fetch_all(MYSQLI_ASSOC);
 $totalStatusOrders = array_sum(array_column($orderStatuses,'cnt')) ?: 1;
-$statusColours = ['NEW'=>'#3b82f6','PROCESSING'=>'#f59e0b','READY'=>'#10b981','COLLECTED'=>'#6b7280','CANCELLED'=>'#ef4444'];
+$statusColours = ['NEW'=>'#3b82f6','PROCESSING'=>'var(--warning)','READY'=>'var(--success)','COLLECTED'=>'#6b7280','CANCELLED'=>'var(--danger)'];
 
 $res=$conn->query("SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity=0"); $outOfStock=(int)$res->fetch_assoc()['cnt'];
 $res=$conn->query("SELECT COUNT(*) AS cnt FROM inventory WHERE stock_quantity>0 AND stock_quantity<=minimum_level"); $lowStock=(int)$res->fetch_assoc()['cnt'];
@@ -202,131 +202,114 @@ if ($res && $res->num_rows > 0) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus – Analytics Dashboard</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css">
     <style>
-        :root{--primary:#A83535;--secondary:#F4A261;--bg:#FAFAFA;--text:#2E2E2E;--muted:#707070;--border:#E0E0E0;--white:#FFFFFF;--sidebar:260px;--shadow:0 4px 12px rgba(0,0,0,0.05);}
+        :root{--primary:#A83535;--secondary:#F4A261;--accent:#F1EDE8;--background:#FAFAFA;--text-primary:#2E2E2E;--text-secondary:#707070;--border:#E0E0E0;--white:#FFFFFF;--sidebar-width:260px;--card-shadow:0 4px 12px rgba(0,0,0,0.05);}
         *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif;}
-        body{background:var(--bg);color:var(--text);min-height:100vh;display:flex;}
-        .sidebar{width:var(--sidebar);background:var(--white);border-right:1px solid var(--border);height:100vh;position:fixed;left:0;top:0;display:flex;flex-direction:column;box-shadow:2px 0 10px rgba(0,0,0,0.03);}
-        .logo-area{padding:22px;border-bottom:1px solid var(--border);display:flex;align-items:center;}
-        .logo-icon{background:var(--primary);width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:12px;color:#fff;font-size:18px;}
-        .logo-text{font-size:18px;font-weight:700;color:var(--primary);}
-        .admin-subtitle{font-size:12px;color:var(--muted);margin-top:2px;}
-        .nav-section{padding:18px 0;border-bottom:1px solid var(--border);}
-        .nav-title{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;padding:0 22px 10px;}
-        .nav-menu{list-style:none;}
-        .nav-item{margin-bottom:2px;}
-        .nav-link{display:flex;align-items:center;padding:14px 22px;color:var(--text);text-decoration:none;transition:all .2s;border-left:4px solid transparent;}
-        .nav-link:hover{background:rgba(168,53,53,.05);color:var(--primary);border-left-color:rgba(168,53,53,.3);}
-        .nav-link.active{background:rgba(168,53,53,.08);color:var(--primary);border-left-color:var(--primary);font-weight:600;}
-        .nav-icon{width:18px;text-align:center;margin-right:14px;font-size:16px;}
-        .nav-text{font-size:14px;}
-        .user-section{margin-top:auto;padding:20px;border-top:1px solid var(--border);}
-        .user-info{display:flex;align-items:center;margin-bottom:15px;}
-        .user-avatar{width:38px;height:38px;border-radius:50%;background:rgba(168,53,53,.1);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:600;font-size:15px;margin-right:12px;}
-        .user-name{font-weight:600;font-size:14px;}
-        .logout-link{width:100%;padding:9px;background:rgba(168,53,53,.1);color:var(--primary);border:1.5px solid var(--primary);border-radius:5px;font-weight:600;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;transition:all .2s;}
-        .logout-link:hover{background:rgba(168,53,53,.2);}
-        .main-content{flex-grow:1;margin-left:var(--sidebar);min-height:100vh;display:flex;flex-direction:column;}
+        body{background:var(--background);color:var(--text-primary);min-height:100vh;display:flex;}
+        .main-content{flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column;}
         .top-header{background:var(--white);padding:12px 22px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:20;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
         .header-title{font-size:19px;font-weight:700;}
-        .header-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+        .header-sub{font-size:12px;color:var(--text-secondary);margin-top:2px;}
         .controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
-        .period-btn{padding:6px 11px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;font-weight:600;color:var(--muted);background:var(--white);cursor:pointer;text-decoration:none;transition:all .2s;white-space:nowrap;}
+        .period-btn{padding:6px 11px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;font-weight:600;color:var(--text-secondary);background:var(--white);cursor:pointer;text-decoration:none;transition:all .2s;white-space:nowrap;}
         .period-btn:hover{border-color:var(--primary);color:var(--primary);}
-        .period-btn.active{background:var(--primary);color:#fff;border-color:var(--primary);}
-        .date-input{padding:6px 9px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;color:var(--text);}
+        .period-btn.active{background:var(--primary);color:var(--on-primary);border-color:var(--primary);}
+        .date-input{padding:6px 9px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;color:var(--text-primary);}
         .date-input:focus{outline:none;border-color:var(--primary);}
-        .apply-btn{padding:6px 12px;background:var(--primary);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;}
+        .apply-btn{padding:6px 12px;background:var(--primary);color:var(--on-primary);border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;}
         .tab-bar{background:var(--white);border-bottom:1px solid var(--border);padding:0 22px;display:flex;gap:0;overflow-x:auto;}
-        .tab-link{padding:12px 16px;font-size:13px;font-weight:600;color:var(--muted);text-decoration:none;border-bottom:3px solid transparent;white-space:nowrap;transition:all .2s;display:flex;align-items:center;gap:6px;}
+        .tab-link{padding:12px 16px;font-size:13px;font-weight:600;color:var(--text-secondary);text-decoration:none;border-bottom:3px solid transparent;white-space:nowrap;transition:all .2s;display:flex;align-items:center;gap:6px;}
         .tab-link:hover{color:var(--primary);}
         .tab-link.active{color:var(--primary);border-bottom-color:var(--primary);}
         .page-body{padding:20px 22px;flex-grow:1;display:flex;flex-direction:column;gap:18px;overflow-y:auto;}
         .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
-        .stat-card{background:var(--white);border-radius:10px;padding:18px;box-shadow:var(--shadow);border:1px solid var(--border);display:flex;flex-direction:column;transition:transform .2s;}
+        .stat-card{background:var(--white);border-radius:10px;padding:18px;box-shadow:var(--card-shadow);border:1px solid var(--border);display:flex;flex-direction:column;transition:transform .2s;}
         .stat-card:hover{transform:translateY(-2px);}
         .stat-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;}
-        .stat-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
+        .stat-label{font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;}
         .stat-icon{width:38px;height:38px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:17px;}
-        .ic-red   {background:rgba(168,53,53,.1);color:var(--primary);}
-        .ic-orange{background:rgba(244,162,97,.15);color:#d97706;}
-        .ic-green {background:rgba(16,185,129,.1);color:#10b981;}
+        .ic-red   {background:var(--primary-tint-medium);color:var(--primary);}
+        .ic-orange{background:rgba(244,162,97,.15);color:var(--warning);}
+        .ic-green {background:var(--success-bg);color:var(--success);}
         .ic-blue  {background:rgba(59,130,246,.1);color:#3b82f6;}
         .ic-purple{background:rgba(139,92,246,.1);color:#7c3aed;}
         .stat-value{font-size:24px;font-weight:700;color:var(--primary);margin-bottom:4px;}
-        .stat-trend{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px;margin-top:auto;}
-        .t-up{color:#10b981;} .t-dn{color:#ef4444;}
+        .stat-trend{font-size:11px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;margin-top:auto;}
+        .t-up{color:var(--success);} .t-dn{color:var(--danger);}
         .two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
         .three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;}
-        .card{background:var(--white);border-radius:10px;box-shadow:var(--shadow);border:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
-        .card-head{padding:14px 18px;border-bottom:1px solid var(--border);background:rgba(168,53,53,.025);display:flex;justify-content:space-between;align-items:center;}
+        .card{background:var(--white);border-radius:10px;box-shadow:var(--card-shadow);border:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+        .card-head{padding:14px 18px;border-bottom:1px solid var(--border);background:var(--primary-tint-subtle);display:flex;justify-content:space-between;align-items:center;}
         .card-title{font-size:13px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:7px;}
-        .card-sub{font-size:11px;color:var(--muted);}
+        .card-sub{font-size:11px;color:var(--text-secondary);}
         .card-body{padding:16px 18px;flex-grow:1;}
         .bar-chart{display:flex;align-items:flex-end;justify-content:space-between;height:130px;gap:3px;padding:0 2px;}
         .bar-col{display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;min-width:0;}
         .bar-wrap{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100px;width:100%;}
         .bar{width:100%;max-width:28px;border-radius:3px 3px 0 0;background:var(--primary);transition:height .8s ease;cursor:pointer;position:relative;}
-        .bar:hover{background:#8b2a2a;}
-        .bar[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:105%;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.75);color:#fff;padding:4px 8px;border-radius:5px;font-size:10px;white-space:nowrap;margin-bottom:2px;pointer-events:none;z-index:99;}
-        .bar-val{font-size:9px;font-weight:600;color:var(--muted);text-align:center;margin-bottom:2px;white-space:nowrap;overflow:hidden;width:100%;}
-        .bar-lbl{font-size:9px;color:var(--muted);text-align:center;margin-top:3px;}
+        .bar:hover{background:var(--primary-dark);}
+        .bar[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:105%;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.75);color:var(--on-primary);padding:4px 8px;border-radius:5px;font-size:10px;white-space:nowrap;margin-bottom:2px;pointer-events:none;z-index:99;}
+        .bar-val{font-size:9px;font-weight:600;color:var(--text-secondary);text-align:center;margin-bottom:2px;white-space:nowrap;overflow:hidden;width:100%;}
+        .bar-lbl{font-size:9px;color:var(--text-secondary);text-align:center;margin-top:3px;}
         .pie-wrap{display:flex;align-items:center;gap:18px;flex-wrap:wrap;}
         .pie{width:140px;height:140px;border-radius:50%;position:relative;flex-shrink:0;}
         .pie-hole{position:absolute;width:62px;height:62px;background:var(--white);border-radius:50%;top:50%;left:50%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;flex-direction:column;}
         .pie-hole-val{font-size:13px;font-weight:700;color:var(--primary);}
-        .pie-hole-lbl{font-size:9px;color:var(--muted);}
+        .pie-hole-lbl{font-size:9px;color:var(--text-secondary);}
         .legend{display:flex;flex-direction:column;gap:6px;flex:1;}
         .legend-row{display:flex;align-items:center;gap:7px;}
         .legend-dot{width:9px;height:9px;border-radius:2px;flex-shrink:0;}
-        .legend-name{font-size:11px;color:var(--text);flex:1;}
+        .legend-name{font-size:11px;color:var(--text-primary);flex:1;}
         .legend-pct{font-size:11px;font-weight:700;color:var(--primary);}
-        .legend-amt{font-size:10px;color:var(--muted);}
+        .legend-amt{font-size:10px;color:var(--text-secondary);}
         .h-bar-list{display:flex;flex-direction:column;gap:10px;}
         .h-bar-row{display:flex;align-items:center;gap:8px;}
-        .h-bar-name{font-size:11px;color:var(--text);width:120px;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-        .h-bar-track{flex:1;height:18px;background:rgba(168,53,53,.08);border-radius:6px;overflow:hidden;}
-        .h-bar-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--primary),rgba(168,53,53,.6));display:flex;align-items:center;padding-left:6px;font-size:9px;font-weight:700;color:#fff;transition:width 1s ease;}
+        .h-bar-name{font-size:11px;color:var(--text-primary);width:120px;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        .h-bar-track{flex:1;height:18px;background:var(--primary-tint-light);border-radius:6px;overflow:hidden;}
+        .h-bar-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--primary),rgba(168,53,53,.6));display:flex;align-items:center;padding-left:6px;font-size:9px;font-weight:700;color:var(--on-primary);transition:width 1s ease;}
         .h-bar-val{font-size:11px;font-weight:700;color:var(--primary);min-width:68px;text-align:right;}
         .status-grid{display:flex;flex-direction:column;gap:9px;}
         .status-row{display:flex;align-items:center;gap:8px;}
         .status-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;}
-        .status-name{font-size:12px;color:var(--text);flex:1;}
+        .status-name{font-size:12px;color:var(--text-primary);flex:1;}
         .status-bar-track{flex:2;height:7px;background:var(--border);border-radius:3px;overflow:hidden;}
         .status-bar-fill{height:100%;border-radius:3px;}
         .status-count{font-size:11px;font-weight:700;min-width:24px;text-align:right;}
-        .status-pct{font-size:10px;color:var(--muted);min-width:32px;text-align:right;}
+        .status-pct{font-size:10px;color:var(--text-secondary);min-width:32px;text-align:right;}
         .data-table{width:100%;border-collapse:collapse;}
-        .data-table thead{background:rgba(168,53,53,.03);border-bottom:2px solid var(--border);}
-        .data-table th{padding:9px 13px;text-align:left;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;}
+        .data-table thead{background:var(--primary-tint-subtle);border-bottom:2px solid var(--border);}
+        .data-table th{padding:9px 13px;text-align:left;font-size:10px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;}
         .data-table tbody tr{border-bottom:1px solid var(--border);transition:background .15s;}
         .data-table tbody tr:last-child{border-bottom:none;}
-        .data-table tbody tr:hover{background:rgba(168,53,53,.02);}
-        .data-table td{padding:10px 13px;font-size:12px;color:var(--text);vertical-align:middle;}
+        .data-table tbody tr:hover{background:var(--primary-tint-subtle);}
+        .data-table td{padding:10px 13px;font-size:12px;color:var(--text-primary);vertical-align:middle;}
         .mono{font-family:monospace;font-weight:700;color:var(--primary);font-size:11px;}
         .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;}
-        .b-green {background:rgba(16,185,129,.1);color:#059669;border:1px solid #a7f3d0;}
-        .b-yellow{background:rgba(245,158,11,.1);color:#d97706;border:1px solid #fde68a;}
-        .b-red   {background:rgba(239,68,68,.1);color:#dc2626;border:1px solid #fecaca;}
+        .b-green {background:var(--success-bg);color:var(--success);border:1px solid var(--success-border);}
+        .b-yellow{background:var(--warning-bg);color:var(--warning);border:1px solid #fde68a;}
+        .b-red   {background:var(--danger-bg);color:var(--danger);border:1px solid #fecaca;}
         .b-blue  {background:rgba(59,130,246,.1);color:#2563eb;border:1px solid #bfdbfe;}
         .b-gray  {background:rgba(107,114,128,.1);color:#4b5563;border:1px solid #d1d5db;}
         .inv-health{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
         .inv-hcard{padding:16px;border-radius:9px;text-align:center;}
         .inv-hcard .hval{font-size:28px;font-weight:700;margin-bottom:4px;}
         .inv-hcard .hlbl{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;}
-        .inv-out{background:rgba(239,68,68,.08);border:1px solid #fecaca;} .inv-out .hval,.inv-out .hlbl{color:#dc2626;}
-        .inv-low{background:rgba(245,158,11,.08);border:1px solid #fde68a;} .inv-low .hval,.inv-low .hlbl{color:#d97706;}
-        .inv-ok {background:rgba(16,185,129,.08);border:1px solid #a7f3d0;} .inv-ok  .hval,.inv-ok  .hlbl{color:#059669;}
+        .inv-out{background:var(--danger-bg);border:1px solid #fecaca;} .inv-out .hval,.inv-out .hlbl{color:var(--danger);}
+        .inv-low{background:var(--warning-bg);border:1px solid #fde68a;} .inv-low .hval,.inv-low .hlbl{color:var(--warning);}
+        .inv-ok {background:var(--success-bg);border:1px solid var(--success-border);} .inv-ok  .hval,.inv-ok  .hlbl{color:var(--success);}
         .stock-mini{display:flex;align-items:center;gap:5px;}
         .stock-mini-bar{width:50px;height:5px;background:var(--border);border-radius:3px;overflow:hidden;}
         .stock-mini-fill{height:100%;border-radius:3px;}
         .method-grid{display:flex;flex-direction:column;gap:9px;}
         .method-row{display:flex;align-items:center;gap:8px;}
         .method-name{font-size:11px;font-weight:600;width:90px;}
-        .method-bar-track{flex:1;height:16px;background:rgba(168,53,53,.07);border-radius:5px;overflow:hidden;}
-        .method-bar-fill{height:100%;background:var(--primary);border-radius:5px;display:flex;align-items:center;padding-left:6px;font-size:9px;font-weight:700;color:#fff;}
+        .method-bar-track{flex:1;height:16px;background:var(--primary-tint-light);border-radius:5px;overflow:hidden;}
+        .method-bar-fill{height:100%;background:var(--primary);border-radius:5px;display:flex;align-items:center;padding-left:6px;font-size:9px;font-weight:700;color:var(--on-primary);}
         .method-total{font-size:11px;font-weight:700;color:var(--primary);min-width:68px;text-align:right;}
-        .no-data{text-align:center;padding:30px 16px;color:var(--muted);}
+        .no-data{text-align:center;padding:30px 16px;color:var(--text-secondary);}
         .no-data i{font-size:26px;opacity:.2;display:block;margin-bottom:8px;}
         .no-data p{font-size:12px;}
 
@@ -334,72 +317,63 @@ if ($res && $res->num_rows > 0) {
         .fc-card{background:linear-gradient(135deg,rgba(16,185,129,0.04),rgba(59,130,246,0.04));border:1.5px solid rgba(16,185,129,0.2);border-radius:12px;padding:22px 24px;margin-bottom:18px;}
         .fc-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;gap:12px;flex-wrap:wrap;}
         .fc-title{font-size:15px;font-weight:700;color:#065f46;display:flex;align-items:center;gap:9px;}
-        .fc-meta{font-size:11px;color:var(--muted);margin-top:4px;}
-        .fc-run-btn{padding:8px 18px;background:#059669;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px;transition:background 0.2s;white-space:nowrap;flex-shrink:0;}
+        .fc-meta{font-size:11px;color:var(--text-secondary);margin-top:4px;}
+        .fc-run-btn{padding:8px 18px;background:var(--success);color:var(--on-primary);border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px;transition:background 0.2s;white-space:nowrap;flex-shrink:0;}
         .fc-run-btn:hover:not(:disabled){background:#047857;}
         .fc-run-btn:disabled{background:#d1d5db;cursor:not-allowed;}
         .fc-body{display:flex;flex-direction:column;gap:16px;}
         .fc-months{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
         .fc-month-card{background:var(--white);border-radius:10px;padding:16px 18px;border:1px solid var(--border);text-align:center;}
-        .fc-month-label{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px;}
-        .fc-month-val{font-size:22px;font-weight:700;color:#059669;margin-bottom:6px;}
+        .fc-month-label{font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px;}
+        .fc-month-val{font-size:22px;font-weight:700;color:var(--success);margin-bottom:6px;}
         .fc-month-bar-wrap{height:4px;background:rgba(5,150,105,0.15);border-radius:2px;overflow:hidden;}
         .fc-month-bar{height:100%;background:linear-gradient(90deg,#059669,#10b981);border-radius:2px;}
-        .fc-winner-badge{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:20px;font-size:11px;font-weight:700;color:#065f46;}
+        .fc-winner-badge{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;background:var(--success-bg);border:1px solid var(--success-border);border-radius:20px;font-size:11px;font-weight:700;color:var(--success);}
         .fc-compare-wrap{background:var(--white);border-radius:10px;border:1px solid var(--border);overflow:hidden;}
         .fc-compare-head{padding:12px 16px;background:rgba(5,150,105,0.04);border-bottom:1px solid var(--border);font-size:13px;font-weight:700;color:#065f46;display:flex;align-items:center;gap:8px;}
         .fc-table{width:100%;border-collapse:collapse;font-size:13px;}
-        .fc-table th{padding:10px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;border-bottom:1px solid var(--border);background:rgba(5,150,105,0.02);}
-        .fc-table td{padding:11px 16px;border-bottom:1px solid var(--border);color:var(--text);}
+        .fc-table th{padding:10px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;border-bottom:1px solid var(--border);background:rgba(5,150,105,0.02);}
+        .fc-table td{padding:11px 16px;border-bottom:1px solid var(--border);color:var(--text-primary);}
         .fc-table tr:last-child td{border-bottom:none;}
         .fc-table tr.winner-row td{background:rgba(5,150,105,0.04);font-weight:600;}
-        .metric-good{color:#059669;font-weight:700;}
-        .metric-bad{color:var(--muted);}
+        .metric-good{color:var(--success);font-weight:700;}
+        .metric-bad{color:var(--text-secondary);}
         .fc-avp-wrap{background:var(--white);border-radius:10px;border:1px solid var(--border);overflow:hidden;}
         .fc-avp-head{padding:12px 16px;background:rgba(59,130,246,0.03);border-bottom:1px solid var(--border);font-size:13px;font-weight:700;color:#1d4ed8;display:flex;align-items:center;gap:8px;}
         .fc-model-row{display:flex;gap:14px;flex-wrap:wrap;padding:12px 16px;background:rgba(5,150,105,0.05);border-radius:8px;border:1px solid rgba(5,150,105,0.15);}
-        .fc-model-stat{font-size:12px;color:var(--text);display:flex;align-items:center;gap:5px;}
+        .fc-model-stat{font-size:12px;color:var(--text-primary);display:flex;align-items:center;gap:5px;}
         .fc-model-stat strong{color:#065f46;}
-        .fc-empty{padding:20px;text-align:center;color:var(--muted);font-size:13px;}
-        .fc-loading{text-align:center;padding:28px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:10px;}
+        .fc-empty{padding:20px;text-align:center;color:var(--text-secondary);font-size:13px;}
+        .fc-loading{text-align:center;padding:28px;color:var(--text-secondary);display:flex;flex-direction:column;align-items:center;gap:10px;}
         .fc-spinner{width:26px;height:26px;border:3px solid var(--border);border-top-color:#059669;border-radius:50%;animation:fcspin .7s linear infinite;}
         @keyframes fcspin{to{transform:rotate(360deg);}}
-        .fc-err{padding:12px 16px;background:#fff0f0;border:1px solid #ef9a9a;border-radius:9px;font-size:13px;color:#c62828;margin-top:12px;}
-        .fc-section-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin:16px 0 8px;display:flex;align-items:center;gap:7px;}
+        .fc-err{padding:12px 16px;background:var(--danger-bg);border:1px solid #ef9a9a;border-radius:9px;font-size:13px;color:var(--danger);margin-top:12px;}
+        .fc-section-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);margin:16px 0 8px;display:flex;align-items:center;gap:7px;}
 
         /* ── AI Insights ── */
-        .ai-card{background:linear-gradient(135deg,rgba(168,53,53,0.04),rgba(244,162,97,0.04));border:1.5px solid rgba(168,53,53,0.15);border-radius:12px;padding:22px 24px;}
+        .ai-card{background:linear-gradient(135deg,var(--primary-tint-subtle),rgba(244,162,97,0.04));border:1.5px solid var(--primary-tint-active);border-radius:12px;padding:22px 24px;}
         .ai-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
         .ai-card-title{font-size:15px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:9px;}
-        .ai-gen-btn{padding:8px 18px;background:var(--primary);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px;transition:background 0.2s;white-space:nowrap;}
-        .ai-gen-btn:hover:not(:disabled){background:#8b2a2a;}
+        .ai-gen-btn{padding:8px 18px;background:var(--primary);color:var(--on-primary);border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px;transition:background 0.2s;white-space:nowrap;}
+        .ai-gen-btn:hover:not(:disabled){background:var(--primary-dark);}
         .ai-gen-btn:disabled{background:#d1d5db;cursor:not-allowed;}
         .ai-body{display:none;margin-top:16px;}
         .ai-body.show{display:block;}
-        .ai-loading{text-align:center;padding:24px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:10px;}
+        .ai-loading{text-align:center;padding:24px;color:var(--text-secondary);display:flex;flex-direction:column;align-items:center;gap:10px;}
         .ai-spinner{width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:aispin .7s linear infinite;}
         @keyframes aispin{to{transform:rotate(360deg);}}
-        .ai-summary{font-size:14px;line-height:1.7;padding:14px 18px;background:rgba(168,53,53,0.05);border-radius:9px;border-left:4px solid var(--primary);margin-bottom:16px;font-weight:500;color:var(--text);}
+        .ai-summary{font-size:14px;line-height:1.7;padding:14px 18px;background:var(--primary-tint-subtle);border-radius:9px;border-left:4px solid var(--primary);margin-bottom:16px;font-weight:500;color:var(--text-primary);}
         .ai-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
         .ai-sec{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;}
-        .ai-sec.g{color:#2e7d32;} .ai-sec.r{color:#c62828;} .ai-sec.b{color:#1d4ed8;}
-        .ai-item{display:flex;align-items:flex-start;gap:7px;font-size:13px;line-height:1.6;margin-bottom:5px;color:var(--text);}
+        .ai-sec.g{color:var(--success);} .ai-sec.r{color:var(--danger);} .ai-sec.b{color:#1d4ed8;}
+        .ai-item{display:flex;align-items:flex-start;gap:7px;font-size:13px;line-height:1.6;margin-bottom:5px;color:var(--text-primary);}
         .ai-rec{padding:12px 16px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:9px;font-size:13px;color:#1d4ed8;line-height:1.6;}
-        .ai-ts{font-size:11px;color:var(--muted);margin-top:10px;text-align:right;}
-        .ai-err{padding:12px 16px;background:#fff0f0;border:1px solid #ef9a9a;border-radius:9px;font-size:13px;color:#c62828;}
+        .ai-ts{font-size:11px;color:var(--text-secondary);margin-top:10px;text-align:right;}
+        .ai-err{padding:12px 16px;background:var(--danger-bg);border:1px solid #ef9a9a;border-radius:9px;font-size:13px;color:var(--danger);}
 
         @media(max-width:1400px){.stat-grid{grid-template-columns:repeat(2,1fr);}}
         @media(max-width:1100px){.two-col,.three-col{grid-template-columns:1fr;}}
         @media(max-width:1024px){
-            :root{--sidebar:70px;}
-            .logo-text,.admin-subtitle,.nav-text,.user-details,.nav-title{display:none;}
-            .logo-area,.nav-section,.user-section{padding:16px 12px;}
-            .logo-area{justify-content:center;}
-            .nav-link{justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent;}
-            .nav-link:hover,.nav-link.active{border-left:none;border-right-color:var(--primary);}
-            .nav-icon{margin-right:0;}
-            .logout-link span{display:none;}
-            .logout-link{justify-content:center;padding:9px;}
             .ai-cols{grid-template-columns:1fr;}
         }
         @media(max-width:768px){.stat-grid{grid-template-columns:1fr 1fr;}}
@@ -468,10 +442,10 @@ if ($res && $res->num_rows > 0) {
 </div>
 
 <div class="stat-grid">
-    <div class="stat-card"><div class="stat-header"><div class="stat-label">Pending Payments</div><div class="stat-icon ic-orange"><i class="fas fa-hourglass-half"></i></div></div><div class="stat-value" style="font-size:20px;"><?= $pendingCount ?></div><div class="stat-trend"><i class="fas fa-exclamation-circle" style="color:#d97706;"></i> RM <?= number_format($pendingAmt,2) ?> unverified</div></div>
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Pending Payments</div><div class="stat-icon ic-orange"><i class="fas fa-hourglass-half"></i></div></div><div class="stat-value" style="font-size:20px;"><?= $pendingCount ?></div><div class="stat-trend"><i class="fas fa-exclamation-circle" style="color:var(--warning);"></i> RM <?= number_format($pendingAmt,2) ?> unverified</div></div>
     <div class="stat-card"><div class="stat-header"><div class="stat-label">Cancelled Orders</div><div class="stat-icon ic-red"><i class="fas fa-times-circle"></i></div></div><div class="stat-value" style="font-size:20px;"><?= $cancelledOrders ?></div><div class="stat-trend"><i class="fas fa-info-circle"></i> This period</div></div>
     <div class="stat-card"><div class="stat-header"><div class="stat-label">Pre-orders</div><div class="stat-icon ic-purple"><i class="fas fa-clipboard-check"></i></div></div><div class="stat-value" style="font-size:20px;"><?= $totalPreorders ?></div><div class="stat-trend"><i class="fas fa-info-circle"></i> All time</div></div>
-    <div class="stat-card"><div class="stat-header"><div class="stat-label">Low Stock Alerts</div><div class="stat-icon" style="background:rgba(239,68,68,.1);color:#dc2626;"><i class="fas fa-exclamation-triangle"></i></div></div><div class="stat-value" style="font-size:20px;"><?= $lowStock+$outOfStock ?></div><div class="stat-trend"><i class="fas fa-times-circle" style="color:#dc2626;"></i> <?= $outOfStock ?> out of stock</div></div>
+    <div class="stat-card"><div class="stat-header"><div class="stat-label">Low Stock Alerts</div><div class="stat-icon" style="background:rgba(239,68,68,.1);color:var(--danger);"><i class="fas fa-exclamation-triangle"></i></div></div><div class="stat-value" style="font-size:20px;"><?= $lowStock+$outOfStock ?></div><div class="stat-trend"><i class="fas fa-times-circle" style="color:var(--danger);"></i> <?= $outOfStock ?> out of stock</div></div>
 </div>
 
 <!-- ── Sales Forecast ── -->
@@ -480,7 +454,7 @@ if ($res && $res->num_rows > 0) {
         <div>
             <div class="fc-title">
                 <i class="fas fa-chart-line"></i> 3-Month Revenue Forecast
-                <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:4px;">Linear, Polynomial &amp; Seasonal Regression</span>
+                <span style="font-size:11px;font-weight:400;color:var(--text-secondary);margin-left:4px;">Linear, Polynomial &amp; Seasonal Regression</span>
             </div>
             <?php if ($forecastMeta): ?>
             <div class="fc-meta">
@@ -535,7 +509,7 @@ if ($res && $res->num_rows > 0) {
                 Model Accuracy (R²):
                 <strong>
                     <?php if ($r2Val < 0): ?>
-                        <span style="color:#dc2626;">Below average</span>
+                        <span style="color:var(--danger);">Below average</span>
                     <?php else: ?>
                         <?= number_format($r2Val * 100, 1) ?>%
                     <?php endif; ?>
@@ -551,8 +525,8 @@ if ($res && $res->num_rows > 0) {
                 Training data: <strong><?= $forecastMeta['data_points'] ?> months</strong>
             </div>
             <div class="fc-model-stat">
-                <i class="fas fa-info-circle" style="color:var(--muted);"></i>
-                <span style="color:var(--muted);font-size:11px;">Higher R² = better fit. Forecast accuracy improves with more data.</span>
+                <i class="fas fa-info-circle" style="color:var(--text-secondary);"></i>
+                <span style="color:var(--text-secondary);font-size:11px;">Higher R² = better fit. Forecast accuracy improves with more data.</span>
             </div>
         </div>
         <?php endif; ?>
@@ -566,7 +540,7 @@ if ($res && $res->num_rows > 0) {
     <div class="ai-card-head">
         <div class="ai-card-title">
             <i class="fas fa-robot"></i> AI Business Insights
-            <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:4px;">Powered by Gemini</span>
+            <span style="font-size:11px;font-weight:400;color:var(--text-secondary);margin-left:4px;">Powered by Gemini</span>
         </div>
         <button class="ai-gen-btn" id="aiBtn" onclick="generateInsights()">
             <i class="fas fa-magic"></i> Generate Insights
@@ -695,7 +669,7 @@ if ($res && $res->num_rows > 0) {
             <thead><tr><th>#</th><th>Product</th><th>Category</th><th>Qty Sold</th><th>Revenue</th><th>Orders</th></tr></thead>
             <tbody>
             <?php foreach(array_slice($topProducts,0,5) as $i=>$p): ?>
-            <tr><td style="font-weight:700;color:var(--muted);"><?= $i+1 ?></td><td style="font-weight:600;"><?= htmlspecialchars($p['product_name']) ?></td><td><span class="badge b-blue"><?= htmlspecialchars($p['category']?:'—') ?></span></td><td><?= number_format($p['total_qty']) ?></td><td style="font-weight:700;color:var(--primary);">RM <?= number_format($p['total_revenue'],2) ?></td><td><?= $p['order_count'] ?></td></tr>
+            <tr><td style="font-weight:700;color:var(--text-secondary);"><?= $i+1 ?></td><td style="font-weight:600;"><?= htmlspecialchars($p['product_name']) ?></td><td><span class="badge b-blue"><?= htmlspecialchars($p['category']?:'—') ?></span></td><td><?= number_format($p['total_qty']) ?></td><td style="font-weight:700;color:var(--primary);">RM <?= number_format($p['total_revenue'],2) ?></td><td><?= $p['order_count'] ?></td></tr>
             <?php endforeach; ?>
             </tbody>
         </table>
@@ -748,7 +722,7 @@ foreach($orderStatuses as $s){match($s['order_status']){'NEW'=>$newOrd=$s['cnt']
     <div class="card-body">
         <?php if(empty($preorderStatuses)): ?><div class="no-data"><i class="fas fa-clipboard-check"></i><p>No pre-orders.</p></div><?php else: ?>
         <div class="status-grid">
-            <?php $poCols=['SUBMITTED'=>'#A83535','PROCESSING'=>'#f59e0b','READY'=>'#10b981','CANCELLED'=>'#ef4444']; foreach($preorderStatuses as $ps): $col=$poCols[$ps['order_status']]??'#607D8B'; $pct=round(($ps['cnt']/$totalPreorderRows)*100,1); ?>
+            <?php $poCols=['SUBMITTED'=>'var(--primary)','PROCESSING'=>'var(--warning)','READY'=>'var(--success)','CANCELLED'=>'var(--danger)']; foreach($preorderStatuses as $ps): $col=$poCols[$ps['order_status']]??'#607D8B'; $pct=round(($ps['cnt']/$totalPreorderRows)*100,1); ?>
             <div class="status-row"><div class="status-dot" style="background:<?= $col ?>;"></div><span class="status-name"><?= ucfirst(strtolower($ps['order_status'])) ?></span><div class="status-bar-track"><div class="status-bar-fill" style="width:<?= $pct ?>%;background:<?= $col ?>;"></div></div><span class="status-count"><?= $ps['cnt'] ?></span><span class="status-pct"><?= $pct ?>%</span></div>
             <?php endforeach; ?>
         </div>
@@ -799,7 +773,7 @@ foreach($orderStatuses as $s){match($s['order_status']){'NEW'=>$newOrd=$s['cnt']
         <table class="data-table">
             <thead><tr><th>#</th><th>Product</th><th>Category</th><th>Qty Sold</th><th>Revenue</th><th>Avg Price</th><th>Orders</th></tr></thead>
             <tbody><?php foreach($topProducts as $i=>$p): ?>
-            <tr><td style="font-weight:700;color:var(--muted);"><?= $i+1 ?></td><td style="font-weight:600;"><?= htmlspecialchars($p['product_name']) ?></td><td><span class="badge b-blue"><?= htmlspecialchars($p['category']?:'—') ?></span></td><td><?= number_format($p['total_qty']) ?></td><td style="font-weight:700;color:var(--primary);">RM <?= number_format($p['total_revenue'],2) ?></td><td>RM <?= $p['total_qty']>0?number_format($p['total_revenue']/$p['total_qty'],2):'—' ?></td><td><?= $p['order_count'] ?></td></tr>
+            <tr><td style="font-weight:700;color:var(--text-secondary);"><?= $i+1 ?></td><td style="font-weight:600;"><?= htmlspecialchars($p['product_name']) ?></td><td><span class="badge b-blue"><?= htmlspecialchars($p['category']?:'—') ?></span></td><td><?= number_format($p['total_qty']) ?></td><td style="font-weight:700;color:var(--primary);">RM <?= number_format($p['total_revenue'],2) ?></td><td>RM <?= $p['total_qty']>0?number_format($p['total_revenue']/$p['total_qty'],2):'—' ?></td><td><?= $p['order_count'] ?></td></tr>
             <?php endforeach; ?></tbody>
         </table>
         <?php endif; ?>
@@ -818,12 +792,12 @@ foreach($orderStatuses as $s){match($s['order_status']){'NEW'=>$newOrd=$s['cnt']
     <div class="card-head"><div class="card-title"><i class="fas fa-exclamation-triangle"></i> Low &amp; Out-of-Stock Items</div><span class="card-sub">Across all branches</span></div>
     <div style="overflow-x:auto;">
         <?php if(empty($lowStockItems)): ?>
-            <div class="no-data" style="padding:26px;"><i class="fas fa-check-circle" style="color:#10b981;"></i><p>All stock levels healthy!</p></div>
+            <div class="no-data" style="padding:26px;"><i class="fas fa-check-circle" style="color:var(--success);"></i><p>All stock levels healthy!</p></div>
         <?php else: ?>
         <table class="data-table">
             <thead><tr><th>Product</th><th>Category</th><th>Branch</th><th>Stock</th><th>Min Level</th><th>Shortage</th><th>Health</th></tr></thead>
-            <tbody><?php foreach($lowStockItems as $item): $pct2=$item['minimum_level']>0?min(100,round(($item['stock_quantity']/$item['minimum_level'])*100)):0; $barCol=$item['stock_quantity']==0?'#ef4444':'#f59e0b'; $badge=$item['stock_quantity']==0?'b-red':'b-yellow'; $label=$item['stock_quantity']==0?'Out of Stock':'Low'; ?>
-            <tr><td style="font-weight:600;"><?= htmlspecialchars($item['product_name']) ?></td><td><span class="badge b-blue"><?= htmlspecialchars($item['category']?:'—') ?></span></td><td><?= htmlspecialchars($item['branch_name']) ?></td><td style="font-weight:700;color:<?= $barCol ?>;"><?= $item['stock_quantity'] ?></td><td><?= $item['minimum_level'] ?></td><td style="color:#ef4444;font-weight:700;">-<?= $item['shortage'] ?></td>
+            <tbody><?php foreach($lowStockItems as $item): $pct2=$item['minimum_level']>0?min(100,round(($item['stock_quantity']/$item['minimum_level'])*100)):0; $barCol=$item['stock_quantity']==0?'var(--danger)':'var(--warning)'; $badge=$item['stock_quantity']==0?'b-red':'b-yellow'; $label=$item['stock_quantity']==0?'Out of Stock':'Low'; ?>
+            <tr><td style="font-weight:600;"><?= htmlspecialchars($item['product_name']) ?></td><td><span class="badge b-blue"><?= htmlspecialchars($item['category']?:'—') ?></span></td><td><?= htmlspecialchars($item['branch_name']) ?></td><td style="font-weight:700;color:<?= $barCol ?>;"><?= $item['stock_quantity'] ?></td><td><?= $item['minimum_level'] ?></td><td style="color:var(--danger);font-weight:700;">-<?= $item['shortage'] ?></td>
             <td><div class="stock-mini"><div class="stock-mini-bar"><div class="stock-mini-fill" style="width:<?= $pct2 ?>%;background:<?= $barCol ?>;"></div></div><span class="badge <?= $badge ?>"><?= $label ?></span></div></td></tr>
             <?php endforeach; ?></tbody>
         </table>
@@ -847,8 +821,8 @@ foreach($orderStatuses as $s){match($s['order_status']){'NEW'=>$newOrd=$s['cnt']
         <table class="data-table">
             <thead><tr><th>#</th><th>Customer</th><th>Email</th><th>Orders</th><th>Total Spent</th><th>Share</th></tr></thead>
             <tbody><?php foreach($topCustomers as $i=>$c): $share=round(($c['total_spent']/$maxSpend)*100); ?>
-            <tr><td style="font-weight:700;color:var(--muted);"><?= $i+1 ?></td><td style="font-weight:600;"><?= htmlspecialchars($c['name']) ?></td><td style="font-size:11px;color:var(--muted);"><?= htmlspecialchars($c['email']) ?></td><td><?= $c['order_count'] ?></td><td style="font-weight:700;color:var(--primary);">RM <?= number_format($c['total_spent'],2) ?></td>
-            <td><div class="stock-mini"><div class="stock-mini-bar" style="width:70px;"><div class="stock-mini-fill" style="width:<?= $share ?>%;background:var(--primary);"></div></div><span style="font-size:10px;color:var(--muted);"><?= $share ?>%</span></div></td></tr>
+            <tr><td style="font-weight:700;color:var(--text-secondary);"><?= $i+1 ?></td><td style="font-weight:600;"><?= htmlspecialchars($c['name']) ?></td><td style="font-size:11px;color:var(--text-secondary);"><?= htmlspecialchars($c['email']) ?></td><td><?= $c['order_count'] ?></td><td style="font-weight:700;color:var(--primary);">RM <?= number_format($c['total_spent'],2) ?></td>
+            <td><div class="stock-mini"><div class="stock-mini-bar" style="width:70px;"><div class="stock-mini-fill" style="width:<?= $share ?>%;background:var(--primary);"></div></div><span style="font-size:10px;color:var(--text-secondary);"><?= $share ?>%</span></div></td></tr>
             <?php endforeach; ?></tbody>
         </table>
         <?php endif; ?>
@@ -879,7 +853,7 @@ foreach($orderStatuses as $s){match($s['order_status']){'NEW'=>$newOrd=$s['cnt']
     <div class="card">
         <div class="card-head"><div class="card-title"><i class="fas fa-shield-alt"></i> Verification Status</div></div>
         <div class="card-body">
-            <?php if(empty($payVerification)): ?><div class="no-data"><i class="fas fa-receipt"></i><p>No records.</p></div><?php else: $pvCols=['VALID'=>'#10b981','PENDING'=>'#f59e0b','INVALID'=>'#ef4444']; ?>
+            <?php if(empty($payVerification)): ?><div class="no-data"><i class="fas fa-receipt"></i><p>No records.</p></div><?php else: $pvCols=['VALID'=>'var(--success)','PENDING'=>'var(--warning)','INVALID'=>'var(--danger)']; ?>
             <div class="status-grid"><?php foreach($payVerification as $pv): $col=$pvCols[$pv['verification_status']]??'#607D8B'; $pct=round(($pv['cnt']/$pvTotal)*100,1); $lbl=match($pv['verification_status']){'VALID'=>'Verified','PENDING'=>'Pending','INVALID'=>'Rejected',default=>$pv['verification_status']}; ?>
                 <div class="status-row"><div class="status-dot" style="background:<?= $col ?>;"></div><span class="status-name"><?= $lbl ?></span><div class="status-bar-track"><div class="status-bar-fill" style="width:<?= $pct ?>%;background:<?= $col ?>;"></div></div><span class="status-count"><?= $pv['cnt'] ?></span><span class="status-pct"><?= $pct ?>%</span></div>
             <?php endforeach; ?></div>
@@ -895,7 +869,7 @@ foreach($orderStatuses as $s){match($s['order_status']){'NEW'=>$newOrd=$s['cnt']
         <table class="data-table">
             <thead><tr><th>Payment ID</th><th>Date</th><th>Customer</th><th>Order</th><th>Method</th><th>Amount</th><th>Status</th></tr></thead>
             <tbody><?php foreach($recentPayments as $pay): $bC=match($pay['verification_status']){'VALID'=>'b-green','PENDING'=>'b-yellow','INVALID'=>'b-red',default=>'b-gray'}; $bL=match($pay['verification_status']){'VALID'=>'Verified','PENDING'=>'Pending','INVALID'=>'Rejected',default=>$pay['verification_status']}; $mL=match($pay['payment_method']){'CASH'=>'Cash','TRANSFER'=>'Transfer','OTHER'=>'E-Wallet',default=>$pay['payment_method']}; ?>
-            <tr><td class="mono"><?= htmlspecialchars($pay['payment_id']) ?></td><td style="font-size:11px;color:var(--muted);"><?= date('d M Y H:i',strtotime($pay['record_date'])) ?></td><td><?= htmlspecialchars($pay['customer_name']) ?></td><td class="mono"><?= htmlspecialchars($pay['order_id']) ?></td><td><?= $mL ?></td><td style="font-weight:700;color:var(--primary);">RM <?= number_format($pay['amount'],2) ?></td><td><span class="badge <?= $bC ?>"><?= $bL ?></span></td></tr>
+            <tr><td class="mono"><?= htmlspecialchars($pay['payment_id']) ?></td><td style="font-size:11px;color:var(--text-secondary);"><?= date('d M Y H:i',strtotime($pay['record_date'])) ?></td><td><?= htmlspecialchars($pay['customer_name']) ?></td><td class="mono"><?= htmlspecialchars($pay['order_id']) ?></td><td><?= $mL ?></td><td style="font-weight:700;color:var(--primary);">RM <?= number_format($pay['amount'],2) ?></td><td><span class="badge <?= $bC ?>"><?= $bL ?></span></td></tr>
             <?php endforeach; ?></tbody>
         </table>
         <?php endif; ?>
@@ -995,7 +969,7 @@ function renderForecast(data) {
         return `<div class="fc-month-card" style="opacity:${opacity}">
             <div class="fc-month-label">${esc(p.month_label)}</div>
             <div class="fc-month-val">RM ${fmtRM(p.predicted_revenue)}</div>
-            <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">
+            <div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;">
                 ${esc(p.relative_label || (i===0?'Next month':i===1?'In 2 months':'In 3 months'))}</div>
             <div class="fc-month-bar-wrap">
                 <div class="fc-month-bar" style="width:${pct}%"></div>
@@ -1012,11 +986,11 @@ function renderForecast(data) {
         return `<tr class="${isW?'winner-row':''}">
             <td>${label} ${isW?'<span class="fc-winner-badge">✓ Used for forecast</span>':''}</td>
             <td class="${isW?'metric-good':''}">RM ${fmtRM(m.mae||0)}<br>
-                <span style="font-size:10px;color:var(--muted);">avg error/month</span></td>
+                <span style="font-size:10px;color:var(--text-secondary);">avg error/month</span></td>
             <td class="${isW?'metric-good':''}">RM ${fmtRM(m.rmse||0)}<br>
-                <span style="font-size:10px;color:var(--muted);">penalises big errors</span></td>
+                <span style="font-size:10px;color:var(--text-secondary);">penalises big errors</span></td>
             <td class="${isW?'metric-good':''}">${fmtFit(m.r_squared)}<br>
-                <span style="font-size:10px;color:var(--muted);">how well it fits</span></td>
+                <span style="font-size:10px;color:var(--text-secondary);">how well it fits</span></td>
         </tr>`;
     }).join('');
 
@@ -1040,17 +1014,17 @@ function renderForecast(data) {
         <!-- Plain English -->
         <div style="padding:14px 18px;background:rgba(5,150,105,0.06);border-radius:9px;
                     border-left:4px solid #059669;margin-bottom:16px;font-size:14px;
-                    color:var(--text);line-height:1.7;">
+                    color:var(--text-primary);line-height:1.7;">
             ${plain}
             <div style="margin-top:8px;font-size:13px;">
                 ${accuracyLabel}
-                <span style="color:var(--muted);margin-left:6px;">${accuracyTip}</span>
+                <span style="color:var(--text-secondary);margin-left:6px;">${accuracyTip}</span>
             </div>
         </div>
 
         <!-- 3-month cards -->
         <div class="fc-months" style="margin-bottom:12px;">${monthCards}</div>
-        <div style="font-size:11px;color:var(--muted);text-align:center;margin-bottom:16px;">
+        <div style="font-size:11px;color:var(--text-secondary);text-align:center;margin-bottom:16px;">
             <i class="fas fa-info-circle"></i>
             Based on your sales history. Actual results may vary.
             Generated ${esc(data.generated_at||'')}
@@ -1081,7 +1055,7 @@ function renderForecast(data) {
                     that the model had never seen — giving a realistic accuracy estimate.
                     <div style="margin-top:8px;padding-top:8px;border-top:1px solid #bfdbfe;">
                         <strong>Full-history fit:</strong> ${fmtFit(model.full_r_squared)}
-                        <span style="color:var(--muted);">
+                        <span style="color:var(--text-secondary);">
                             — measured across all ${model.data_points||'?'} months rather than
                             just the ${eval_.test_months||'?'}-month test window, so it isn't
                             as sensitive to a small, volatile hold-out sample.
@@ -1089,7 +1063,7 @@ function renderForecast(data) {
                     </div>
                 </div>
                 <!-- Model table -->
-                <div style="font-size:11px;font-weight:700;color:var(--muted);
+                <div style="font-size:11px;font-weight:700;color:var(--text-secondary);
                             text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">
                     Model Comparison (on test data)
                 </div>
@@ -1104,7 +1078,7 @@ function renderForecast(data) {
                 </div>
                 <!-- AVP -->
                 ${testResults.length>0?`
-                <div style="font-size:11px;font-weight:700;color:var(--muted);
+                <div style="font-size:11px;font-weight:700;color:var(--text-secondary);
                             text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">
                     How close were the predictions?</div>
                 <div class="fc-avp-wrap" style="margin-bottom:8px;">
@@ -1138,13 +1112,13 @@ function toggleFcDetails(btn) {
 function avpBar(label, value, maxVal, color, subtitle) {
     const pct = Math.round((value/maxVal)*100);
     return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">
-        <span style="font-size:11px;color:var(--muted);width:52px;flex-shrink:0;">${label}</span>
+        <span style="font-size:11px;color:var(--text-secondary);width:52px;flex-shrink:0;">${label}</span>
         <div style="flex:1;height:14px;background:var(--border);border-radius:4px;overflow:hidden;">
             <div style="height:100%;width:${pct}%;background:${color};border-radius:4px;"></div>
         </div>
         <span style="font-size:11px;font-weight:700;min-width:72px;text-align:right;color:${color};">
             RM ${fmtRM(value)}</span>
-        ${subtitle?`<span style="font-size:10px;color:var(--muted);min-width:100px;">${subtitle}</span>`:''}
+        ${subtitle?`<span style="font-size:10px;color:var(--text-secondary);min-width:100px;">${subtitle}</span>`:''}
     </div>`;
 }
 
@@ -1159,7 +1133,7 @@ function fmtRM(n) {
 function fmtFit(r2) {
     const v = r2 || 0;
     if (v < 0) {
-        return `<span style="color:#dc2626;">Below average</span>`;
+        return `<span style="color:var(--danger);">Below average</span>`;
     }
     return `${Math.round(v * 100)}%`;
 }
@@ -1199,10 +1173,10 @@ async function generateInsights() {
         const ins = data.insights;
         document.getElementById('aiSummary').textContent = ins.summary;
         document.getElementById('aiHL').innerHTML = (ins.highlights || []).map(h =>
-            `<div class="ai-item"><i class="fas fa-check" style="color:#2e7d32;margin-top:3px;flex-shrink:0;font-size:11px;"></i>${esc(h)}</div>`
+            `<div class="ai-item"><i class="fas fa-check" style="color:var(--success);margin-top:3px;flex-shrink:0;font-size:11px;"></i>${esc(h)}</div>`
         ).join('');
         document.getElementById('aiCon').innerHTML = (ins.concerns || []).map(c =>
-            `<div class="ai-item"><i class="fas fa-exclamation-circle" style="color:#c62828;margin-top:3px;flex-shrink:0;font-size:11px;"></i>${esc(c)}</div>`
+            `<div class="ai-item"><i class="fas fa-exclamation-circle" style="color:var(--danger);margin-top:3px;flex-shrink:0;font-size:11px;"></i>${esc(c)}</div>`
         ).join('');
         document.getElementById('aiRec').innerHTML =
             `<i class="fas fa-arrow-right" style="margin-right:6px;"></i>${esc(ins.recommendation || '')}`;

@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // ============================================================
 //  s_upload_review.php — Staff: Print File Review
 // ============================================================
@@ -110,9 +110,9 @@ function filterUrl(array $over = []): string {
 
 function fileStatusBadge(string $s): string {
     return match($s) {
-        'RECEIVED' => "<span style='background:#fffbeb;color:#92400e;border:1px solid #fde68a;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'>⏳ Received</span>",
-        'REVIEWED' => "<span style='background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'>✓ Reviewed</span>",
-        'REJECTED' => "<span style='background:#fef2f2;color:#c62828;border:1px solid #ef9a9a;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'>✗ Rejected</span>",
+        'RECEIVED' => "<span style='background:var(--warning-bg);color:var(--warning);border:1px solid #fde68a;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'>⏳ Received</span>",
+        'REVIEWED' => "<span style='background:var(--success-bg);color:var(--success);border:1px solid var(--success-border);padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'>✓ Reviewed</span>",
+        'REJECTED' => "<span style='background:var(--danger-bg);color:var(--danger);border:1px solid #ef9a9a;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'>✗ Rejected</span>",
         default    => "<span style='background:#f3f4f6;color:#6b7280;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'>$s</span>",
     };
 }
@@ -124,6 +124,9 @@ function fileStatusBadge(string $s): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus — Print File Review</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css">
     <style>
         :root {
             --primary:#A83535; --secondary:#F4A261; --accent:#F1EDE8;
@@ -137,13 +140,13 @@ function fileStatusBadge(string $s): string {
         /* ── Custom Dialog (replaces native alert/confirm/prompt) ── */
         .custom-dialog-overlay { display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center; }
         .custom-dialog-overlay.show { display:flex; }
-        .custom-dialog-box { background:white;border-radius:12px;width:90%;max-width:420px;padding:28px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,0.2);text-align:center;animation:dialogPop 0.15s ease; }
+        .custom-dialog-box { background:var(--white);border-radius:12px;width:90%;max-width:420px;padding:28px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,0.2);text-align:center;animation:dialogPop 0.15s ease; }
         @keyframes dialogPop { from{transform:scale(0.95);opacity:0;} to{transform:scale(1);opacity:1;} }
         .custom-dialog-icon { width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:22px; }
         .custom-dialog-icon.dialog-info { background:#eff6ff;color:#1d4ed8; }
-        .custom-dialog-icon.dialog-success { background:#ecfdf5;color:#059669; }
-        .custom-dialog-icon.dialog-error { background:#fef2f2;color:#dc2626; }
-        .custom-dialog-icon.dialog-warning { background:#fffbeb;color:#d97706; }
+        .custom-dialog-icon.dialog-success { background:var(--success-bg);color:var(--success); }
+        .custom-dialog-icon.dialog-error { background:var(--danger-bg);color:var(--danger); }
+        .custom-dialog-icon.dialog-warning { background:var(--warning-bg);color:var(--warning); }
         .custom-dialog-message { font-size:14px;color:#2E2E2E;line-height:1.6;margin-bottom:16px;white-space:pre-line; }
         .custom-dialog-input { display:none;width:100%;padding:10px 12px;border:1.5px solid #E0E0E0;border-radius:8px;font-size:13px;font-family:inherit;resize:none;margin-bottom:18px;transition:border-color 0.2s; }
         .custom-dialog-input:focus { outline:none;border-color:#A83535; }
@@ -151,33 +154,10 @@ function fileStatusBadge(string $s): string {
         .custom-dialog-btn { flex:1;padding:11px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:background 0.2s ease; }
         .custom-dialog-cancel { background:#F1EDE8;color:#2E2E2E;border:1.5px solid #E0E0E0; }
         .custom-dialog-cancel:hover { background:#e8e2da; }
-        .custom-dialog-confirm { background:#A83535;color:white; }
-        .custom-dialog-confirm:hover { background:#8b2a2a; }
-        .custom-dialog-danger { background:#dc2626;color:white; }
+        .custom-dialog-confirm { background:#A83535;color:var(--on-primary); }
+        .custom-dialog-confirm:hover { background:var(--primary-dark); }
+        .custom-dialog-danger { background:var(--danger);color:var(--on-primary); }
         .custom-dialog-danger:hover { background:#b91c1c; }
-
-        /* ── Sidebar ── */
-        .sidebar{width:var(--sidebar-width);background-color:var(--white);border-right:1px solid var(--border);height:100vh;position:fixed;left:0;top:0;display:flex;flex-direction:column;box-shadow:2px 0 10px rgba(0,0,0,0.03);overflow-y:auto;}
-        .logo-area{padding:25px;border-bottom:1px solid var(--border);display:flex;align-items:center;flex-shrink:0;}
-        .logo-icon{background-color:var(--primary);width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:12px;color:white;font-size:20px;}
-        .logo-text{font-size:22px;font-weight:700;color:var(--primary);}
-        .nav-section{padding:20px 0;border-bottom:1px solid var(--border);}
-        .nav-title{font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.8px;padding:0 25px 10px 25px;}
-        .nav-menu{list-style:none;}
-        .nav-item{margin-bottom:2px;}
-        .nav-link{display:flex;align-items:center;padding:13px 25px;color:var(--text-primary);text-decoration:none;transition:all 0.2s;border-left:4px solid transparent;}
-        .nav-link:hover{background-color:rgba(168,53,53,0.05);color:var(--primary);border-left-color:rgba(168,53,53,0.3);}
-        .nav-link.active{background-color:rgba(168,53,53,0.08);color:var(--primary);border-left-color:var(--primary);font-weight:600;}
-        .nav-icon{width:22px;text-align:center;margin-right:14px;font-size:16px;}
-        .nav-text{font-size:15px;}
-        .user-section{margin-top:auto;padding:20px 25px;border-top:1px solid var(--border);}
-        .user-info{display:flex;align-items:center;margin-bottom:14px;}
-        .user-avatar{width:40px;height:40px;border-radius:50%;background-color:rgba(168,53,53,0.1);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:700;font-size:16px;margin-right:12px;flex-shrink:0;}
-        .user-name{font-weight:600;font-size:15px;color:var(--text-primary);}
-        .user-role{font-size:12px;color:var(--text-secondary);margin-top:2px;}
-        .user-details{overflow:hidden;}
-        .logout-link{display:flex;align-items:center;gap:10px;padding:10px 14px;background-color:rgba(168,53,53,0.06);color:var(--primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;}
-        .logout-link:hover{background-color:rgba(168,53,53,0.14);}
 
         /* ── Main ── */
         .main-content{flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column;}
@@ -190,16 +170,16 @@ function fileStatusBadge(string $s): string {
         .filter-bar{display:flex;gap:10px;align-items:center;margin-bottom:20px;flex-wrap:wrap;}
         .tab-btn{padding:8px 18px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid var(--border);background:var(--white);color:var(--text-secondary);text-decoration:none;transition:all 0.2s;display:flex;align-items:center;gap:6px;}
         .tab-btn:hover{border-color:var(--primary);color:var(--primary);}
-        .tab-btn.active{background:var(--primary);color:white;border-color:var(--primary);}
-        .tab-count{background:rgba(168,53,53,0.08);color:var(--primary);padding:1px 7px;border-radius:10px;font-size:11px;}
-        .tab-btn.active .tab-count{background:rgba(255,255,255,0.25);color:white;}
+        .tab-btn.active{background:var(--primary);color:var(--on-primary);border-color:var(--primary);}
+        .tab-count{background:var(--primary-tint-light);color:var(--primary);padding:1px 7px;border-radius:10px;font-size:11px;}
+        .tab-btn.active .tab-count{background:rgba(255,255,255,0.25);color:var(--on-primary);}
         .search-input{padding:9px 14px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;background:var(--white);outline:none;transition:border-color 0.2s;min-width:240px;margin-left:auto;}
         .search-input:focus{border-color:var(--primary);}
 
         /* ── Filter panel ── */
         .filters-toggle{display:flex;align-items:center;gap:8px;padding:8px 16px;border:1.5px solid var(--border);border-radius:9px;background:var(--white);font-size:13px;font-weight:600;color:var(--text-primary);cursor:pointer;transition:all 0.2s;white-space:nowrap;}
-        .filters-toggle:hover,.filters-toggle.active{border-color:var(--primary);color:var(--primary);background:rgba(168,53,53,0.04);}
-        .filter-badge{background:var(--primary);color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;min-width:18px;text-align:center;}
+        .filters-toggle:hover,.filters-toggle.active{border-color:var(--primary);color:var(--primary);background:var(--primary-tint-subtle);}
+        .filter-badge{background:var(--primary);color:var(--on-primary);font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;min-width:18px;text-align:center;}
         .filter-panel{display:none;background:var(--white);border:1.5px solid var(--border);border-radius:12px;padding:20px 22px 16px;margin-bottom:14px;box-shadow:var(--card-shadow);}
         .filter-panel.open{display:block;}
         .filter-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:18px 24px;margin-bottom:16px;}
@@ -207,27 +187,27 @@ function fileStatusBadge(string $s): string {
         .chip-row{display:flex;flex-wrap:wrap;gap:6px;}
         .chip{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;border:1.5px solid var(--border);background:var(--white);color:var(--text-secondary);text-decoration:none;transition:all 0.15s;white-space:nowrap;display:inline-block;}
         .chip:hover{border-color:var(--primary);color:var(--primary);}
-        .chip.on{background:var(--primary);color:white;border-color:var(--primary);}
-        .chip.color-chip.on{background:#A83535;color:white;border-color:#A83535;}
-        .chip.bw-chip.on{background:#4b5563;color:white;border-color:#4b5563;}
-        .chip.mixed-chip.on{background:#7c3aed;color:white;border-color:#7c3aed;}
+        .chip.on{background:var(--primary);color:var(--on-primary);border-color:var(--primary);}
+        .chip.color-chip.on{background:#A83535;color:var(--on-primary);border-color:#A83535;}
+        .chip.bw-chip.on{background:#4b5563;color:var(--on-primary);border-color:#4b5563;}
+        .chip.mixed-chip.on{background:#7c3aed;color:var(--on-primary);border-color:#7c3aed;}
         .filter-actions{display:flex;align-items:center;gap:10px;border-top:1px solid var(--border);padding-top:14px;}
         .filter-clear{font-size:13px;color:var(--text-secondary);text-decoration:none;padding:6px 12px;border-radius:7px;transition:all 0.15s;}
-        .filter-clear:hover{background:rgba(168,53,53,0.06);color:var(--primary);}
+        .filter-clear:hover{background:var(--primary-tint-light);color:var(--primary);}
 
         /* ── Active filter pills ── */
         .active-pills{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}
-        .active-pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px 3px 12px;background:rgba(168,53,53,0.08);color:var(--primary);border:1px solid rgba(168,53,53,0.2);border-radius:20px;font-size:12px;font-weight:600;}
+        .active-pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px 3px 12px;background:var(--primary-tint-light);color:var(--primary);border:1px solid var(--primary-tint-active);border-radius:20px;font-size:12px;font-weight:600;}
         .active-pill a{color:var(--primary);text-decoration:none;opacity:0.6;margin-left:2px;font-size:14px;line-height:1;}
         .active-pill a:hover{opacity:1;}
 
         /* ── Table ── */
         .card{background:var(--white);border-radius:12px;border:1px solid var(--border);box-shadow:var(--card-shadow);overflow:hidden;}
         .data-table{width:100%;border-collapse:collapse;}
-        .data-table thead{background:rgba(168,53,53,0.04);border-bottom:2px solid var(--border);}
+        .data-table thead{background:var(--primary-tint-subtle);border-bottom:2px solid var(--border);}
         .data-table th{padding:13px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap;}
         .data-table tbody tr.main-row{border-bottom:1px solid var(--border);transition:background 0.15s;cursor:pointer;}
-        .data-table tbody tr.main-row:hover{background:rgba(168,53,53,0.02);}
+        .data-table tbody tr.main-row:hover{background:var(--primary-tint-subtle);}
         .data-table td{padding:13px 16px;font-size:13px;vertical-align:middle;}
         .mono{font-family:monospace;font-size:12px;font-weight:700;color:var(--primary);}
         .empty-state{text-align:center;padding:48px;color:var(--text-secondary);}
@@ -253,9 +233,9 @@ function fileStatusBadge(string $s): string {
         /* ── File viewer buttons ── */
         .file-actions{display:flex;gap:8px;align-items:center;margin-bottom:16px;padding:12px 16px;background:var(--white);border-radius:9px;border:1px solid var(--border);}
         .btn-view{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;padding:8px 16px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;text-decoration:none;transition:background 0.2s;}
-        .btn-view:hover{background:#1d4ed8;color:white;}
-        .btn-download{background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;padding:8px 16px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;text-decoration:none;transition:background 0.2s;}
-        .btn-download:hover{background:#15803d;color:white;}
+        .btn-view:hover{background:#1d4ed8;color:var(--on-primary);}
+        .btn-download{background:var(--success-bg);color:var(--success);border:1px solid var(--success-border);padding:8px 16px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;text-decoration:none;transition:background 0.2s;}
+        .btn-download:hover{background:var(--success);color:var(--on-primary);}
 
         /* ── Price + action row ── */
         .price-override{display:flex;align-items:center;gap:10px;margin-top:14px;padding:14px 16px;background:var(--white);border-radius:9px;border:1px solid var(--border);flex-wrap:wrap;}
@@ -263,10 +243,10 @@ function fileStatusBadge(string $s): string {
         .price-input{padding:8px 12px;border:1.5px solid var(--border);border-radius:7px;font-size:14px;font-weight:700;width:120px;color:var(--primary);outline:none;}
         .price-input:focus{border-color:var(--primary);}
         .btn{padding:9px 18px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:all 0.2s;}
-        .btn-reviewed{background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;}
-        .btn-reviewed:hover{background:#2e7d32;color:white;}
-        .btn-reject{background:#fef2f2;color:#c62828;border:1px solid #ef9a9a;}
-        .btn-reject:hover{background:#c62828;color:white;}
+        .btn-reviewed{background:var(--success-bg);color:var(--success);border:1px solid var(--success-border);}
+        .btn-reviewed:hover{background:var(--success);color:var(--on-primary);}
+        .btn-reject{background:var(--danger-bg);color:var(--danger);border:1px solid #ef9a9a;}
+        .btn-reject:hover{background:var(--danger);color:var(--on-primary);}
         .btn-done{background:#f3f4f6;color:#6b7280;border:1px solid #E0E0E0;cursor:not-allowed;}
 
         /* ── File viewer modal ── */
@@ -276,25 +256,16 @@ function fileStatusBadge(string $s): string {
         .modal-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
         .modal-title{font-size:15px;font-weight:700;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:calc(100% - 80px);}
         .modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-secondary);padding:4px 8px;border-radius:6px;transition:background 0.2s;}
-        .modal-close:hover{background:rgba(168,53,53,0.08);color:var(--primary);}
+        .modal-close:hover{background:var(--primary-tint-light);color:var(--primary);}
         .modal-body{flex-grow:1;overflow:auto;padding:0;display:flex;align-items:center;justify-content:center;min-height:400px;background:#f8f8f8;}
         .modal-body iframe{width:100%;height:100%;min-height:500px;border:none;}
         .modal-body img{max-width:100%;max-height:80vh;object-fit:contain;padding:16px;}
 
-        .toast{position:fixed;bottom:28px;right:28px;padding:14px 20px;background:#2e7d32;color:white;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 4px 20px rgba(0,0,0,0.15);z-index:1100;transform:translateY(80px);opacity:0;transition:all 0.3s;display:flex;align-items:center;gap:8px;}
+        .toast{position:fixed;bottom:28px;right:28px;padding:14px 20px;background:var(--success);color:var(--on-primary);border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 4px 20px rgba(0,0,0,0.15);z-index:1100;transform:translateY(80px);opacity:0;transition:all 0.3s;display:flex;align-items:center;gap:8px;}
         .toast.show{transform:translateY(0);opacity:1;}
-        .toast.error{background:#c62828;}
+        .toast.error{background:var(--danger);}
         .page-footer{text-align:center;padding:20px;color:var(--text-secondary);font-size:13px;border-top:1px solid var(--border);background:var(--white);}
 
-        @media(max-width:1024px){
-            :root{--sidebar-width:70px;}
-            .logo-text,.nav-text,.user-details,.nav-title,.logout-link span{display:none;}
-            .logo-area,.nav-section,.user-section{padding:18px 12px;}
-            .nav-link{justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent;}
-            .nav-link:hover,.nav-link.active{border-left:none;border-right-color:var(--primary);}
-            .nav-icon{margin-right:0;font-size:20px;}
-            .logout-link{justify-content:center;}
-        }
         @media(max-width:900px){.info-grid{grid-template-columns:1fr 1fr;}}
     </style>
 </head>
@@ -309,7 +280,7 @@ function fileStatusBadge(string $s): string {
             <p class="page-subtitle">Review AI colour analysis, confirm pricing, and process print jobs</p>
         </div>
         <?php if ($counts['RECEIVED'] > 0): ?>
-        <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:10px 16px;font-size:13px;color:#92400e;font-weight:600;">
+        <div style="background:var(--warning-bg);border:1px solid #fde68a;border-radius:9px;padding:10px 16px;font-size:13px;color:var(--warning);font-weight:600;">
             <i class="fas fa-print"></i>
             <?= $counts['RECEIVED'] ?> file<?= $counts['RECEIVED'] > 1 ? 's' : '' ?> awaiting review
         </div>
@@ -317,8 +288,8 @@ function fileStatusBadge(string $s): string {
     </header>
 
     <?php if (!$branchActive): ?>
-    <div style="margin:16px 30px 0;background:#fef2f2;border:1.5px solid #fecaca;border-radius:8px;
-                padding:12px 18px;font-size:13px;color:#991b1b;
+    <div style="margin:16px 30px 0;background:var(--danger-bg);border:1.5px solid #fecaca;border-radius:8px;
+                padding:12px 18px;font-size:13px;color:var(--danger);
                 display:flex;align-items:center;gap:10px;">
         <i class="fas fa-triangle-exclamation" style="font-size:16px;"></i>
         <span>Your assigned branch is temporarily unavailable (inactive/under renovation). Print file review is disabled — contact an admin to be reassigned.</span>
@@ -501,7 +472,7 @@ function fileStatusBadge(string $s): string {
                             </td>
                             <td style="font-weight:600;"><?= $f['total_pages'] ?></td>
                             <td>
-                                <?php if ($f['color_pages'] > 0): ?><span style="color:#A83535;font-weight:600;"><?= $f['color_pages'] ?>C</span><?php endif; ?>
+                                <?php if ($f['color_pages'] > 0): ?><span style="color:var(--primary);font-weight:600;"><?= $f['color_pages'] ?>C</span><?php endif; ?>
                                 <?php if ($f['bw_pages']    > 0): ?><span style="color:#6b7280;"> / <?= $f['bw_pages'] ?>B&W</span><?php endif; ?>
                             </td>
                             <td>
@@ -566,7 +537,7 @@ function fileStatusBadge(string $s): string {
                                         <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.4px;">
                                             AI Page Colour Map
                                             <?php if (!($analysis['parse_ok'] ?? true)): ?>
-                                            <span style="color:#f59e0b;font-weight:400;margin-left:6px;">(AI parse was uncertain — verify manually)</span>
+                                            <span style="color:var(--warning);font-weight:400;margin-left:6px;">(AI parse was uncertain — verify manually)</span>
                                             <?php endif; ?>
                                         </div>
                                         <div class="page-map">
@@ -608,7 +579,7 @@ function fileStatusBadge(string $s): string {
                                         </button>
                                     </div>
                                     <?php elseif ($f['file_status'] === 'REJECTED'): ?>
-                                    <div style="font-size:13px;color:#c62828;background:#fef2f2;border:1px solid #ef9a9a;border-radius:8px;padding:10px 14px;margin-top:4px;">
+                                    <div style="font-size:13px;color:var(--danger);background:var(--danger-bg);border:1px solid #ef9a9a;border-radius:8px;padding:10px 14px;margin-top:4px;">
                                         <i class="fas fa-times-circle" style="margin-right:6px;"></i>
                                         <strong>Rejected</strong> —
                                         <?= !empty($f['rejection_reason']) ? htmlspecialchars($f['rejection_reason']) : '<em>No reason was recorded.</em>' ?>
@@ -644,7 +615,7 @@ function fileStatusBadge(string $s): string {
             <span class="modal-title" id="modalTitle">File Viewer</span>
             <div style="display:flex;gap:8px;">
                 <a id="modalDownload" href="#" download
-                   style="background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;text-decoration:none;display:flex;align-items:center;gap:6px;">
+                   style="background:var(--success-bg);color:var(--success);border:1px solid var(--success-border);padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;text-decoration:none;display:flex;align-items:center;gap:6px;">
                     <i class="fas fa-download"></i> Download
                 </a>
                 <button class="modal-close" onclick="closeModal()"><i class="fas fa-times"></i></button>
@@ -759,7 +730,7 @@ function customPrompt(message, options = {}) {
         const onYes = () => {
             const val = inputEl.value.trim();
             if (options.required && val === '') {
-                inputEl.style.borderColor = '#dc2626';
+                inputEl.style.borderColor = 'var(--danger)';
                 inputEl.focus();
                 return;
             }

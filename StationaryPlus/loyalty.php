@@ -6,6 +6,18 @@
 //  alongside whatever order/payment write they belong to.
 // ============================================================
 
+/**
+ * Maximum points a customer can redeem against a given payable amount,
+ * capped so at least 1 cent remains payable. Converts to integer cents
+ * before subtracting so this isn't subject to float imprecision (e.g.
+ * (0.03 - 0.01) * 100 evaluates to 1.9999999999999998 in IEEE-754, which
+ * floor() would truncate to 1 instead of the correct 2).
+ */
+function max_redeemable_points(int $balance, float $amount): int {
+    $amountCents = (int) round($amount * 100);
+    return max(0, min($balance, $amountCents - 1));
+}
+
 function get_loyalty_balance(mysqli $conn, string $userId): int {
     $stmt = $conn->prepare("SELECT loyalty_points FROM users WHERE user_id = ?");
     $stmt->bind_param('s', $userId);

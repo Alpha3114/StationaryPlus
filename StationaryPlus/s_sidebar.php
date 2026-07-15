@@ -65,7 +65,7 @@ if (isset($conn)) {
 <style>
 .ops-alert {
     margin-left: auto;
-    background: #ef4444; color: white;
+    background: var(--danger); color: var(--on-primary);
     font-size: 10px; font-weight: 700;
     padding: 1px 6px; border-radius: 10px;
     min-width: 18px; text-align: center;
@@ -95,12 +95,6 @@ if (isset($conn)) {
                 </a>
             </li>
             <li class="nav-item">
-                <a href="s_ordermanagement.php" class="nav-link <?= $activePage === 'orders' ? 'active' : '' ?>">
-                    <div class="nav-icon"><i class="fas fa-tasks"></i></div>
-                    <div class="nav-text">Manage Orders</div>
-                </a>
-            </li>
-            <li class="nav-item">
                 <a href="s_inv.php" class="nav-link <?= $activePage === 'inventory' ? 'active' : '' ?>">
                     <div class="nav-icon"><i class="fas fa-boxes"></i></div>
                     <div class="nav-text">Inventory</div>
@@ -110,17 +104,13 @@ if (isset($conn)) {
     </div>
 
     <div class="nav-section">
-        <div class="nav-title">Payments &amp; Printing</div>
+        <div class="nav-title">Orders</div>
         <ul class="nav-menu ops">
             <li class="nav-item">
-                <a href="s_payments.php" class="nav-link ops <?= $activePage === 'payments' ? 'active' : '' ?>">
-                    <div class="nav-icon"><i class="fas fa-receipt"></i></div>
-                    <div class="nav-text">
-                        Payments
-                        <?php if ($pendingPayments > 0): ?>
-                        <span class="ops-alert"><?= $pendingPayments ?></span>
-                        <?php endif; ?>
-                    </div>
+                <li class="nav-item">
+                <a href="s_ordermanagement.php" class="nav-link <?= $activePage === 'orders' ? 'active' : '' ?>">
+                    <div class="nav-icon"><i class="fas fa-tasks"></i></div>
+                    <div class="nav-text">Manage Orders</div>
                 </a>
             </li>
             <li class="nav-item">
@@ -130,6 +120,23 @@ if (isset($conn)) {
                         Print Files
                         <?php if ($pendingPrintFiles > 0): ?>
                         <span class="ops-alert"><?= $pendingPrintFiles ?></span>
+                        <?php endif; ?>
+                    </div>
+                </a>
+            </li>
+        </ul>
+    </div>
+
+    <div class="nav-section">
+        <div class="nav-title">Payment</div>
+        <ul class="nav-menu ops">
+            <li class="nav-item">
+                <a href="s_payments.php" class="nav-link ops <?= $activePage === 'payments' ? 'active' : '' ?>">
+                    <div class="nav-icon"><i class="fas fa-receipt"></i></div>
+                    <div class="nav-text">
+                        Payments
+                        <?php if ($pendingPayments > 0): ?>
+                        <span class="ops-alert"><?= $pendingPayments ?></span>
                         <?php endif; ?>
                     </div>
                 </a>
@@ -150,6 +157,12 @@ if (isset($conn)) {
                 <div class="user-role"><?= htmlspecialchars($_SESSION['user_role'] ?? 'Staff') ?></div>
             </div>
         </div>
+        <div class="theme-toggle" role="group" aria-label="Theme">
+            <button type="button" class="theme-toggle-btn" data-theme-option="light" title="Light theme" aria-label="Light theme"><i class="fas fa-sun"></i></button>
+            <button type="button" class="theme-toggle-btn" data-theme-option="dark" title="Dark theme" aria-label="Dark theme"><i class="fas fa-moon"></i></button>
+            <button type="button" class="theme-toggle-btn" data-theme-option="high-contrast" title="High contrast" aria-label="High contrast theme"><i class="fas fa-adjust"></i></button>
+        </div>
+        <script>if (window.initThemeToggle) initThemeToggle();</script>
         <a href="logout.php" class="logout-link">
             <i class="fas fa-sign-out-alt"></i>
             <span>Logout</span>

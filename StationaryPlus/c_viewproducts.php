@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // ============================================================
 //  c_viewproducts.php — Product Catalog
 // ============================================================
@@ -162,6 +162,9 @@ function pageUrl(int $p): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus — Product Catalog</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css">
     <style>
         :root {
             --primary: #A83535;
@@ -190,75 +193,6 @@ function pageUrl(int $p): string {
             display: flex;
         }
 
-        /* ── Sidebar ── */
-        .sidebar {
-            width: var(--sidebar-width);
-            background-color: var(--white);
-            border-right: 1px solid var(--border);
-            height: 100vh;
-            position: fixed;
-            left: 0; top: 0;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 2px 0 10px rgba(0,0,0,0.03);
-            overflow-y: auto;
-        }
-        .logo-area {
-            padding: 25px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-            flex-shrink: 0;
-        }
-        .logo-icon {
-            background-color: var(--primary);
-            width: 40px; height: 40px;
-            border-radius: 8px;
-            display: flex; align-items: center; justify-content: center;
-            margin-right: 12px;
-            color: white; font-size: 20px;
-        }
-        .logo-text { font-size: 22px; font-weight: 700; color: var(--primary); }
-        .nav-section { padding: 25px 0; border-bottom: 1px solid var(--border); }
-        .nav-title {
-            font-size: 12px; font-weight: 600; color: var(--text-secondary);
-            text-transform: uppercase; letter-spacing: 0.8px;
-            padding: 0 25px 12px 25px;
-        }
-        .nav-menu { list-style: none; }
-        .nav-item { margin-bottom: 2px; }
-        .nav-link {
-            display: flex; align-items: center;
-            padding: 13px 25px;
-            color: var(--text-primary); text-decoration: none;
-            transition: all 0.2s ease;
-            border-left: 4px solid transparent;
-        }
-        .nav-link:hover { background-color: rgba(168,53,53,0.05); color: var(--primary); border-left-color: rgba(168,53,53,0.3); }
-        .nav-link.active { background-color: rgba(168,53,53,0.08); color: var(--primary); border-left-color: var(--primary); font-weight: 600; }
-        .nav-icon { width: 22px; text-align: center; margin-right: 14px; font-size: 16px; }
-        .nav-text { font-size: 15px; }
-        .user-section { margin-top: auto; padding: 20px 25px; border-top: 1px solid var(--border); }
-        .user-info { display: flex; align-items: center; margin-bottom: 14px; }
-        .user-avatar {
-            width: 40px; height: 40px; border-radius: 50%;
-            background-color: rgba(168,53,53,0.1);
-            display: flex; align-items: center; justify-content: center;
-            color: var(--primary); font-weight: 700; font-size: 16px;
-            margin-right: 12px; flex-shrink: 0;
-        }
-        .user-name { font-weight: 600; font-size: 15px; color: var(--text-primary); }
-        .user-role { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
-        .logout-link {
-            display: flex; align-items: center; gap: 10px;
-            padding: 10px 14px;
-            background-color: rgba(168,53,53,0.06);
-            color: var(--primary); border-radius: 8px;
-            text-decoration: none; font-size: 14px; font-weight: 600;
-            transition: background-color 0.2s ease;
-        }
-        .logout-link:hover { background-color: rgba(168,53,53,0.14); }
-
         /* ── Main ── */
         .main-content {
             flex-grow: 1;
@@ -286,7 +220,7 @@ function pageUrl(int $p): string {
         }
         .search-input:focus {
             outline: none; border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(168,53,53,0.1);
+            box-shadow: 0 0 0 3px var(--primary-tint-medium);
             background-color: var(--white);
         }
         .search-icon {
@@ -327,12 +261,12 @@ function pageUrl(int $p): string {
         .filter-tag {
             display: inline-flex; align-items: center; gap: 6px;
             padding: 5px 12px;
-            background-color: rgba(168,53,53,0.08);
+            background-color: var(--primary-tint-light);
             color: var(--primary);
             border-radius: 20px; font-size: 13px; font-weight: 600;
             text-decoration: none;
         }
-        .filter-tag:hover { background-color: rgba(168,53,53,0.15); }
+        .filter-tag:hover { background-color: var(--primary-tint-active); }
 
         /* Product grid */
         .product-grid {
@@ -366,7 +300,7 @@ function pageUrl(int $p): string {
         .category-badge {
             position: absolute; top: 12px; left: 12px;
             background-color: rgba(168,53,53,0.88);
-            color: white; padding: 4px 11px;
+            color: var(--on-primary); padding: 4px 11px;
             border-radius: 20px; font-size: 12px; font-weight: 600;
         }
 
@@ -376,14 +310,14 @@ function pageUrl(int $p): string {
             padding: 4px 10px; border-radius: 20px;
             font-size: 12px; font-weight: 600;
         }
-        .stock-in    { background: rgba(16,185,129,0.12); color: #059669; border: 1px solid #a7f3d0; }
-        .stock-low   { background: rgba(245,158,11,0.12); color: #d97706; border: 1px solid #fde68a; }
-        .stock-out   { background: rgba(239,68,68,0.12);  color: #dc2626; border: 1px solid #fecaca; }
+        .stock-in    { background: rgba(16,185,129,0.12); color: var(--success); border: 1px solid var(--success-border); }
+        .stock-low   { background: rgba(245,158,11,0.12); color: var(--warning); border: 1px solid var(--warning); }
+        .stock-out   { background: rgba(239,68,68,0.12);  color: var(--danger); border: 1px solid var(--danger); }
 
         .discount-corner-badge {
             position: absolute; bottom: 10px; left: 12px;
             background-color: var(--secondary);
-            color: white; padding: 4px 10px;
+            color: var(--on-primary); padding: 4px 10px;
             border-radius: 20px; font-size: 12px; font-weight: 700;
         }
         .price-strike {
@@ -403,14 +337,14 @@ function pageUrl(int $p): string {
         .product-actions { display: flex; gap: 8px; }
         .preorder-btn {
             flex-grow: 1; padding: 11px;
-            background-color: var(--primary); color: white;
+            background-color: var(--primary); color: var(--on-primary);
             border: none; border-radius: 8px;
             font-weight: 600; font-size: 14px; cursor: pointer;
             transition: background-color 0.2s ease;
             display: flex; align-items: center; justify-content: center; gap: 7px;
             text-decoration: none;
         }
-        .preorder-btn:hover { background-color: #8b2a2a; }
+        .preorder-btn:hover { background-color: var(--primary-dark); }
         .preorder-btn.disabled {
             background-color: #d1d5db; color: #9ca3af; cursor: not-allowed;
             pointer-events: none;
@@ -454,7 +388,7 @@ function pageUrl(int $p): string {
             transition: all 0.2s ease;
         }
         .pagination a:hover { background-color: var(--accent); border-color: var(--primary); color: var(--primary); }
-        .pagination .current { background-color: var(--primary); color: white; border-color: var(--primary); }
+        .pagination .current { background-color: var(--primary); color: var(--on-primary); border-color: var(--primary); }
         .pagination .dots { border: none; background: none; color: var(--text-secondary); }
 
         /* Footer */
@@ -470,13 +404,6 @@ function pageUrl(int $p): string {
 
         /* Responsive */
         @media (max-width: 1024px) {
-            :root { --sidebar-width: 70px; }
-            .logo-text, .nav-text, .user-details, .nav-title, .logout-link span { display: none; }
-            .logo-area, .nav-section, .user-section { padding: 18px 12px; }
-            .nav-link { justify-content: center; padding: 14px; border-left: none; border-right: 4px solid transparent; }
-            .nav-link:hover, .nav-link.active { border-left: none; border-right-color: var(--primary); }
-            .nav-icon { margin-right: 0; font-size: 20px; }
-            .logout-link { justify-content: center; padding: 10px; }
             .search-input { width: 200px; }
         }
 
@@ -522,15 +449,15 @@ function pageUrl(int $p): string {
         </div>
 
     <!-- Cart link -->
-        <a href="c_preorder.php" style="position:relative;display:flex;align-items:center;padding:9px 16px;background:rgba(168,53,53,0.08);border-radius:8px;color:var(--primary);text-decoration:none;font-weight:600;font-size:14px;gap:8px;white-space:nowrap;">
+        <a href="c_preorder.php" style="position:relative;display:flex;align-items:center;padding:9px 16px;background:var(--primary-tint-light);border-radius:8px;color:var(--primary);text-decoration:none;font-weight:600;font-size:14px;gap:8px;white-space:nowrap;">
             <i class="fas fa-shopping-basket"></i> Cart
-            <?php if ($cartCount > 0): ?><span style="background:var(--primary);color:white;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:700;"><?= $cartCount ?></span><?php endif; ?>
+            <?php if ($cartCount > 0): ?><span style="background:var(--primary);color:var(--on-primary);border-radius:10px;padding:1px 7px;font-size:11px;font-weight:700;"><?= $cartCount ?></span><?php endif; ?>
         </a>
     </header>
 
     <?php if (isset($_GET['added'])): ?>
-    <div style="margin:16px 30px 0;padding:13px 18px;background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;border-radius:8px;font-size:14px;display:flex;align-items:center;gap:10px;">
-        <i class="fas fa-check-circle"></i> Item added to your pre-order cart. <a href="c_preorder.php" style="color:#2e7d32;font-weight:600;margin-left:auto;">View Cart &rarr;</a>
+    <div style="margin:16px 30px 0;padding:13px 18px;background:var(--success-bg);color:var(--success);border:1px solid var(--success-border);border-radius:8px;font-size:14px;display:flex;align-items:center;gap:10px;">
+        <i class="fas fa-check-circle"></i> Item added to your pre-order cart. <a href="c_preorder.php" style="color:var(--success);font-weight:600;margin-left:auto;">View Cart &rarr;</a>
     </div>
     <?php endif; ?>
 
@@ -588,8 +515,8 @@ function pageUrl(int $p): string {
             </div>
         <?php else: ?>
         <div style="display:flex;align-items:center;justify-content:space-between;
-            padding:10px 16px;background:rgba(168,53,53,0.04);
-            border:1px solid rgba(168,53,53,0.12);border-radius:9px;margin-bottom:18px;
+            padding:10px 16px;background:var(--primary-tint-subtle);
+            border:1px solid var(--primary-tint-medium);border-radius:9px;margin-bottom:18px;
             font-size:13px;">
     <span style="color:var(--text-secondary);">
         <i class="fas fa-store" style="color:var(--primary);margin-right:6px;"></i>

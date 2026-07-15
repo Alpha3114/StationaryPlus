@@ -61,7 +61,7 @@ if (isset($conn) && !empty($_SESSION['user_id'])) {
 <style>
 .nav-alert {
     margin-left: auto;
-    background: #ef4444; color: white;
+    background: var(--danger); color: var(--on-primary);
     font-size: 10px; font-weight: 700;
     padding: 1px 6px; border-radius: 10px;
     min-width: 18px; text-align: center;
@@ -156,6 +156,12 @@ if (isset($conn) && !empty($_SESSION['user_id'])) {
                 </div>
             </div>
         </a>
+        <div class="theme-toggle" role="group" aria-label="Theme">
+            <button type="button" class="theme-toggle-btn" data-theme-option="light" title="Light theme" aria-label="Light theme"><i class="fas fa-sun"></i></button>
+            <button type="button" class="theme-toggle-btn" data-theme-option="dark" title="Dark theme" aria-label="Dark theme"><i class="fas fa-moon"></i></button>
+            <button type="button" class="theme-toggle-btn" data-theme-option="high-contrast" title="High contrast" aria-label="High contrast theme"><i class="fas fa-adjust"></i></button>
+        </div>
+        <script>if (window.initThemeToggle) initThemeToggle();</script>
         <a href="logout.php" class="logout-link">
             <i class="fas fa-sign-out-alt"></i>
             <span>Logout</span>

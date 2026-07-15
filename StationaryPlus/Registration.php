@@ -19,6 +19,7 @@ if (!empty($_SESSION['user_id'])) {
 }
 
 require_once 'db.php';
+require_once 'banner_slot.php';
 
 // ---- Helpers ------------------------------------------------
 
@@ -165,6 +166,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus - Registration</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
     <style>
         :root {
             --primary: #A83535;
@@ -208,13 +211,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         /* Information Panel */
         .info-panel {
             flex: 1;
-            background: linear-gradient(145deg, var(--primary) 0%, #8b2a2a 100%);
-            color: var(--white);
+            background: linear-gradient(145deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: var(--on-primary);
             padding: 50px 40px;
             display: flex;
             flex-direction: column;
         }
 
+        .theme-toggle-standalone { position: fixed; top: 16px; right: 16px; z-index: 1000; display: flex; gap: 6px; background: var(--white); padding: 6px; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); border: 1px solid var(--border); }
+        .theme-toggle-standalone .theme-toggle-btn { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--primary-tint-subtle); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; font-size: 13px; transition: all 0.15s; }
+        .theme-toggle-standalone .theme-toggle-btn:hover { background: var(--primary-tint-light); color: var(--primary); }
+        .theme-toggle-standalone .theme-toggle-btn.active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
         .logo {
             display: flex;
             align-items: center;
@@ -300,8 +307,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             gap: 8px;
             line-height: 1.6;
         }
-        .alert-success { background:#e8f5e9; color:#2e7d32; border:1px solid #a5d6a7; }
-        .alert-error   { background:#fff0f0; color:#c62828; border:1px solid #ef9a9a; }
+        .alert-success { background:var(--success-bg); color:var(--success); border:1px solid var(--success-border); }
+        .alert-error   { background:var(--danger-bg); color:var(--danger); border:1px solid var(--danger); }
         .alert-info    { background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; }
 
         .form-group { margin-bottom: 20px; position: relative; }
@@ -318,14 +325,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             background-color: var(--accent);
             color: var(--text-primary);
         }
-        input:focus { outline:none; border-color:var(--primary); box-shadow:0 0 0 3px rgba(168,53,53,0.1); background-color:var(--white); }
-        input.input-error { border-color:#D32F2F; background-color:#fff5f5; }
+        input:focus { outline:none; border-color:var(--primary); box-shadow:0 0 0 3px var(--primary-tint-medium); background-color:var(--white); }
+        input.input-error { border-color:var(--danger); background-color:var(--danger-bg); }
 
         .input-icon { position:absolute; left:14px; top:50%; transform:translateY(-50%); color:var(--text-secondary); font-size:15px; pointer-events:none; }
         .password-toggle { position:absolute; right:14px; top:50%; transform:translateY(-50%); color:var(--text-secondary); cursor:pointer; font-size:15px; }
 
         .input-hint { display:block; font-size:12px; color:var(--text-secondary); margin-top:6px; }
-        .error-message { display:none; font-size:12px; color:#D32F2F; margin-top:6px; }
+        .error-message { display:none; font-size:12px; color:var(--danger); margin-top:6px; }
         .error-message.visible { display:block; }
 
         .button-container { margin-top: 8px; }
@@ -333,7 +340,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             width: 100%;
             padding: 14px;
             background-color: var(--primary);
-            color: var(--white);
+            color: var(--on-primary);
             border: none;
             border-radius: 8px;
             font-size: 16px;
@@ -341,7 +348,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             cursor: pointer;
             transition: background-color 0.2s;
         }
-        .register-button:hover { background-color: #8b2a2a; }
+        .register-button:hover { background-color: var(--primary-dark); }
 
         .secondary-action { text-align:center; margin-top:20px; font-size:14px; color:var(--text-secondary); }
         .secondary-action a { color:var(--primary); font-weight:600; text-decoration:none; }
@@ -357,6 +364,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </style>
 </head>
 <body>
+
+<div class="theme-toggle-standalone" role="group" aria-label="Theme">
+    <button type="button" class="theme-toggle-btn" data-theme-option="light" title="Light theme" aria-label="Light theme"><i class="fas fa-sun"></i></button>
+    <button type="button" class="theme-toggle-btn" data-theme-option="dark" title="Dark theme" aria-label="Dark theme"><i class="fas fa-moon"></i></button>
+    <button type="button" class="theme-toggle-btn" data-theme-option="high-contrast" title="High contrast" aria-label="High contrast theme"><i class="fas fa-adjust"></i></button>
+</div>
+<script>if (window.initThemeToggle) initThemeToggle();</script>
 
 <div class="registration-container">
 
@@ -384,6 +398,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="benefit-text"><strong>Check order or pre-order status</strong> in real-time with detailed tracking information.</div>
             </div>
         </div>
+
+        <div style="margin-top:28px;">
+            <?php render_banner_slot($conn, 'REGISTER'); ?>
+        </div>
     </div>
 
     <!-- Registration Form Panel -->
@@ -408,7 +426,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 Please check your inbox (and spam folder) and click the link to activate your account.
             </div>
             <div class="button-container">
-                <a href="login.php" style="display:block; text-align:center; padding:14px; background:var(--primary); color:#fff; border-radius:8px; font-size:16px; font-weight:600; text-decoration:none;">
+                <a href="login.php" style="display:block; text-align:center; padding:14px; background:var(--primary); color:var(--on-primary); border-radius:8px; font-size:16px; font-weight:600; text-decoration:none;">
                     Go to Login
                 </a>
             </div>

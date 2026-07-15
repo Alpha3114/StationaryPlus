@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // ============================================================
 //  index.php — Landing Page
 //  If already logged in, skip straight to the right dashboard.
@@ -16,6 +16,9 @@ if (!empty($_SESSION['user_id']) && !empty($_SESSION['user_role'])) {
     header('Location: ' . $target);
     exit;
 }
+
+require_once 'db.php';
+require_once 'banner_slot.php';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -26,6 +29,8 @@ if (!empty($_SESSION['user_id']) && !empty($_SESSION['user_role'])) {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
     <style>
         :root {
             --primary: #A83535;
@@ -68,7 +73,7 @@ if (!empty($_SESSION['user_id']) && !empty($_SESSION['user_role'])) {
             align-items: center;
             justify-content: space-between;
             padding: 22px 6vw;
-            background: rgba(250,250,250,0.85);
+            background: color-mix(in srgb, var(--background) 85%, transparent);
             backdrop-filter: blur(8px);
             border-bottom: 1px solid transparent;
             transition: border-color 0.3s ease, box-shadow 0.3s ease;
@@ -90,7 +95,7 @@ if (!empty($_SESSION['user_id']) && !empty($_SESSION['user_role'])) {
             width: 34px; height: 34px;
             border-radius: 8px;
             background: var(--primary);
-            color: white;
+            color: var(--on-primary);
             display: flex; align-items: center; justify-content: center;
             font-size: 15px;
             transform: rotate(-4deg);
@@ -106,13 +111,17 @@ if (!empty($_SESSION['user_id']) && !empty($_SESSION['user_role'])) {
         .nav-cta {
             padding: 10px 22px;
             background: var(--primary);
-            color: white;
+            color: var(--on-primary);
             border-radius: 7px;
             font-size: 14px;
             font-weight: 600;
             transition: background 0.2s ease, transform 0.15s ease;
         }
         .nav-cta:hover { background: var(--primary-dark); transform: translateY(-1px); }
+        .theme-toggle-nav { display: flex; gap: 4px; }
+        .theme-toggle-nav .theme-toggle-btn { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; background: var(--primary-tint-subtle); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; font-size: 12px; transition: all 0.15s; }
+        .theme-toggle-nav .theme-toggle-btn:hover { background: var(--primary-tint-light); color: var(--primary); }
+        .theme-toggle-nav .theme-toggle-btn.active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
 
         /* ── Hero ── */
         .hero {
@@ -174,14 +183,14 @@ if (!empty($_SESSION['user_id']) && !empty($_SESSION['user_role'])) {
             gap: 9px;
             padding: 15px 28px;
             background: var(--primary);
-            color: white;
+            color: var(--on-primary);
             border-radius: 9px;
             font-size: 15px;
             font-weight: 600;
             transition: background 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
-            box-shadow: 0 4px 14px rgba(168,53,53,0.25);
+            box-shadow: 0 4px 14px var(--primary-tint-active);
         }
-        .btn-primary:hover { background: var(--primary-dark); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(168,53,53,0.32); }
+        .btn-primary:hover { background: var(--primary-dark); transform: translateY(-2px); box-shadow: 0 6px 20px var(--primary-tint-active); }
 
         .btn-secondary {
             display: inline-flex;
@@ -196,7 +205,7 @@ if (!empty($_SESSION['user_id']) && !empty($_SESSION['user_role'])) {
             font-weight: 600;
             transition: all 0.2s ease;
         }
-        .btn-secondary:hover { border-color: var(--primary); color: var(--primary); background: rgba(168,53,53,0.03); }
+        .btn-secondary:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-tint-subtle); }
 
         /* Store directory strip — literal shop-aisle signage, not decoration */
         .directory-strip {
@@ -356,7 +365,7 @@ if (!empty($_SESSION['user_id']) && !empty($_SESSION['user_role'])) {
         .shelf-card:hover {
             transform: translateY(-4px);
             box-shadow: 0 12px 28px rgba(0,0,0,0.06);
-            border-color: rgba(168,53,53,0.2);
+            border-color: var(--primary-tint-active);
         }
         .shelf-icon {
             width: 46px; height: 46px;
@@ -435,6 +444,12 @@ if (!empty($_SESSION['user_id']) && !empty($_SESSION['user_role'])) {
             StationaryPlus
         </a>
         <div class="nav-actions">
+            <div class="theme-toggle-nav" role="group" aria-label="Theme">
+                <button type="button" class="theme-toggle-btn" data-theme-option="light" title="Light theme" aria-label="Light theme"><i class="fas fa-sun"></i></button>
+                <button type="button" class="theme-toggle-btn" data-theme-option="dark" title="Dark theme" aria-label="Dark theme"><i class="fas fa-moon"></i></button>
+                <button type="button" class="theme-toggle-btn" data-theme-option="high-contrast" title="High contrast" aria-label="High contrast theme"><i class="fas fa-adjust"></i></button>
+            </div>
+            <script>if (window.initThemeToggle) initThemeToggle();</script>
             <a href="Registration.php" class="nav-link">Create account</a>
             <a href="login.php" class="nav-cta">Log In</a>
         </div>
@@ -497,6 +512,10 @@ if (!empty($_SESSION['user_id']) && !empty($_SESSION['user_role'])) {
                 <div class="receipt-total"><span>Track</span><span>→</span></div>
             </div>
         </div>
+    </section>
+
+    <section class="shelf" style="padding-bottom:0;">
+        <?php render_banner_slot($conn, 'INDEX'); ?>
     </section>
 
     <section class="shelf">

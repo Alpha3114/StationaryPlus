@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
@@ -70,13 +70,17 @@ $salesTrend = number_format($salesTrend, 1);
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus - Administrator Dashboard</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css">
     <style>
         :root {
             --primary: #A83535;      /* Brick Red */
             --secondary: #F4A261;    /* Muted Orange */
             --background: #FAFAFA;   /* Light Grey */
-            --text: #2E2E2E;         /* Dark Charcoal */
-            --light-text: #707070;   /* Secondary Text */
+            --accent: #F1EDE8;
+            --text-primary: #2E2E2E;         /* Dark Charcoal */
+            --text-secondary: #707070;   /* Secondary Text */
             --border: #E0E0E0;       /* Border Grey */
             --white: #FFFFFF;
             --sidebar-width: 260px;
@@ -92,176 +96,9 @@ $salesTrend = number_format($salesTrend, 1);
         
         body {
             background-color: var(--background);
-            color: var(--text);
+            color: var(--text-primary);
             min-height: 100vh;
             display: flex;
-        }
-        
-        /* Sidebar Navigation */
-        .sidebar {
-            width: var(--sidebar-width);
-            background-color: var(--white);
-            border-right: 1px solid var(--border);
-            height: 100vh;
-            position: fixed;
-            left: 0;
-            top: 0;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.03);
-        }
-        
-        .logo-area {
-            padding: 22px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-        }
-        
-        .logo-icon {
-            background-color: var(--primary);
-            width: 36px;
-            height: 36px;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-right: 15px;
-            color: white;
-            font-size: 22px;
-        }
-        
-        .logo-text {
-            font-size: 18px;
-            font-weight: 700;
-            color: var(--primary);
-        }
-        
-        .admin-subtitle {
-            font-size: 13px;
-            color: var(--light-text);
-            margin-top: 3px;
-        }
-        
-        .nav-section {
-            padding: 25px 0;
-            border-bottom: 1px solid var(--border);
-        }
-        
-        .nav-title {
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--light-text);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            padding: 0 22px 10px 22px;
-        }
-        
-        .nav-menu {
-            list-style: none;
-        }
-        
-        .nav-item {
-            margin-bottom: 2px;
-        }
-        
-        .nav-link {
-            display: flex;
-            align-items: center;
-            padding: 14px 22px;
-            color: var(--text);
-            text-decoration: none;
-            transition: all 0.2s ease;
-            border-left: 4px solid transparent;
-        }
-        
-        .nav-link:hover {
-            background-color: rgba(168, 53, 53, 0.05);
-            color: var(--primary);
-            border-left-color: rgba(168, 53, 53, 0.3);
-        }
-        
-        .nav-link.active {
-            background-color: rgba(168, 53, 53, 0.08);
-            color: var(--primary);
-            border-left-color: var(--primary);
-            font-weight: 600;
-        }
-        
-        .nav-icon {
-            width: 18px;
-            text-align: center;
-            margin-right: 14px;
-            font-size: 16px;
-        }
-
-        .nav-text {
-            font-size: 14px;
-        }
-        
-        .user-section {
-            margin-top: auto;
-            padding: 25px;
-            border-top: 1px solid var(--border);
-        }
-        
-        .user-info {
-            display: flex;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-        
-        .user-avatar {
-            width: 38px;
-            height: 38px;
-            border-radius: 50%;
-            background-color: rgba(168, 53, 53, 0.1);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--primary);
-            font-weight: 700;
-            font-size: 15px;
-            margin-right: 12px;
-        }
-        
-        .user-details {
-            flex-grow: 1;
-        }
-        
-        .user-name {
-            font-weight: 700;
-            font-size: 17px;
-            color: var(--text);
-            margin-bottom: 3px;
-        }
-        
-        .user-role {
-            font-size: 14px;
-            color: var(--primary);
-            font-weight: 600;
-        }
-        
-        .logout-link {
-             width: 100%;
-    padding: 9px;
-    background: rgba(168,53,53,0.1);
-    color: var(--primary);
-    border: 1.5px solid var(--primary);
-    border-radius: 5px;
-    font-weight: 600;
-    font-size: 13px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    text-decoration: none;
-    transition: all 0.2s;
-        }
-        
-        .logout-link:hover {
-            background-color: rgba(168, 53, 53, 0.2);
         }
         
         /* Main Content Area */
@@ -285,14 +122,14 @@ $salesTrend = number_format($salesTrend, 1);
         
         .admin-header-left h1 {
             font-size: 28px;
-            color: var(--text);
+            color: var(--text-primary);
             margin-bottom: 6px;
             font-weight: 700;
         }
         
         .admin-header-left p {
             font-size: 15px;
-            color: var(--light-text);
+            color: var(--text-secondary);
         }
         
         .admin-header-right {
@@ -303,7 +140,7 @@ $salesTrend = number_format($salesTrend, 1);
         
         .admin-date {
             font-size: 15px;
-            color: var(--light-text);
+            color: var(--text-secondary);
             font-weight: 500;
         }
         
@@ -350,7 +187,7 @@ $salesTrend = number_format($salesTrend, 1);
         .overview-title {
             font-size: 17px;
             font-weight: 600;
-            color: var(--text);
+            color: var(--text-primary);
         }
         
         .overview-icon {
@@ -361,7 +198,7 @@ $salesTrend = number_format($salesTrend, 1);
             align-items: center;
             justify-content: center;
             font-size: 22px;
-            color: white;
+            color: var(--on-primary);
         }
         
         .users-icon {
@@ -389,7 +226,7 @@ $salesTrend = number_format($salesTrend, 1);
         
         .overview-trend {
             font-size: 14px;
-            color: var(--light-text);
+            color: var(--text-secondary);
             display: flex;
             align-items: center;
             gap: 6px;
@@ -397,7 +234,7 @@ $salesTrend = number_format($salesTrend, 1);
         }
         
         .trend-up {
-            color: #4CAF50;
+            color: var(--success);
         }
         
         .trend-down {
@@ -431,7 +268,7 @@ $salesTrend = number_format($salesTrend, 1);
         }
 
         .attention-card.has-alert {
-            border-color: rgba(168, 53, 53, 0.25);
+            border-color: var(--primary-tint-active);
         }
 
         .attention-icon {
@@ -448,14 +285,14 @@ $salesTrend = number_format($salesTrend, 1);
         }
 
         .attention-card.has-alert .attention-icon {
-            background-color: rgba(168, 53, 53, 0.1);
+            background-color: var(--primary-tint-medium);
             color: var(--primary);
         }
 
         .attention-value {
             font-size: 26px;
             font-weight: 700;
-            color: var(--text);
+            color: var(--text-primary);
             line-height: 1.2;
         }
 
@@ -465,14 +302,14 @@ $salesTrend = number_format($salesTrend, 1);
 
         .attention-label {
             font-size: 13px;
-            color: var(--light-text);
+            color: var(--text-secondary);
             font-weight: 600;
             margin-top: 2px;
         }
 
         .attention-sub {
             font-size: 12px;
-            color: var(--light-text);
+            color: var(--text-secondary);
             margin-top: 2px;
         }
 
@@ -533,7 +370,7 @@ $salesTrend = number_format($salesTrend, 1);
             justify-content: center;
             margin-bottom: 25px;
             font-size: 30px;
-            color: white;
+            color: var(--on-primary);
         }
         
         .nav-manage-users {
@@ -555,13 +392,13 @@ $salesTrend = number_format($salesTrend, 1);
         .admin-nav-title {
             font-size: 20px;
             font-weight: 700;
-            color: var(--text);
+            color: var(--text-primary);
             margin-bottom: 12px;
         }
         
         .admin-nav-description {
             font-size: 15px;
-            color: var(--light-text);
+            color: var(--text-secondary);
             line-height: 1.5;
         }
         
@@ -573,53 +410,11 @@ $salesTrend = number_format($salesTrend, 1);
         }
         
         @media (max-width: 1024px) {
-            :root {
-                --sidebar-width: 70px;
-            }
-            
-            .logo-text, .admin-subtitle, .nav-text, .user-details, .nav-title, .admin-nav-description {
-                display: none;
-            }
-            
-            .logo-area, .nav-section, .user-section {
-                padding: 20px;
-            }
-            
-            .logo-area {
-                justify-content: center;
-            }
-            
-            .nav-link {
-                justify-content: center;
-                padding: 20px;
-                border-left: none;
-                border-right: 4px solid transparent;
-            }
-            
-            .nav-link:hover, .nav-link.active {
-                border-left: none;
-                border-right-color: var(--primary);
-            }
-            
-            .nav-icon {
-                margin-right: 0;
-                font-size: 20px;
-            }
-            
-            .logout-link span {
-                display: none;
-            }
-            
-            .logout-link {
-                justify-content: center;
-                padding: 12px;
-            }
-            
             .header-left h1 {
                 font-size: 24px;
             }
         }
-        
+
         @media (max-width: 768px) {
             .overview-section, .navigation-grid, .attention-section {
                 grid-template-columns: 1fr;

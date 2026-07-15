@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // ============================================================
 //  c_payment.php — Customer Payment Submission
 // ============================================================
@@ -9,6 +9,7 @@ require_once 'auth.php';
 require_role('CUSTOMER');
 require_once 'db.php';
 require_once 'loyalty.php';
+require_once 'audit.php';
 
 $userId  = $_SESSION['user_id'];
 $message = '';
@@ -90,7 +91,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'Please enter a payment date.';
 
     // Verify order belongs to this user and fetch its type
-    $orderType = '';
+    $orderType   = '';
+    $amountKnown = false;
     if ($selectedId) {
         $stmt = $conn->prepare(
             "SELECT order_type FROM orders WHERE order_id = ? AND user_id = ? LIMIT 1"
@@ -104,6 +106,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = 'Invalid order selected.';
         } else {
             $orderType = $orderRow['order_type'];
+
+            // ── Recompute the authoritative order amount server-side ──
+            // Never trust the posted `amount` for anything requiring a real
+            // dollar value (the readonly styling on the field is JS-only and
+            // trivially bypassed). This mirrors the "unpaid orders" query
+            // above so an order with a known, confirmed amount always uses
+            // that figure — the posted amount is only relevant for the rare
+            // "amount TBC by staff" pre-order case (see below), where loyalty
+            // redemption is disabled since there's nothing to validate it against.
+            $amtStmt = $conn->prepare(
+                "SELECT
+                     COALESCE((SELECT SUM(oi.quantity * oi.unit_price) FROM order_items oi WHERE oi.order_id = ?), 0)
+                   + COALESCE((SELECT SUM(pf.estimated_price) FROM print_files pf WHERE pf.order_id = ? AND pf.file_status != 'REJECTED'), 0)
+                     AS amount"
+            );
+            $amtStmt->bind_param('ss', $selectedId, $selectedId);
+            $amtStmt->execute();
+            $serverAmount = (float)($amtStmt->get_result()->fetch_assoc()['amount'] ?? 0);
+            $amtStmt->close();
+
+            if ($serverAmount > 0) {
+                $amountKnown = true;
+                $amount      = (string) $serverAmount;
+            }
         }
     }
 
@@ -158,17 +184,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $paymentId = generate_payment_id();
 
         // ── Loyalty point redemption ───────────────────────────
-        // $amount is the true order amount — never trust a client-reduced
-        // value. Recompute the max redeemable from the customer's live
-        // balance and clamp whatever was submitted to it.
-        $pointsRedeemedRaw = max(0, (int)($_POST['points_redeemed'] ?? 0));
+        // $amount is now the server-recomputed, authoritative order total
+        // (see above) for every order except the rare "amount TBC by staff"
+        // case — redemption is disabled there since there's no confirmed
+        // figure to validate a redeemed-points discount against.
+        $pointsRedeemedRaw = $amountKnown ? max(0, (int)($_POST['points_redeemed'] ?? 0)) : 0;
         $pointsRedeemed    = 0;
         $pointsDiscount    = 0.0;
         $finalAmount       = (float)$amount;
 
         if ($pointsRedeemedRaw > 0) {
             $userBalance    = get_loyalty_balance($conn, $userId);
-            $maxRedeemable  = min($userBalance, max(0, (int)floor(((float)$amount - 0.01) * 100)));
+            $maxRedeemable  = max_redeemable_points($userBalance, (float)$amount);
             $pointsRedeemed = min($pointsRedeemedRaw, $maxRedeemable);
             if ($pointsRedeemed > 0) {
                 $pointsDiscount = round($pointsRedeemed / 100, 2);
@@ -203,6 +230,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $conn->commit();
             $submitted = true;
+
+            log_audit(
+                $conn, 'PAYMENT_SUBMITTED', 'payment', $paymentId,
+                "RM " . number_format($finalAmount, 2) . " ($method) for order $selectedId"
+                . ($pointsRedeemed > 0 ? ", redeemed $pointsRedeemed points" : "")
+            );
         } catch (Throwable $e) {
             $conn->rollback();
             $message = $e->getMessage() ?: 'Something went wrong submitting your payment. Please try again.';
@@ -249,9 +282,9 @@ $stmt->close();
 
 function verificationBadge(string $status): string {
     $map = [
-        'VALID'   => ['#10b981','#ecfdf5','Verified'],
-        'INVALID' => ['#ef4444','#fef2f2','Rejected'],
-        'PENDING' => ['#f59e0b','#fffbeb','Pending Review'],
+        'VALID'   => ['var(--success)','var(--success-bg)','Verified'],
+        'INVALID' => ['var(--danger)','var(--danger-bg)','Rejected'],
+        'PENDING' => ['var(--warning)','var(--warning-bg)','Pending Review'],
     ];
     [$color, $bg, $label] = $map[$status] ?? ['#888','#f3f4f6', $status];
     return "<span style='background:$bg;color:$color;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;'>$label</span>";
@@ -273,40 +306,23 @@ function methodLabel(string $method): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus - Payment Record</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css">
     <style>
         :root { --primary:#A83535;--secondary:#F4A261;--accent:#F1EDE8;--background:#FAFAFA;--text-primary:#2E2E2E;--text-secondary:#707070;--border:#E0E0E0;--white:#FFFFFF;--sidebar-width:260px;--card-shadow:0 4px 12px rgba(0,0,0,0.05); }
         * { margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif; }
         body { background-color:var(--background);color:var(--text-primary);min-height:100vh;display:flex; }
-        .sidebar { width:var(--sidebar-width);background-color:var(--white);border-right:1px solid var(--border);height:100vh;position:fixed;left:0;top:0;display:flex;flex-direction:column;box-shadow:2px 0 10px rgba(0,0,0,0.03);overflow-y:auto; }
-        .logo-area { padding:25px;border-bottom:1px solid var(--border);display:flex;align-items:center;flex-shrink:0; }
-        .logo-icon { background-color:var(--primary);width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:12px;color:white;font-size:20px; }
-        .logo-text { font-size:22px;font-weight:700;color:var(--primary); }
-        .nav-section { padding:25px 0;border-bottom:1px solid var(--border); }
-        .nav-title { font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.8px;padding:0 25px 12px 25px; }
-        .nav-menu { list-style:none; }
-        .nav-item { margin-bottom:2px; }
-        .nav-link { display:flex;align-items:center;padding:13px 25px;color:var(--text-primary);text-decoration:none;transition:all 0.2s ease;border-left:4px solid transparent; }
-        .nav-link:hover { background-color:rgba(168,53,53,0.05);color:var(--primary);border-left-color:rgba(168,53,53,0.3); }
-        .nav-link.active { background-color:rgba(168,53,53,0.08);color:var(--primary);border-left-color:var(--primary);font-weight:600; }
-        .nav-icon { width:22px;text-align:center;margin-right:14px;font-size:16px; }
-        .nav-text { font-size:15px; }
-        .user-section { margin-top:auto;padding:20px 25px;border-top:1px solid var(--border); }
-        .user-info { display:flex;align-items:center;margin-bottom:14px; }
-        .user-avatar { width:40px;height:40px;border-radius:50%;background-color:rgba(168,53,53,0.1);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:700;font-size:16px;margin-right:12px;flex-shrink:0; }
-        .user-name { font-weight:600;font-size:15px;color:var(--text-primary); }
-        .user-role { font-size:12px;color:var(--text-secondary);margin-top:2px; }
-        .logout-link { display:flex;align-items:center;gap:10px;padding:10px 14px;background-color:rgba(168,53,53,0.06);color:var(--primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600; }
-        .logout-link:hover { background-color:rgba(168,53,53,0.14); }
         .main-content { flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column; }
         .top-header { background-color:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10; }
         .page-title { font-size:24px;font-weight:700; }
         .page-subtitle { font-size:14px;color:var(--text-secondary);margin-top:4px; }
         .content-container { padding:30px;flex-grow:1;display:flex;flex-direction:column;gap:28px; }
         .alert { padding:13px 18px;border-radius:8px;font-size:14px;display:flex;align-items:flex-start;gap:10px;line-height:1.6; }
-        .alert-success { background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7; }
-        .alert-error { background:#fff0f0;color:#c62828;border:1px solid #ef9a9a; }
+        .alert-success { background:var(--success-bg);color:var(--success);border:1px solid var(--success-border); }
+        .alert-error { background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger); }
         .card { background-color:var(--white);border-radius:12px;overflow:hidden;box-shadow:var(--card-shadow);border:1px solid var(--border); }
-        .card-header { padding:20px 28px;border-bottom:1px solid var(--border);background-color:rgba(168,53,53,0.03); }
+        .card-header { padding:20px 28px;border-bottom:1px solid var(--border);background-color:var(--primary-tint-subtle); }
         .card-title { font-size:17px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:10px; }
         .card-desc { font-size:13px;color:var(--text-secondary);margin-top:6px; }
         .card-body { padding:28px; }
@@ -316,50 +332,41 @@ function methodLabel(string $method): string {
         .form-label span { font-weight:400;color:var(--text-secondary);font-size:13px; }
         .form-label .req { color:var(--primary);font-weight:700; }
         .form-select,.form-input { width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background-color:var(--accent);color:var(--text-primary);transition:all 0.2s; }
-        .form-select:focus,.form-input:focus { outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(168,53,53,0.08);background:var(--white); }
-        .form-input[readonly] { background:rgba(168,53,53,0.05);color:var(--text-secondary);cursor:not-allowed; }
-        .file-zone { border:2px dashed var(--border);border-radius:8px;padding:28px;text-align:center;background:rgba(168,53,53,0.02);cursor:pointer;transition:all 0.2s;position:relative; }
-        .file-zone:hover,.file-zone.drag { border-color:var(--primary);background:rgba(168,53,53,0.05); }
-        .file-zone.required-error { border-color:#ef4444;background:rgba(239,68,68,0.03); }
+        .form-select:focus,.form-input:focus { outline:none;border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-tint-light);background:var(--white); }
+        .form-input[readonly] { background:var(--primary-tint-subtle);color:var(--text-secondary);cursor:not-allowed; }
+        .file-zone { border:2px dashed var(--border);border-radius:8px;padding:28px;text-align:center;background:var(--primary-tint-subtle);cursor:pointer;transition:all 0.2s;position:relative; }
+        .file-zone:hover,.file-zone.drag { border-color:var(--primary);background:var(--primary-tint-subtle); }
+        .file-zone.required-error { border-color:var(--danger);background:rgba(239,68,68,0.03); }
         .file-zone input[type=file] { position:absolute;inset:0;opacity:0;cursor:pointer; }
         .file-zone i { font-size:28px;color:var(--primary);opacity:0.6;margin-bottom:8px;display:block; }
         .file-zone p { font-size:14px;color:var(--text-secondary); }
         .file-zone small { font-size:12px;color:var(--text-secondary); }
-        .file-selected { margin-top:12px;padding:12px 16px;background:rgba(168,53,53,0.05);border-radius:8px;border:1px solid var(--border);display:none;align-items:center;justify-content:space-between; }
+        .file-selected { margin-top:12px;padding:12px 16px;background:var(--primary-tint-subtle);border-radius:8px;border:1px solid var(--border);display:none;align-items:center;justify-content:space-between; }
         .file-selected.show { display:flex; }
         .file-selected-name { font-size:13px;font-weight:600;color:var(--text-primary); }
         .file-clear { background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:16px;padding:2px 6px;border-radius:4px; }
-        .file-clear:hover { color:#c62828; }
+        .file-clear:hover { color:var(--danger); }
         .proof-section { display:none; }
         .proof-section.show { display:block; }
         .proof-required-note { display:none;margin-top:6px;font-size:12px;color:var(--primary);font-weight:600; }
         .proof-required-note.show { display:flex;align-items:center;gap:5px; }
         /* Cash-not-available notice */
-        .cash-notice { display:none;margin-top:6px;padding:9px 13px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e;align-items:center;gap:7px; }
+        .cash-notice { display:none;margin-top:6px;padding:9px 13px;background:var(--warning-bg);border:1px solid #fde68a;border-radius:8px;font-size:12px;color:var(--warning);align-items:center;gap:7px; }
         .cash-notice.show { display:flex; }
-        .submit-btn { padding:13px 32px;background-color:var(--primary);color:white;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;transition:background-color 0.2s;display:inline-flex;align-items:center;gap:10px; }
-        .submit-btn:hover { background-color:#8b2a2a; }
+        .submit-btn { padding:13px 32px;background-color:var(--primary);color:var(--on-primary);border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;transition:background-color 0.2s;display:inline-flex;align-items:center;gap:10px; }
+        .submit-btn:hover { background-color:var(--primary-dark); }
         .history-table { width:100%;border-collapse:collapse; }
-        .history-table thead { background:rgba(168,53,53,0.04);border-bottom:2px solid var(--border); }
+        .history-table thead { background:var(--primary-tint-subtle);border-bottom:2px solid var(--border); }
         .history-table th { padding:12px 18px;text-align:left;font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap; }
         .history-table tbody tr { border-bottom:1px solid var(--border);transition:background 0.15s; }
         .history-table tbody tr:last-child { border-bottom:none; }
-        .history-table tbody tr:hover { background:rgba(168,53,53,0.02); }
+        .history-table tbody tr:hover { background:var(--primary-tint-subtle); }
         .history-table td { padding:14px 18px;font-size:13px;color:var(--text-primary);vertical-align:middle; }
         .pay-ref { font-weight:700;color:var(--primary);font-family:monospace;font-size:12px; }
         .empty-history { text-align:center;padding:30px;color:var(--text-secondary);font-size:14px; }
         .page-footer { text-align:center;padding:22px;color:var(--text-secondary);font-size:13px;border-top:1px solid var(--border);background-color:var(--white); }
         .footer-links { margin-top:8px; }
         .footer-links a { color:var(--primary);text-decoration:none;margin:0 10px; }
-        @media (max-width:1024px) {
-            :root { --sidebar-width:70px; }
-            .logo-text,.nav-text,.user-details,.nav-title,.logout-link span { display:none; }
-            .logo-area,.nav-section,.user-section { padding:18px 12px; }
-            .nav-link { justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent; }
-            .nav-link:hover,.nav-link.active { border-left:none;border-right-color:var(--primary); }
-            .nav-icon { margin-right:0;font-size:20px; }
-            .logout-link { justify-content:center;padding:10px; }
-        }
         @media (max-width:768px) {
             .pay-grid { grid-template-columns:1fr; }
             .full { grid-column:span 1; }
@@ -440,21 +447,21 @@ function methodLabel(string $method): string {
                                 <?php endif; ?>
                             </select>
                             <?php if ($linkOrderId): ?>
-                            <div style="margin-top:7px;padding:8px 13px;background:#fffbeb;border:1px solid #fde68a;
-                                        border-radius:7px;font-size:12px;color:#92400e;display:flex;gap:7px;align-items:center;">
+                            <div style="margin-top:7px;padding:8px 13px;background:var(--warning-bg);border:1px solid #fde68a;
+                                        border-radius:7px;font-size:12px;color:var(--warning);display:flex;gap:7px;align-items:center;">
                                 <i class="fas fa-info-circle"></i>
                                 You're submitting payment for order
                                 <strong><?= htmlspecialchars($linkOrderId) ?></strong>.
                             </div>
                             <?php endif; ?>
-                            <div style="margin-top:8px;padding:8px 12px;background:#fffbeb;
+                            <div style="margin-top:8px;padding:8px 12px;background:var(--warning-bg);
                                         border:1px solid #fde68a;border-radius:7px;
-                                        font-size:12px;color:#92400e;display:flex;gap:7px;align-items:flex-start;">
+                                        font-size:12px;color:var(--warning);display:flex;gap:7px;align-items:flex-start;">
                                 <i class="fas fa-info-circle" style="flex-shrink:0;margin-top:1px;"></i>
                                 <span>
                                     Orders with print files awaiting staff review won't appear here until
                                     the file is approved and the price is confirmed.
-                                    <a href="c_orderstatus.php" style="color:#92400e;font-weight:700;">
+                                    <a href="c_orderstatus.php" style="color:var(--warning);font-weight:700;">
                                         Check order status &rarr;
                                     </a>
                                 </span>
@@ -491,13 +498,13 @@ function methodLabel(string $method): string {
                         <!-- Loyalty points redemption -->
                         <div class="full" id="loyaltySection" style="display:<?= $userPoints > 0 ? 'block' : 'none' ?>;">
                             <label style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:rgba(76,175,80,0.05);border:1.5px solid rgba(76,175,80,0.25);border-radius:8px;cursor:pointer;">
-                                <input type="checkbox" id="redeemPointsCheckbox" style="width:17px;height:17px;accent-color:#2e7d32;">
+                                <input type="checkbox" id="redeemPointsCheckbox" style="width:17px;height:17px;accent-color:var(--success);">
                                 <span style="font-size:13px;color:var(--text-primary);">
                                     <strong>Redeem loyalty points</strong>
                                     <span style="color:var(--text-secondary);">— you have <strong id="pointsBalanceLabel"><?= $userPoints ?></strong> point<?= $userPoints === 1 ? '' : 's' ?> (worth RM <?= number_format($userPoints / 100, 2) ?>)</span>
                                 </span>
                             </label>
-                            <div id="loyaltyDiscountNote" style="display:none;margin-top:7px;padding:8px 13px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:7px;font-size:12px;color:#2e7d32;font-weight:600;"></div>
+                            <div id="loyaltyDiscountNote" style="display:none;margin-top:7px;padding:8px 13px;background:var(--success-bg);border:1px solid var(--success-border);border-radius:7px;font-size:12px;color:var(--success);font-weight:600;"></div>
                             <input type="hidden" name="points_redeemed" id="pointsRedeemedInput" value="0">
                         </div>
 
@@ -592,10 +599,10 @@ function methodLabel(string $method): string {
                             <td style="font-weight:600;">RM <?= number_format($pay['amount'],2) ?></td>
                             <td style="font-size:12px;">
                                 <?php if ((int)$pay['points_redeemed'] > 0): ?>
-                                    <span style="color:#2e7d32;font-weight:600;">−<?= (int)$pay['points_redeemed'] ?> pts</span>
+                                    <span style="color:var(--success);font-weight:600;">−<?= (int)$pay['points_redeemed'] ?> pts</span>
                                     <div style="color:var(--text-secondary);">(RM <?= number_format($pay['points_discount'], 2) ?> off)</div>
                                 <?php elseif ($pay['verification_status'] === 'VALID'): ?>
-                                    <span style="color:#2e7d32;">+<?= (int)floor((float)$pay['amount']) ?> pts</span>
+                                    <span style="color:var(--success);">+<?= (int)floor((float)$pay['amount']) ?> pts</span>
                                 <?php else: ?>
                                     <span style="color:var(--text-secondary);">—</span>
                                 <?php endif; ?>
@@ -604,7 +611,7 @@ function methodLabel(string $method): string {
                             <td>
                                 <?= verificationBadge($pay['verification_status']) ?>
                                 <?php if ($pay['verification_status'] === 'INVALID' && !empty($pay['rejection_reason'])): ?>
-                                <div style="font-size:11px;color:#c62828;margin-top:4px;max-width:220px;line-height:1.4;">
+                                <div style="font-size:11px;color:var(--danger);margin-top:4px;max-width:220px;line-height:1.4;">
                                     <i class="fas fa-info-circle"></i> <?= htmlspecialchars($pay['rejection_reason']) ?>
                                 </div>
                                 <?php endif; ?>
@@ -693,20 +700,32 @@ function updateAmount(select) {
 const USER_POINTS = <?= (int)$userPoints ?>;
 
 function computeRedemption() {
-    const checkbox = document.getElementById('redeemPointsCheckbox');
-    const hidden   = document.getElementById('pointsRedeemedInput');
-    const note     = document.getElementById('loyaltyDiscountNote');
-    if (!checkbox || !hidden || !note) return;
+    const checkbox   = document.getElementById('redeemPointsCheckbox');
+    const hidden     = document.getElementById('pointsRedeemedInput');
+    const note       = document.getElementById('loyaltyDiscountNote');
+    const amountInput = document.getElementById('amountInput');
+    if (!checkbox || !hidden || !note || !amountInput) return;
 
-    const amount = parseFloat(document.getElementById('amountInput').value) || 0;
+    // Redemption requires a server-confirmed order amount (auto-filled +
+    // readonly) — the server independently enforces this, but disabling the
+    // checkbox client-side too avoids a confusing "it didn't work" surprise
+    // for the rare "amount TBC by staff" pre-order case.
+    const amountConfirmed = amountInput.readOnly;
+    checkbox.disabled = !amountConfirmed;
 
-    if (!checkbox.checked || amount <= 0 || USER_POINTS <= 0) {
+    const amount = parseFloat(amountInput.value) || 0;
+
+    if (!checkbox.checked || !amountConfirmed || amount <= 0 || USER_POINTS <= 0) {
         hidden.value = 0;
         note.style.display = 'none';
+        if (!amountConfirmed && checkbox.checked) checkbox.checked = false;
         return;
     }
 
-    const maxRedeemable = Math.max(0, Math.min(USER_POINTS, Math.floor((amount - 0.01) * 100)));
+    // Convert to integer cents before subtracting — avoids float imprecision
+    // (e.g. (0.03 - 0.01) * 100 === 1.9999999999999998 in IEEE-754).
+    const amountCents   = Math.round(amount * 100);
+    const maxRedeemable = Math.max(0, Math.min(USER_POINTS, amountCents - 1));
     hidden.value = maxRedeemable;
 
     if (maxRedeemable > 0) {
@@ -722,6 +741,7 @@ function computeRedemption() {
 document.getElementById('amountInput').addEventListener('input', computeRedemption);
 const redeemCheckboxEl = document.getElementById('redeemPointsCheckbox');
 if (redeemCheckboxEl) redeemCheckboxEl.addEventListener('change', computeRedemption);
+document.addEventListener('DOMContentLoaded', computeRedemption);
 
 // ── Payment method: show/hide proof section ───────────────────
 function toggleProof(method) {

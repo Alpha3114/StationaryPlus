@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // ============================================================
 //  a_usermanagement.php — Admin User Management
 // ============================================================
@@ -209,13 +209,17 @@ $pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_statu
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus - User Management</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css">
     <style>
         :root {
             --primary: #A83535;
             --secondary: #F4A261;
             --background: #FAFAFA;
-            --text: #2E2E2E;
-            --light-text: #707070;
+            --accent: #F1EDE8;
+            --text-primary: #2E2E2E;
+            --text-secondary: #707070;
             --border: #E0E0E0;
             --white: #FFFFFF;
             --sidebar-width: 260px;
@@ -224,44 +228,21 @@ $pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_statu
 
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; }
 
-        body { background-color: var(--background); color: var(--text); min-height: 100vh; display: flex; }
-
-        /* ── Sidebar (same tokens as a_sidebar.php) ── */
-        .sidebar { width: var(--sidebar-width); background-color: var(--white); border-right: 1px solid var(--border); height: 100vh; position: fixed; left: 0; top: 0; display: flex; flex-direction: column; box-shadow: 2px 0 10px rgba(0,0,0,0.03); }
-        .logo-area { padding: 22px; border-bottom: 1px solid var(--border); display: flex; align-items: center; }
-        .logo-icon { background-color: var(--primary); width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-right: 12px; color: white; font-size: 18px; }
-        .logo-text { font-size: 18px; font-weight: 700; color: var(--primary); }
-        .admin-subtitle { font-size: 12px; color: var(--light-text); margin-top: 2px; }
-        .nav-section { padding: 18px 0; border-bottom: 1px solid var(--border); }
-        .nav-title { font-size: 12px; font-weight: 600; color: var(--light-text); text-transform: uppercase; letter-spacing: 0.5px; padding: 0 22px 10px 22px; }
-        .nav-menu { list-style: none; }
-        .nav-item { margin-bottom: 2px; }
-        .nav-link { display: flex; align-items: center; padding: 14px 22px; color: var(--text); text-decoration: none; transition: all 0.2s ease; border-left: 4px solid transparent; }
-        .nav-link:hover { background-color: rgba(168,53,53,0.05); color: var(--primary); border-left-color: rgba(168,53,53,0.3); }
-        .nav-link.active { background-color: rgba(168,53,53,0.08); color: var(--primary); border-left-color: var(--primary); font-weight: 600; }
-        .nav-icon { width: 18px; text-align: center; margin-right: 14px; font-size: 16px; }
-        .nav-text { font-size: 14px; }
-        .user-section { margin-top: auto; padding: 20px; border-top: 1px solid var(--border); }
-        .user-info { display: flex; align-items: center; margin-bottom: 15px; }
-        .user-avatar { width: 38px; height: 38px; border-radius: 50%; background-color: rgba(168,53,53,0.1); display: flex; align-items: center; justify-content: center; color: var(--primary); font-weight: 600; font-size: 15px; margin-right: 12px; }
-        .user-name { font-weight: 600; font-size: 14px; color: var(--text); }
-        .user-role { font-size: 12px; color: var(--light-text); }
-        .logout-link { width: 100%; padding: 9px; background: rgba(168,53,53,0.1); color: var(--primary); border: 1.5px solid var(--primary); border-radius: 5px; font-weight: 600; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; transition: all 0.2s; }
-        .logout-link:hover { background: rgba(168,53,53,0.2); }
+        body { background-color: var(--background); color: var(--text-primary); min-height: 100vh; display: flex; }
 
         /* ── Main ── */
         .main-content { flex-grow: 1; margin-left: var(--sidebar-width); min-height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
         .top-header { background-color: var(--white); padding: 18px 28px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
-        .header-left h1 { font-size: 22px; color: var(--text); margin-bottom: 4px; font-weight: 700; }
-        .header-left p { font-size: 13px; color: var(--light-text); }
+        .header-left h1 { font-size: 22px; color: var(--text-primary); margin-bottom: 4px; font-weight: 700; }
+        .header-left p { font-size: 13px; color: var(--text-secondary); }
         .header-right { display: flex; gap: 10px; align-items: center; }
-        .header-stat { font-size: 13px; color: var(--light-text); background-color: rgba(168,53,53,0.05); padding: 7px 14px; border-radius: 20px; }
+        .header-stat { font-size: 13px; color: var(--text-secondary); background-color: var(--primary-tint-subtle); padding: 7px 14px; border-radius: 20px; }
 
         /* Alert */
         .alert { margin: 14px 25px 0; padding: 12px 16px; border-radius: 8px; font-size: 14px; display: flex; align-items: center; gap: 10px; }
-        .alert-success { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
-        .alert-error   { background: #fff0f0; color: #c62828; border: 1px solid #ef9a9a; }
+        .alert-success { background: var(--success-bg); color: var(--success); border: 1px solid var(--success-border); }
+        .alert-error   { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); }
 
         /* ── User Management Grid ── */
         .user-management { flex-grow: 1; padding: 20px 25px; display: grid; grid-template-columns: 1fr 380px; gap: 20px; height: calc(100vh - 100px); overflow: hidden; }
@@ -270,51 +251,51 @@ $pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_statu
         .table-section { background-color: var(--white); border-radius: 10px; box-shadow: var(--card-shadow); border: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
 
         /* Filter bar */
-        .filter-bar { padding: 14px 18px; border-bottom: 1px solid var(--border); background: rgba(168,53,53,0.01); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .filter-bar { padding: 14px 18px; border-bottom: 1px solid var(--border); background: var(--primary-tint-subtle); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
         .filter-bar form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex: 1; }
         .search-wrap { position: relative; flex: 1; min-width: 160px; }
-        .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--light-text); font-size: 13px; }
+        .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-secondary); font-size: 13px; }
         .search-input { width: 100%; padding: 8px 28px 8px 32px; border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px; background: var(--white); }
         .search-input:focus { outline: none; border-color: var(--primary); }
-        .search-clear { display: none; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--light-text); cursor: pointer; font-size: 13px; padding: 2px 4px; }
+        .search-clear { display: none; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 13px; padding: 2px 4px; }
         .search-clear:hover { color: var(--primary); }
         .search-clear.show { display: block; }
         .filter-select { padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px; background: var(--white); cursor: pointer; }
         .filter-select:focus { outline: none; border-color: var(--primary); }
-        .filter-btn { padding: 8px 16px; background: var(--primary); color: white; border: none; border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; }
-        .filter-btn:hover { background: #8b2a2a; }
-        .add-new-btn { padding: 8px 16px; background: rgba(168,53,53,0.08); color: var(--primary); border: 1.5px solid var(--primary); border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
-        .add-new-btn:hover { background: rgba(168,53,53,0.16); }
+        .filter-btn { padding: 8px 16px; background: var(--primary); color: var(--on-primary); border: none; border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; }
+        .filter-btn:hover { background: var(--primary-dark); }
+        .add-new-btn { padding: 8px 16px; background: var(--primary-tint-light); color: var(--primary); border: 1.5px solid var(--primary); border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+        .add-new-btn:hover { background: var(--primary-tint-active); }
 
-        .section-header { padding: 14px 18px; border-bottom: 1px solid var(--border); background-color: rgba(168,53,53,0.03); display: flex; justify-content: space-between; align-items: center; }
+        .section-header { padding: 14px 18px; border-bottom: 1px solid var(--border); background-color: var(--primary-tint-subtle); display: flex; justify-content: space-between; align-items: center; }
         .section-header h2 { font-size: 16px; color: var(--primary); display: flex; align-items: center; gap: 10px; }
-        .result-count { font-size: 12px; color: var(--light-text); background: rgba(168,53,53,0.08); padding: 3px 10px; border-radius: 20px; font-weight: 600; }
+        .result-count { font-size: 12px; color: var(--text-secondary); background: var(--primary-tint-light); padding: 3px 10px; border-radius: 20px; font-weight: 600; }
 
         .table-container { flex-grow: 1; overflow: auto; }
 
         .user-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        .user-table thead { background-color: rgba(168,53,53,0.03); position: sticky; top: 0; z-index: 2; }
-        .user-table th { padding: 13px 16px; text-align: left; font-weight: 600; color: var(--text); font-size: 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-        .user-table td { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text); vertical-align: middle; }
+        .user-table thead { background-color: var(--primary-tint-subtle); position: sticky; top: 0; z-index: 2; }
+        .user-table th { padding: 13px 16px; text-align: left; font-weight: 600; color: var(--text-primary); font-size: 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+        .user-table td { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text-primary); vertical-align: middle; }
         .user-table tbody tr { transition: background 0.15s; cursor: pointer; }
-        .user-table tbody tr:hover { background-color: rgba(168,53,53,0.03); }
-        .user-table tbody tr.selected { background-color: rgba(168,53,53,0.07); }
+        .user-table tbody tr:hover { background-color: var(--primary-tint-subtle); }
+        .user-table tbody tr.selected { background-color: var(--primary-tint-light); }
         .user-table tbody tr:last-child td { border-bottom: none; }
 
         .user-id-cell { font-weight: 600; color: var(--primary); font-size: 11px; font-family: monospace; }
         .user-name-cell { display: flex; align-items: center; gap: 10px; }
-        .user-avatar-sm { width: 30px; height: 30px; border-radius: 50%; background-color: rgba(168,53,53,0.1); display: flex; align-items: center; justify-content: center; color: var(--primary); font-weight: 700; font-size: 12px; flex-shrink: 0; }
-        .user-email { font-size: 12px; color: var(--light-text); }
+        .user-avatar-sm { width: 30px; height: 30px; border-radius: 50%; background-color: var(--primary-tint-medium); display: flex; align-items: center; justify-content: center; color: var(--primary); font-weight: 700; font-size: 12px; flex-shrink: 0; }
+        .user-email { font-size: 12px; color: var(--text-secondary); }
 
         .role-badge { display: inline-block; padding: 3px 9px; border-radius: 12px; font-size: 11px; font-weight: 600; }
         .role-CUSTOMER { background: rgba(33,150,243,0.1); color: #1565c0; }
-        .role-STAFF    { background: rgba(76,175,80,0.1);  color: #2e7d32; }
-        .role-ADMIN    { background: rgba(168,53,53,0.12); color: var(--primary); }
+        .role-STAFF    { background: var(--success-bg);  color: var(--success); }
+        .role-ADMIN    { background: var(--primary-tint-medium); color: var(--primary); }
 
         .status-badge { display: inline-block; padding: 3px 9px; border-radius: 12px; font-size: 11px; font-weight: 600; }
-        .status-ACTIVE   { background: rgba(76,175,80,0.1);  color: #2e7d32; }
+        .status-ACTIVE   { background: var(--success-bg);  color: var(--success); }
         .status-INACTIVE { background: rgba(158,158,158,0.15); color: #616161; }
-        .status-PENDING  { background: rgba(244,162,97,0.15); color: #e65100; }
+        .status-PENDING  { background: rgba(244,162,97,0.15); color: var(--warning); }
 
         /* Column widths */
         .user-table th:nth-child(1), .user-table td:nth-child(1) { width: 14%; }
@@ -325,45 +306,45 @@ $pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_statu
         .user-table th:nth-child(6), .user-table td:nth-child(6) { width: 10%; }
 
         /* Empty state */
-        .empty-state { text-align: center; padding: 40px 20px; color: var(--light-text); font-size: 14px; }
+        .empty-state { text-align: center; padding: 40px 20px; color: var(--text-secondary); font-size: 14px; }
         .empty-state i { font-size: 36px; opacity: 0.2; margin-bottom: 10px; display: block; }
 
         /* ── Right: form section ── */
         .form-section { background-color: var(--white); border-radius: 10px; box-shadow: var(--card-shadow); border: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
-        .form-header { padding: 16px 20px; border-bottom: 1px solid var(--border); background-color: rgba(168,53,53,0.03); display: flex; justify-content: space-between; align-items: center; }
+        .form-header { padding: 16px 20px; border-bottom: 1px solid var(--border); background-color: var(--primary-tint-subtle); display: flex; justify-content: space-between; align-items: center; }
         .form-header h2 { font-size: 16px; color: var(--primary); display: flex; align-items: center; gap: 8px; }
         .form-mode-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
-        .badge-edit   { background: rgba(168,53,53,0.1); color: var(--primary); }
-        .badge-new    { background: rgba(76,175,80,0.1); color: #2e7d32; }
+        .badge-edit   { background: var(--primary-tint-medium); color: var(--primary); }
+        .badge-new    { background: var(--success-bg); color: var(--success); }
 
         .form-container { flex-grow: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; }
 
         .form-group { margin-bottom: 16px; }
-        .form-label { display: block; margin-bottom: 6px; font-weight: 600; color: var(--text); font-size: 13px; }
-        .form-label .optional { font-weight: 400; color: var(--light-text); font-size: 12px; }
-        .form-input, .form-select { width: 100%; padding: 10px 13px; border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px; transition: all 0.2s ease; background-color: var(--white); color: var(--text); }
-        .form-input:focus, .form-select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(168,53,53,0.09); }
-        .form-input[readonly] { background: #f5f5f5; color: var(--light-text); cursor: not-allowed; }
-        .form-hint { font-size: 12px; color: var(--light-text); margin-top: 4px; }
+        .form-label { display: block; margin-bottom: 6px; font-weight: 600; color: var(--text-primary); font-size: 13px; }
+        .form-label .optional { font-weight: 400; color: var(--text-secondary); font-size: 12px; }
+        .form-input, .form-select { width: 100%; padding: 10px 13px; border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px; transition: all 0.2s ease; background-color: var(--white); color: var(--text-primary); }
+        .form-input:focus, .form-select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-tint-light); }
+        .form-input[readonly] { background: #f5f5f5; color: var(--text-secondary); cursor: not-allowed; }
+        .form-hint { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
 
         .radio-group { display: flex; gap: 18px; margin-top: 5px; flex-wrap: wrap; }
         .radio-option { display: flex; align-items: center; }
         .radio-option input { margin-right: 6px; accent-color: var(--primary); }
-        .radio-label { color: var(--text); font-size: 13px; }
+        .radio-label { color: var(--text-primary); font-size: 13px; }
 
         .form-divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 
         .form-actions { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--border); display: flex; gap: 10px; flex-wrap: wrap; }
 
-        .btn-primary { flex: 1; padding: 11px; background-color: var(--primary); color: white; border: none; border-radius: 7px; font-weight: 600; font-size: 13px; cursor: pointer; transition: background-color 0.2s; display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 100px; }
-        .btn-primary:hover { background-color: #8b2a2a; }
-        .btn-secondary { flex: 1; padding: 11px; background-color: rgba(168,53,53,0.08); color: var(--primary); border: 1.5px solid var(--primary); border-radius: 7px; font-weight: 600; font-size: 13px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 100px; }
-        .btn-secondary:hover { background-color: rgba(168,53,53,0.16); }
-        .btn-danger { flex: 1; padding: 11px; background-color: rgba(239,68,68,0.08); color: #c62828; border: 1.5px solid #ef9a9a; border-radius: 7px; font-weight: 600; font-size: 13px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 100px; }
+        .btn-primary { flex: 1; padding: 11px; background-color: var(--primary); color: var(--on-primary); border: none; border-radius: 7px; font-weight: 600; font-size: 13px; cursor: pointer; transition: background-color 0.2s; display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 100px; }
+        .btn-primary:hover { background-color: var(--primary-dark); }
+        .btn-secondary { flex: 1; padding: 11px; background-color: var(--primary-tint-light); color: var(--primary); border: 1.5px solid var(--primary); border-radius: 7px; font-weight: 600; font-size: 13px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 100px; }
+        .btn-secondary:hover { background-color: var(--primary-tint-active); }
+        .btn-danger { flex: 1; padding: 11px; background-color: rgba(239,68,68,0.08); color: var(--danger); border: 1.5px solid var(--danger); border-radius: 7px; font-weight: 600; font-size: 13px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 100px; }
         .btn-danger:hover { background-color: rgba(239,68,68,0.16); }
 
         /* Placeholder state */
-        .form-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; flex-grow: 1; color: var(--light-text); text-align: center; padding: 30px; gap: 12px; }
+        .form-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; flex-grow: 1; color: var(--text-secondary); text-align: center; padding: 30px; gap: 12px; }
         .form-placeholder i { font-size: 38px; opacity: 0.2; }
         .form-placeholder p { font-size: 14px; }
 
@@ -372,35 +353,24 @@ $pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_statu
             .user-management { grid-template-columns: 1fr; height: auto; overflow: visible; }
             .table-section { height: 50vh; }
         }
-        @media (max-width: 1024px) {
-            :root { --sidebar-width: 70px; }
-            .logo-text, .admin-subtitle, .nav-text, .user-role, .user-name, .logout-link span, .nav-title { display: none; }
-            .logo-area, .nav-section, .user-section { padding: 16px 12px; }
-            .nav-link { justify-content: center; padding: 14px; border-left: none; border-right: 4px solid transparent; }
-            .nav-link:hover, .nav-link.active { border-left: none; border-right-color: var(--primary); }
-            .nav-icon { margin-right: 0; font-size: 18px; }
-            .logout-link { justify-content: center; padding: 10px; }
-            .user-info { justify-content: center; }
-            .user-avatar { margin-right: 0; }
-        }
         /* ── Custom Dialog (replaces native alert/confirm) ── */
         .custom-dialog-overlay { display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center; }
         .custom-dialog-overlay.show { display:flex; }
-        .custom-dialog-box { background:white;border-radius:12px;width:90%;max-width:400px;padding:28px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,0.2);text-align:center;animation:dialogPop 0.15s ease; }
+        .custom-dialog-box { background:var(--white);border-radius:12px;width:90%;max-width:400px;padding:28px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,0.2);text-align:center;animation:dialogPop 0.15s ease; }
         @keyframes dialogPop { from{transform:scale(0.95);opacity:0;} to{transform:scale(1);opacity:1;} }
         .custom-dialog-icon { width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:22px; }
         .custom-dialog-icon.dialog-info { background:#eff6ff;color:#1d4ed8; }
-        .custom-dialog-icon.dialog-success { background:#ecfdf5;color:#059669; }
-        .custom-dialog-icon.dialog-error { background:#fef2f2;color:#dc2626; }
-        .custom-dialog-icon.dialog-warning { background:#fffbeb;color:#d97706; }
+        .custom-dialog-icon.dialog-success { background:var(--success-bg);color:var(--success); }
+        .custom-dialog-icon.dialog-error { background:var(--danger-bg);color:var(--danger); }
+        .custom-dialog-icon.dialog-warning { background:var(--warning-bg);color:var(--warning); }
         .custom-dialog-message { font-size:14px;color:#2E2E2E;line-height:1.6;margin-bottom:22px;white-space:pre-line; }
         .custom-dialog-actions { display:flex;gap:10px; }
         .custom-dialog-btn { flex:1;padding:11px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:background 0.2s ease; }
         .custom-dialog-cancel { background:#F1EDE8;color:#2E2E2E;border:1.5px solid #E0E0E0; }
         .custom-dialog-cancel:hover { background:#e8e2da; }
-        .custom-dialog-confirm { background:#A83535;color:white; }
-        .custom-dialog-confirm:hover { background:#8b2a2a; }
-        .custom-dialog-danger { background:#dc2626;color:white; }
+        .custom-dialog-confirm { background:#A83535;color:var(--on-primary); }
+        .custom-dialog-confirm:hover { background:var(--primary-dark); }
+        .custom-dialog-danger { background:var(--danger);color:var(--on-primary); }
         .custom-dialog-danger:hover { background:#b91c1c; }
     </style>
 </head>
@@ -509,15 +479,15 @@ $pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_statu
                             </td>
                             <td class="user-email"><?= htmlspecialchars($u['email']) ?></td>
                             <td><span class="role-badge role-<?= $u['user_role'] ?>"><?= ucfirst(strtolower($u['user_role'])) ?></span></td>
-                            <td style="font-size:12px;color:var(--light-text);">
+                            <td style="font-size:12px;color:var(--text-secondary);">
                                 <?php if ($u['user_role'] === 'STAFF'): ?>
-                                    <?= $u['branch_name'] ? '<i class="fas fa-store" style="color:var(--primary);margin-right:4px;"></i>' . htmlspecialchars($u['branch_name']) : '<span style="color:#d97706;">Unassigned</span>' ?>
+                                    <?= $u['branch_name'] ? '<i class="fas fa-store" style="color:var(--primary);margin-right:4px;"></i>' . htmlspecialchars($u['branch_name']) : '<span style="color:var(--warning);">Unassigned</span>' ?>
                                 <?php else: ?>
                                     —
                                 <?php endif; ?>
                             </td>
                             <td><span class="status-badge status-<?= $u['account_status'] ?>"><?= ucfirst(strtolower($u['account_status'])) ?></span></td>
-                            <td style="color:var(--light-text);font-size:12px;"><?= htmlspecialchars($u['phone_number'] ?? '—') ?></td>
+                            <td style="color:var(--text-secondary);font-size:12px;"><?= htmlspecialchars($u['phone_number'] ?? '—') ?></td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>

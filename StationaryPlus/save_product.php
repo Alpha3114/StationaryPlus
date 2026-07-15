@@ -63,11 +63,15 @@ function handleProductImageUpload(): ?string {
         throw new Exception('Image upload failed. Please try again.');
     }
 
-    $allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    // Extension is derived from the validated MIME type, never from the
+    // client-supplied filename — otherwise a file with real image bytes but
+    // a ".php" name (a "polyglot") would pass the MIME check and be saved
+    // as a web-executable script.
+    $allowedExt = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
     $mime    = mime_content_type($_FILES['product_image']['tmp_name']);
     $size    = $_FILES['product_image']['size'];
 
-    if (!in_array($mime, $allowed)) {
+    if (!isset($allowedExt[$mime])) {
         throw new Exception('Product image must be JPG, PNG, or WEBP.');
     }
     if ($size > 5 * 1024 * 1024) {
@@ -76,7 +80,7 @@ function handleProductImageUpload(): ?string {
 
     $uploadDir = 'uploads/products/';
     if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
-    $ext      = pathinfo($_FILES['product_image']['name'], PATHINFO_EXTENSION);
+    $ext      = $allowedExt[$mime];
     $filename = 'prod_' . uniqid() . '.' . $ext;
     move_uploaded_file($_FILES['product_image']['tmp_name'], $uploadDir . $filename);
     return $uploadDir . $filename;

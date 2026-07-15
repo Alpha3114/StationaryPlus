@@ -10,6 +10,7 @@ require_role(['STAFF', 'ADMIN']);
 require_once 'db.php';
 require_once 'pricing.php';
 require_once 'loyalty.php';
+require_once 'audit.php';
 
 header('Content-Type: application/json');
 
@@ -161,7 +162,7 @@ $pointsRedeemed = 0;
 $pointsDiscount = 0.0;
 if ($pointsRedeemedRaw > 0 && $customerId) {
     $custBalance    = get_loyalty_balance($conn, $customerId);
-    $maxRedeemable  = min($custBalance, max(0, (int)floor(($total - 0.01) * 100)));
+    $maxRedeemable  = max_redeemable_points($custBalance, $total);
     $pointsRedeemed = min($pointsRedeemedRaw, $maxRedeemable);
     if ($pointsRedeemed > 0) {
         $pointsDiscount = round($pointsRedeemed / 100, 2);
@@ -279,6 +280,13 @@ try {
     }
 
     $conn->commit();
+
+    log_audit(
+        $conn, 'POS_SALE', 'order', $orderId,
+        "RM " . number_format($finalTotal, 2) . " ($method, " . count($validatedItems) . " item(s))"
+        . ($customerId ? ", customer $customerId" : ", walk-in")
+        . ($pointsRedeemed > 0 ? ", redeemed $pointsRedeemed points" : "")
+    );
 
     $change = $method === 'CASH' ? round($amountPaid - $finalTotal, 2) : 0.00;
 

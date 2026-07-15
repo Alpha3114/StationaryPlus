@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // ============================================================
 //  s_payments.php — Staff: Payment Verification
 // ============================================================
@@ -128,7 +128,7 @@ function payFilterUrl(array $over = []): string {
 
 function methodBadge(string $m): string {
     return match($m) {
-        'CASH'     => "<span style='background:#e8f5e9;color:#2e7d32;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600;'>💵 Cash</span>",
+        'CASH'     => "<span style='background:var(--success-bg);color:var(--success);padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600;'>💵 Cash</span>",
         'TRANSFER' => "<span style='background:#e3f2fd;color:#1565c0;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600;'>🏦 Transfer</span>",
         'OTHER'    => "<span style='background:#f3e5f5;color:#6a1b9a;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600;'>📱 E-Wallet</span>",
         default    => "<span style='background:#f3f4f6;color:#6b7280;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600;'>$m</span>",
@@ -137,9 +137,9 @@ function methodBadge(string $m): string {
 
 function statusBadge(string $s): string {
     return match($s) {
-        'VALID'   => "<span style='background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'>✓ Verified</span>",
-        'INVALID' => "<span style='background:#fef2f2;color:#c62828;border:1px solid #ef9a9a;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'>✗ Rejected</span>",
-        'PENDING' => "<span style='background:#fffbeb;color:#92400e;border:1px solid #fde68a;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'>⏳ Pending</span>",
+        'VALID'   => "<span style='background:var(--success-bg);color:var(--success);border:1px solid var(--success-border);padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'>✓ Verified</span>",
+        'INVALID' => "<span style='background:var(--danger-bg);color:var(--danger);border:1px solid #ef9a9a;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'>✗ Rejected</span>",
+        'PENDING' => "<span style='background:var(--warning-bg);color:var(--warning);border:1px solid #fde68a;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'>⏳ Pending</span>",
         default   => "<span style='background:#f3f4f6;color:#6b7280;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'>$s</span>",
     };
 }
@@ -151,6 +151,9 @@ function statusBadge(string $s): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus — Payment Verification</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css">
     <style>
         :root {
             --primary:#A83535; --secondary:#F4A261; --accent:#F1EDE8;
@@ -163,13 +166,13 @@ function statusBadge(string $s): string {
         /* ── Custom Dialog (replaces native alert/confirm/prompt) ── */
         .custom-dialog-overlay { display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center; }
         .custom-dialog-overlay.show { display:flex; }
-        .custom-dialog-box { background:white;border-radius:12px;width:90%;max-width:420px;padding:28px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,0.2);text-align:center;animation:dialogPop 0.15s ease; }
+        .custom-dialog-box { background:var(--white);border-radius:12px;width:90%;max-width:420px;padding:28px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,0.2);text-align:center;animation:dialogPop 0.15s ease; }
         @keyframes dialogPop { from{transform:scale(0.95);opacity:0;} to{transform:scale(1);opacity:1;} }
         .custom-dialog-icon { width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:22px; }
         .custom-dialog-icon.dialog-info { background:#eff6ff;color:#1d4ed8; }
-        .custom-dialog-icon.dialog-success { background:#ecfdf5;color:#059669; }
-        .custom-dialog-icon.dialog-error { background:#fef2f2;color:#dc2626; }
-        .custom-dialog-icon.dialog-warning { background:#fffbeb;color:#d97706; }
+        .custom-dialog-icon.dialog-success { background:var(--success-bg);color:var(--success); }
+        .custom-dialog-icon.dialog-error { background:var(--danger-bg);color:var(--danger); }
+        .custom-dialog-icon.dialog-warning { background:var(--warning-bg);color:var(--warning); }
         .custom-dialog-message { font-size:14px;color:#2E2E2E;line-height:1.6;margin-bottom:16px;white-space:pre-line; }
         .custom-dialog-input { display:none;width:100%;padding:10px 12px;border:1.5px solid #E0E0E0;border-radius:8px;font-size:13px;font-family:inherit;resize:none;margin-bottom:18px;transition:border-color 0.2s; }
         .custom-dialog-input:focus { outline:none;border-color:#A83535; }
@@ -177,34 +180,11 @@ function statusBadge(string $s): string {
         .custom-dialog-btn { flex:1;padding:11px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:background 0.2s ease; }
         .custom-dialog-cancel { background:#F1EDE8;color:#2E2E2E;border:1.5px solid #E0E0E0; }
         .custom-dialog-cancel:hover { background:#e8e2da; }
-        .custom-dialog-confirm { background:#A83535;color:white; }
-        .custom-dialog-confirm:hover { background:#8b2a2a; }
-        .custom-dialog-danger { background:#dc2626;color:white; }
+        .custom-dialog-confirm { background:#A83535;color:var(--on-primary); }
+        .custom-dialog-confirm:hover { background:var(--primary-dark); }
+        .custom-dialog-danger { background:var(--danger);color:var(--on-primary); }
         .custom-dialog-danger:hover { background:#b91c1c; }
         body{background:var(--background);color:var(--text-primary);min-height:100vh;display:flex;}
-
-        /* ── Sidebar ── */
-        .sidebar{width:var(--sidebar-width);background-color:var(--white);border-right:1px solid var(--border);height:100vh;position:fixed;left:0;top:0;display:flex;flex-direction:column;box-shadow:2px 0 10px rgba(0,0,0,0.03);overflow-y:auto;}
-        .logo-area{padding:25px;border-bottom:1px solid var(--border);display:flex;align-items:center;flex-shrink:0;}
-        .logo-icon{background-color:var(--primary);width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:12px;color:white;font-size:20px;}
-        .logo-text{font-size:22px;font-weight:700;color:var(--primary);}
-        .nav-section{padding:20px 0;border-bottom:1px solid var(--border);}
-        .nav-title{font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.8px;padding:0 25px 10px 25px;}
-        .nav-menu{list-style:none;}
-        .nav-item{margin-bottom:2px;}
-        .nav-link{display:flex;align-items:center;padding:13px 25px;color:var(--text-primary);text-decoration:none;transition:all 0.2s;border-left:4px solid transparent;}
-        .nav-link:hover{background-color:rgba(168,53,53,0.05);color:var(--primary);border-left-color:rgba(168,53,53,0.3);}
-        .nav-link.active{background-color:rgba(168,53,53,0.08);color:var(--primary);border-left-color:var(--primary);font-weight:600;}
-        .nav-icon{width:22px;text-align:center;margin-right:14px;font-size:16px;}
-        .nav-text{font-size:15px;}
-        .user-section{margin-top:auto;padding:20px 25px;border-top:1px solid var(--border);}
-        .user-info{display:flex;align-items:center;margin-bottom:14px;}
-        .user-avatar{width:40px;height:40px;border-radius:50%;background-color:rgba(168,53,53,0.1);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:700;font-size:16px;margin-right:12px;flex-shrink:0;}
-        .user-name{font-weight:600;font-size:15px;color:var(--text-primary);}
-        .user-role{font-size:12px;color:var(--text-secondary);margin-top:2px;}
-        .user-details{overflow:hidden;}
-        .logout-link{display:flex;align-items:center;gap:10px;padding:10px 14px;background-color:rgba(168,53,53,0.06);color:var(--primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;}
-        .logout-link:hover{background-color:rgba(168,53,53,0.14);}
 
         .main-content{flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column;}
         .top-header{background:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center;}
@@ -216,16 +196,16 @@ function statusBadge(string $s): string {
         .filter-bar{display:flex;gap:10px;align-items:center;margin-bottom:20px;flex-wrap:wrap;}
         .tab-btn{padding:8px 18px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;border:1.5px solid var(--border);background:var(--white);color:var(--text-secondary);text-decoration:none;transition:all 0.2s;display:flex;align-items:center;gap:6px;}
         .tab-btn:hover{border-color:var(--primary);color:var(--primary);}
-        .tab-btn.active{background:var(--primary);color:white;border-color:var(--primary);}
+        .tab-btn.active{background:var(--primary);color:var(--on-primary);border-color:var(--primary);}
         .tab-count{background:rgba(255,255,255,0.25);padding:1px 7px;border-radius:10px;font-size:11px;}
-        .tab-btn:not(.active) .tab-count{background:rgba(168,53,53,0.08);color:var(--primary);}
+        .tab-btn:not(.active) .tab-count{background:var(--primary-tint-light);color:var(--primary);}
         .search-input{padding:9px 14px;border:1.5px solid var(--border);border-radius:9px;font-size:13px;background:var(--white);outline:none;transition:border-color 0.2s;min-width:240px;margin-left:auto;}
         .search-input:focus{border-color:var(--primary);}
 
         /* ── Filter panel ── */
         .filters-toggle{display:flex;align-items:center;gap:8px;padding:8px 16px;border:1.5px solid var(--border);border-radius:9px;background:var(--white);font-size:13px;font-weight:600;color:var(--text-primary);cursor:pointer;transition:all 0.2s;white-space:nowrap;}
-        .filters-toggle:hover,.filters-toggle.active{border-color:var(--primary);color:var(--primary);background:rgba(168,53,53,0.04);}
-        .filter-badge{background:var(--primary);color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;min-width:18px;text-align:center;}
+        .filters-toggle:hover,.filters-toggle.active{border-color:var(--primary);color:var(--primary);background:var(--primary-tint-subtle);}
+        .filter-badge{background:var(--primary);color:var(--on-primary);font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;min-width:18px;text-align:center;}
         .filter-panel{display:none;background:var(--white);border:1.5px solid var(--border);border-radius:12px;padding:20px 22px 16px;margin-bottom:14px;box-shadow:var(--card-shadow);}
         .filter-panel.open{display:block;}
         .filter-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:18px 24px;margin-bottom:16px;}
@@ -233,26 +213,26 @@ function statusBadge(string $s): string {
         .chip-row{display:flex;flex-wrap:wrap;gap:6px;}
         .chip{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;border:1.5px solid var(--border);background:var(--white);color:var(--text-secondary);text-decoration:none;transition:all 0.15s;white-space:nowrap;display:inline-block;}
         .chip:hover{border-color:var(--primary);color:var(--primary);}
-        .chip.on{background:var(--primary);color:white;border-color:var(--primary);}
+        .chip.on{background:var(--primary);color:var(--on-primary);border-color:var(--primary);}
         .date-range{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
         .date-input{padding:6px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;outline:none;transition:border-color 0.2s;}
         .date-input:focus{border-color:var(--primary);}
         .filter-actions{display:flex;align-items:center;gap:10px;border-top:1px solid var(--border);padding-top:14px;}
         .filter-clear{font-size:13px;color:var(--text-secondary);text-decoration:none;padding:6px 12px;border-radius:7px;transition:all 0.15s;}
-        .filter-clear:hover{background:rgba(168,53,53,0.06);color:var(--primary);}
+        .filter-clear:hover{background:var(--primary-tint-light);color:var(--primary);}
         .active-pills{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}
-        .active-pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px 3px 12px;background:rgba(168,53,53,0.08);color:var(--primary);border:1px solid rgba(168,53,53,0.2);border-radius:20px;font-size:12px;font-weight:600;}
+        .active-pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px 3px 12px;background:var(--primary-tint-light);color:var(--primary);border:1px solid var(--primary-tint-active);border-radius:20px;font-size:12px;font-weight:600;}
         .active-pill a{color:var(--primary);text-decoration:none;opacity:0.6;margin-left:2px;font-size:14px;line-height:1;}
         .active-pill a:hover{opacity:1;}
 
         /* Table card */
         .card{background:var(--white);border-radius:12px;border:1px solid var(--border);box-shadow:var(--card-shadow);overflow:hidden;}
         .data-table{width:100%;border-collapse:collapse;}
-        .data-table thead{background:rgba(168,53,53,0.04);border-bottom:2px solid var(--border);}
+        .data-table thead{background:var(--primary-tint-subtle);border-bottom:2px solid var(--border);}
         .data-table th{padding:13px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap;}
         .data-table tbody tr{border-bottom:1px solid var(--border);transition:background 0.15s;cursor:pointer;}
         .data-table tbody tr:last-child{border-bottom:none;}
-        .data-table tbody tr:hover{background:rgba(168,53,53,0.02);}
+        .data-table tbody tr:hover{background:var(--primary-tint-subtle);}
         .data-table td{padding:13px 16px;font-size:13px;vertical-align:middle;}
         .mono{font-family:monospace;font-size:12px;font-weight:700;color:var(--primary);}
         .empty-state{text-align:center;padding:48px;color:var(--text-secondary);}
@@ -262,20 +242,20 @@ function statusBadge(string $s): string {
         .detail-row{display:none;}
         .detail-row td{padding:0 !important;}
         .detail-row.open{display:table-row;}
-        .detail-inner{padding:18px 24px 20px;background:rgba(168,53,53,0.02);border-top:1px dashed var(--border);}
+        .detail-inner{padding:18px 24px 20px;background:var(--primary-tint-subtle);border-top:1px dashed var(--border);}
         .detail-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:18px;}
         .detail-block .label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);margin-bottom:4px;}
         .detail-block .value{font-size:14px;font-weight:600;color:var(--text-primary);}
         .action-row{display:flex;gap:10px;align-items:center;}
         .btn{padding:9px 20px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:all 0.2s;}
-        .btn-valid{background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;}
-        .btn-valid:hover{background:#2e7d32;color:white;}
-        .btn-invalid{background:#fef2f2;color:#c62828;border:1px solid #ef9a9a;}
-        .btn-invalid:hover{background:#c62828;color:white;}
+        .btn-valid{background:var(--success-bg);color:var(--success);border:1px solid var(--success-border);}
+        .btn-valid:hover{background:var(--success);color:var(--on-primary);}
+        .btn-invalid{background:var(--danger-bg);color:var(--danger);border:1px solid #ef9a9a;}
+        .btn-invalid:hover{background:var(--danger);color:var(--on-primary);}
         .btn-done{background:#f3f4f6;color:#6b7280;border:1px solid #E0E0E0;cursor:not-allowed;}
-        .toast{position:fixed;bottom:28px;right:28px;padding:14px 20px;background:#2e7d32;color:white;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 4px 20px rgba(0,0,0,0.15);z-index:999;transform:translateY(80px);opacity:0;transition:all 0.3s;display:flex;align-items:center;gap:8px;}
+        .toast{position:fixed;bottom:28px;right:28px;padding:14px 20px;background:var(--success);color:var(--on-primary);border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 4px 20px rgba(0,0,0,0.15);z-index:999;transform:translateY(80px);opacity:0;transition:all 0.3s;display:flex;align-items:center;gap:8px;}
         .toast.show{transform:translateY(0);opacity:1;}
-        .toast.error{background:#c62828;}
+        .toast.error{background:var(--danger);}
 
         /* ── Evidence viewer modal ── */
         .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center;padding:20px;}
@@ -284,23 +264,20 @@ function statusBadge(string $s): string {
         .modal-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
         .modal-title{font-size:15px;font-weight:700;color:var(--text-primary);}
         .modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-secondary);padding:4px 8px;border-radius:6px;transition:background 0.2s;}
-        .modal-close:hover{background:rgba(168,53,53,0.08);color:var(--primary);}
+        .modal-close:hover{background:var(--primary-tint-light);color:var(--primary);}
         .modal-body{flex-grow:1;overflow:auto;display:flex;align-items:center;justify-content:center;min-height:400px;background:#f8f8f8;}
         .modal-body iframe{width:100%;height:70vh;border:none;}
         .modal-body img{max-width:100%;max-height:75vh;object-fit:contain;padding:16px;}
 
         /* Evidence button in detail panel */
         .btn-evidence{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;padding:8px 16px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:background 0.2s;}
-        .btn-evidence:hover{background:#1d4ed8;color:white;}
-        .btn-download-proof{background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;padding:8px 16px;border-radius:7px;font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:6px;text-decoration:none;transition:background 0.2s;}
-        .btn-download-proof:hover{background:#15803d;color:white;}
+        .btn-evidence:hover{background:#1d4ed8;color:var(--on-primary);}
+        .btn-download-proof{background:var(--success-bg);color:var(--success);border:1px solid var(--success-border);padding:8px 16px;border-radius:7px;font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:6px;text-decoration:none;transition:background 0.2s;}
+        .btn-download-proof:hover{background:var(--success);color:var(--on-primary);}
 
         /* Footer */
         .page-footer{text-align:center;padding:20px;color:var(--text-secondary);font-size:13px;border-top:1px solid var(--border);background:var(--white);}
 
-        @media(max-width:1024px){
-            :root{--sidebar-width:70px;}
-        }
     </style>
 </head>
 <body>
@@ -314,7 +291,7 @@ function statusBadge(string $s): string {
             <p class="page-subtitle">Review and verify customer payment submissions</p>
         </div>
         <?php if ($counts['PENDING'] > 0): ?>
-        <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:10px 16px;font-size:13px;color:#92400e;font-weight:600;">
+        <div style="background:var(--warning-bg);border:1px solid #fde68a;border-radius:9px;padding:10px 16px;font-size:13px;color:var(--warning);font-weight:600;">
             <i class="fas fa-exclamation-circle"></i>
             <?= $counts['PENDING'] ?> payment<?= $counts['PENDING'] > 1 ? 's' : '' ?> awaiting verification
         </div>
@@ -322,8 +299,8 @@ function statusBadge(string $s): string {
     </header>
 
     <?php if (!$branchActive): ?>
-    <div style="margin:16px 30px 0;background:#fef2f2;border:1.5px solid #fecaca;border-radius:8px;
-                padding:12px 18px;font-size:13px;color:#991b1b;
+    <div style="margin:16px 30px 0;background:var(--danger-bg);border:1.5px solid #fecaca;border-radius:8px;
+                padding:12px 18px;font-size:13px;color:var(--danger);
                 display:flex;align-items:center;gap:10px;">
         <i class="fas fa-triangle-exclamation" style="font-size:16px;"></i>
         <span>Your assigned branch is temporarily unavailable (inactive/under renovation). Payment verification is disabled — contact an admin to be reassigned.</span>
@@ -547,8 +524,8 @@ function statusBadge(string $s): string {
                                                 <div class="value"><?= htmlspecialchars($p['reference_number'] ?? '—') ?></div>
                                             </div>
                                             <?php if ($p['verification_status'] === 'INVALID' && !empty($p['rejection_reason'])): ?>
-                                            <div class="detail-block" style="grid-column:1/-1;background:#fef2f2;border:1px solid #ef9a9a;border-radius:8px;padding:10px 14px;">
-                                                <div class="label" style="color:#c62828;"><i class="fas fa-times-circle"></i> Rejection Reason</div>
+                                            <div class="detail-block" style="grid-column:1/-1;background:var(--danger-bg);border:1px solid #ef9a9a;border-radius:8px;padding:10px 14px;">
+                                                <div class="label" style="color:var(--danger);"><i class="fas fa-times-circle"></i> Rejection Reason</div>
                                                 <div class="value" style="font-weight:400;"><?= htmlspecialchars($p['rejection_reason']) ?></div>
                                             </div>
                                             <?php endif; ?>
@@ -629,7 +606,7 @@ function statusBadge(string $s): string {
             <span class="modal-title">Payment Evidence</span>
             <div style="display:flex;gap:8px;">
                 <a id="evidenceDownload" href="#" download
-                   style="background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;text-decoration:none;display:flex;align-items:center;gap:6px;">
+                   style="background:var(--success-bg);color:var(--success);border:1px solid var(--success-border);padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;text-decoration:none;display:flex;align-items:center;gap:6px;">
                     <i class="fas fa-download"></i> Download
                 </a>
                 <button class="modal-close" onclick="closeEvidence()"><i class="fas fa-times"></i></button>
@@ -744,7 +721,7 @@ function customPrompt(message, options = {}) {
         const onYes = () => {
             const val = inputEl.value.trim();
             if (options.required && val === '') {
-                inputEl.style.borderColor = '#dc2626';
+                inputEl.style.borderColor = 'var(--danger)';
                 inputEl.focus();
                 return;
             }

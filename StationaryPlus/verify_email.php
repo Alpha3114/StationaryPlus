@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // ============================================================
 //  verify_email.php — Activates a customer account once they
 //  click the verification link sent by Registration.php
@@ -65,17 +65,19 @@ if (!$token) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus - Email Verification</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
     <style>
-        :root { --primary:#A83535; --background:#FAFAFA; --text:#2E2E2E; --text-secondary:#707070; }
+        :root { --primary:#A83535; --background:#FAFAFA; --text-primary:#2E2E2E; --text-secondary:#707070; }
         * { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI',system-ui,sans-serif; }
-        body { background:var(--background); color:var(--text); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
-        .box { background:#fff; max-width:440px; width:100%; padding:44px 36px; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.08); text-align:center; }
+        body { background:var(--background); color:var(--text-primary); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+        .box { background:var(--white); max-width:440px; width:100%; padding:44px 36px; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.08); text-align:center; }
         .icon { width:64px; height:64px; border-radius:50%; display:flex; align-items:center; justify-content:center; margin:0 auto 20px; font-size:28px; }
-        .icon.success { background:#ecfdf5; color:#059669; }
-        .icon.error   { background:#fef2f2; color:#dc2626; }
+        .icon.success { background:var(--success-bg); color:var(--success); }
+        .icon.error   { background:var(--danger-bg); color:var(--danger); }
         h1 { font-size:20px; margin-bottom:10px; }
         p { color:var(--text-secondary); font-size:14px; line-height:1.6; margin-bottom:26px; }
-        a.btn { display:inline-block; padding:12px 28px; background:var(--primary); color:#fff; border-radius:8px; text-decoration:none; font-weight:600; font-size:14px; }
+        a.btn { display:inline-block; padding:12px 28px; background:var(--primary); color:var(--on-primary); border-radius:8px; text-decoration:none; font-weight:600; font-size:14px; }
     </style>
 </head>
 <body>

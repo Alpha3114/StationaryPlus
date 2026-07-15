@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // ============================================================
 //  s_pos.php — Staff: Point of Sale (Walk-in Sales)
 // ============================================================
@@ -35,6 +35,9 @@ if ($branchId) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus — Point of Sale</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css">
     <!-- html5-qrcode for camera barcode scanning -->
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <style>
@@ -42,7 +45,7 @@ if ($branchId) {
         :root {
             --primary:        #A83535;
             --primary-dark:   #8b2a2a;
-            --primary-light:  rgba(168,53,53,0.08);
+            --primary-light:  var(--primary-tint-light);
             --secondary:      #F4A261;
             --accent:         #F1EDE8;
             --background:     #FAFAFA;
@@ -66,28 +69,6 @@ if ($branchId) {
             height: 100vh;
             overflow: hidden;
         }
-
-        /* ── Sidebar (matches s_sidebar.php styles) ── */
-        .sidebar { width:var(--sidebar-width);background:var(--white);border-right:1px solid var(--border);height:100vh;position:fixed;left:0;top:0;display:flex;flex-direction:column;box-shadow:2px 0 10px rgba(0,0,0,0.03);overflow-y:auto; }
-        .logo-area { padding:25px;border-bottom:1px solid var(--border);display:flex;align-items:center;flex-shrink:0; }
-        .logo-icon { background:var(--primary);width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:12px;color:white;font-size:20px; }
-        .logo-text { font-size:22px;font-weight:700;color:var(--primary); }
-        .nav-section { padding:20px 0;border-bottom:1px solid var(--border); }
-        .nav-title { font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.8px;padding:0 25px 10px; }
-        .nav-menu { list-style:none; }
-        .nav-item { margin-bottom:2px; }
-        .nav-link { display:flex;align-items:center;padding:13px 25px;color:var(--text-primary);text-decoration:none;transition:all 0.2s;border-left:4px solid transparent;gap:12px; }
-        .nav-link:hover { background:var(--primary-light);color:var(--primary);border-left-color:rgba(168,53,53,0.3); }
-        .nav-link.active { background:var(--primary-light);color:var(--primary);border-left-color:var(--primary);font-weight:600; }
-        .nav-icon { width:18px;text-align:center;font-size:15px; }
-        .badge-pill { margin-left:auto;background:#ef4444;color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px; }
-        .user-section { margin-top:auto;padding:18px 25px;border-top:1px solid var(--border); }
-        .user-info { display:flex;align-items:center;gap:10px;margin-bottom:12px; }
-        .user-avatar { width:36px;height:36px;background:var(--primary);border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:15px;flex-shrink:0; }
-        .user-name { font-size:14px;font-weight:600; }
-        .user-role { font-size:11px;color:var(--text-secondary); }
-        .logout-link { display:flex;align-items:center;gap:8px;padding:8px 12px;color:var(--text-secondary);text-decoration:none;border-radius:7px;font-size:13px;transition:all 0.2s; }
-        .logout-link:hover { background:rgba(239,68,68,0.08);color:#ef4444; }
 
         /* ── Main content ── */
         .main { margin-left:var(--sidebar-width); display:flex; flex-direction:column; height:100vh; overflow:hidden; flex:1; }
@@ -162,7 +143,7 @@ if ($branchId) {
             outline: none;
             transition: box-shadow 0.2s;
         }
-        .scan-input:focus { box-shadow: 0 0 0 3px rgba(168,53,53,0.15); }
+        .scan-input:focus { box-shadow: 0 0 0 3px var(--primary-tint-active); }
         .scan-input::placeholder { font-weight: 400; color: var(--text-secondary); }
         .cam-btn {
             padding: 10px 16px;
@@ -180,7 +161,7 @@ if ($branchId) {
             white-space: nowrap;
         }
         .cam-btn:hover { border-color:var(--primary);color:var(--primary); }
-        .cam-btn.active { background:var(--primary);color:white;border-color:var(--primary); }
+        .cam-btn.active { background:var(--primary);color:var(--on-primary);border-color:var(--primary); }
 
         /* Camera reader */
         #cameraReader {
@@ -246,11 +227,11 @@ if ($branchId) {
 
         /* Cart table */
         .cart-table { width:100%;border-collapse:collapse; }
-        .cart-table thead { position:sticky;top:0;z-index:5;background:rgba(168,53,53,0.04);border-bottom:2px solid var(--border); }
+        .cart-table thead { position:sticky;top:0;z-index:5;background:var(--primary-tint-subtle);border-bottom:2px solid var(--border); }
         .cart-table th { padding:10px 18px;text-align:left;font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px; }
         .cart-table th:last-child { text-align:right; }
         .cart-table tbody tr { border-bottom:1px solid var(--border);transition:background 0.15s; }
-        .cart-table tbody tr:hover { background:rgba(168,53,53,0.02); }
+        .cart-table tbody tr:hover { background:var(--primary-tint-subtle); }
         .cart-table td { padding:12px 18px;font-size:13px;vertical-align:middle; }
         .cart-prod-name { font-weight:600;color:var(--text-primary); }
         .cart-prod-id { font-size:11px;color:var(--text-secondary);font-family:monospace; }
@@ -260,7 +241,7 @@ if ($branchId) {
         .qty-btn { width:28px;height:28px;border:1.5px solid var(--border);background:var(--white);cursor:pointer;font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center;transition:all 0.15s;color:var(--text-primary); }
         .qty-btn.dec { border-radius:6px 0 0 6px;border-right:none; }
         .qty-btn.inc { border-radius:0 6px 6px 0;border-left:none; }
-        .qty-btn:hover { background:var(--primary);color:white;border-color:var(--primary); }
+        .qty-btn:hover { background:var(--primary);color:var(--on-primary);border-color:var(--primary); }
         .qty-val { width:44px;height:28px;text-align:center;border:1.5px solid var(--border);border-left:none;border-right:none;font-size:13px;font-weight:700;background:var(--white);color:var(--text-primary); }
         .qty-val:focus { outline:none;border-color:var(--primary);z-index:1; }
 
@@ -317,7 +298,7 @@ if ($branchId) {
             transition: all 0.2s;
             outline: none;
         }
-        .customer-input:focus { border-color:var(--primary);background:var(--white);box-shadow:0 0 0 3px rgba(168,53,53,0.08); }
+        .customer-input:focus { border-color:var(--primary);background:var(--white);box-shadow:0 0 0 3px var(--primary-tint-light); }
         .customer-icon { position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text-secondary);font-size:13px; }
         .customer-dropdown {
             display: none;
@@ -349,8 +330,8 @@ if ($branchId) {
             align-items: center;
             gap: 10px;
             padding: 10px 14px;
-            background: #ecfdf5;
-            border: 1.5px solid #a7f3d0;
+            background: var(--success-bg);
+            border: 1.5px solid var(--success-border);
             border-radius: 8px;
             margin-top: 8px;
         }
@@ -411,8 +392,8 @@ if ($branchId) {
 
         .change-display {
             padding: 12px 16px;
-            background: #ecfdf5;
-            border: 1.5px solid #a7f3d0;
+            background: var(--success-bg);
+            border: 1.5px solid var(--success-border);
             border-radius: 9px;
             display: flex;
             justify-content: space-between;
@@ -420,7 +401,7 @@ if ($branchId) {
             margin-bottom: 10px;
         }
         .change-display span:first-child { font-size:13px;color:#065f46;font-weight:600; }
-        .change-display span:last-child { font-size:18px;font-weight:800;color:#059669; }
+        .change-display span:last-child { font-size:18px;font-weight:800;color:var(--success); }
 
         .proof-upload {
             border: 1.5px dashed var(--border);
@@ -442,7 +423,7 @@ if ($branchId) {
             margin: 18px 22px;
             padding: 15px;
             background: var(--primary);
-            color: white;
+            color: var(--on-primary);
             border: none;
             border-radius: 10px;
             font-size: 16px;
@@ -455,7 +436,7 @@ if ($branchId) {
             transition: all 0.2s;
             width: calc(100% - 44px);
         }
-        .process-btn:hover:not(:disabled) { background: var(--primary-dark); transform:translateY(-1px);box-shadow:0 4px 14px rgba(168,53,53,0.3); }
+        .process-btn:hover:not(:disabled) { background: var(--primary-dark); transform:translateY(-1px);box-shadow:0 4px 14px var(--primary-tint-active); }
         .process-btn:disabled { background:#ccc;cursor:not-allowed;transform:none;box-shadow:none; }
 
         /* ── Toast ── */
@@ -467,7 +448,7 @@ if ($branchId) {
             border-radius: 10px;
             font-size: 13px;
             font-weight: 600;
-            color: white;
+            color: var(--on-primary);
             background: #1f2937;
             box-shadow: 0 6px 20px rgba(0,0,0,0.2);
             display: flex;
@@ -480,9 +461,9 @@ if ($branchId) {
             max-width: 360px;
         }
         .toast.show { opacity:1;transform:translateY(0); }
-        .toast.success { background:#059669; }
-        .toast.error   { background:#dc2626; }
-        .toast.warn    { background:#d97706; }
+        .toast.success { background:var(--success); }
+        .toast.error   { background:var(--danger); }
+        .toast.warn    { background:var(--warning); }
 
         /* ── Receipt modal ── */
         .modal-overlay {
@@ -539,7 +520,7 @@ if ($branchId) {
             display: flex;
             gap: 10px;
         }
-        .btn-print { flex:1;padding:11px;background:var(--primary);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;transition:background 0.2s; }
+        .btn-print { flex:1;padding:11px;background:var(--primary);color:var(--on-primary);border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;transition:background 0.2s; }
         .btn-print:hover { background:var(--primary-dark); }
         .btn-new-sale { flex:1;padding:11px;background:var(--accent);color:var(--primary);border:1.5px solid var(--primary);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;transition:all 0.2s; }
         .btn-new-sale:hover { background:var(--primary-light); }
@@ -556,17 +537,8 @@ if ($branchId) {
         /* ── Scrollbars ── */
         .cart-area::-webkit-scrollbar, .right-panel::-webkit-scrollbar { width:5px; }
         .cart-area::-webkit-scrollbar-track, .right-panel::-webkit-scrollbar-track { background:#f1f1f1;border-radius:3px; }
-        .cart-area::-webkit-scrollbar-thumb, .right-panel::-webkit-scrollbar-thumb { background:rgba(168,53,53,0.25);border-radius:3px; }
+        .cart-area::-webkit-scrollbar-thumb, .right-panel::-webkit-scrollbar-thumb { background:var(--primary-tint-active);border-radius:3px; }
 
-        @media (max-width: 1024px) {
-            :root { --sidebar-width: 70px; }
-            .logo-text, .nav-text, .user-name, .user-role { display:none; }
-            .logo-area, .nav-section, .user-section { padding:14px; }
-            .logo-area { justify-content:center; }
-            .nav-link { justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent;gap:0; }
-            .nav-link.active { border-left:none;border-right-color:var(--primary); }
-            .user-info { justify-content:center; }
-        }
     </style>
 </head>
 <body>
@@ -590,8 +562,8 @@ if ($branchId) {
     </div>
 
     <?php if (!$branchActive): ?>
-    <div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:8px;
-                padding:12px 18px;margin:14px 20px 0;font-size:13px;color:#991b1b;
+    <div style="background:var(--danger-bg);border:1.5px solid #fecaca;border-radius:8px;
+                padding:12px 18px;margin:14px 20px 0;font-size:13px;color:var(--danger);
                 display:flex;align-items:center;gap:10px;">
         <i class="fas fa-triangle-exclamation" style="font-size:16px;"></i>
         <span>Your assigned branch is temporarily unavailable (inactive/under renovation). Sales cannot be processed here — contact an admin to be reassigned.</span>
@@ -653,7 +625,7 @@ if ($branchId) {
                     <span>Items <span class="item-count-pill" id="itemCountPill">0</span></span>
                     <span id="subtotalDisplay">RM 0.00</span>
                 </div>
-                <div class="totals-row" id="posDiscountRow" style="display:none;color:#2e7d32;font-weight:600;">
+                <div class="totals-row" id="posDiscountRow" style="display:none;color:var(--success);font-weight:600;">
                     <span>Loyalty discount</span>
                     <span id="posDiscountAmount">− RM 0.00</span>
                 </div>
@@ -697,7 +669,7 @@ if ($branchId) {
                 <!-- Loyalty points redemption (shown only when a customer with points is selected) -->
                 <div id="posLoyaltySection" style="display:none;margin-top:10px;">
                     <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(76,175,80,0.05);border:1.5px solid rgba(76,175,80,0.25);border-radius:8px;cursor:pointer;">
-                        <input type="checkbox" id="posRedeemCheckbox" style="width:16px;height:16px;accent-color:#2e7d32;" onchange="updateTotals(getCartItemCount(), getCartTotal()); updateChange();">
+                        <input type="checkbox" id="posRedeemCheckbox" style="width:16px;height:16px;accent-color:var(--success);" onchange="updateTotals(getCartItemCount(), getCartTotal()); updateChange();">
                         <span style="font-size:12px;color:var(--text-primary);">
                             <strong>Redeem points</strong>
                             <span style="color:var(--text-secondary);" id="posPointsLabel"></span>
@@ -1053,7 +1025,9 @@ function getRedemptionDiscount() {
     const points = parseInt(document.getElementById('selectedCustomerPoints').value) || 0;
     const total  = getCartTotal();
     if (points <= 0 || total <= 0) return 0;
-    const maxRedeemable = Math.max(0, Math.min(points, Math.floor((total - 0.01) * 100)));
+    // Integer cents avoids float imprecision (e.g. (0.03-0.01)*100 !== 2 in IEEE-754).
+    const totalCents    = Math.round(total * 100);
+    const maxRedeemable = Math.max(0, Math.min(points, totalCents - 1));
     return maxRedeemable / 100;
 }
 

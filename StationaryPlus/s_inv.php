@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // ============================================================
 //  s_inv.php — Staff Inventory Management
 // ============================================================
@@ -303,12 +303,18 @@ if ($branchId) {
 }
 
 function rrStatusBadge(string $status): string {
+    // Border uses a themed soft-alpha token when $color maps to a semantic
+    // status color; otherwise falls back to the literal hex + alpha suffix.
     $map = [
-        'PENDING' => ['#d97706', '#fffbeb', 'Pending Review'],
+        'PENDING' => ['#d97706', 'var(--warning-bg)', 'Pending Review'],
         'ORDERED' => ['#1d4ed8', '#eff6ff', 'Ordered — awaiting delivery'],
     ];
+    $varMap = ['PENDING' => 'var(--warning)'];
+    $borderVarMap = ['PENDING' => 'var(--warning-border-soft)'];
     [$color, $bg, $label] = $map[$status] ?? ['#6b7280', '#f3f4f6', $status];
-    return "<span style='background:$bg;color:$color;border:1px solid {$color}44;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'>$label</span>";
+    $textColor = $varMap[$status] ?? $color;
+    $borderColor = $borderVarMap[$status] ?? "{$color}44";
+    return "<span style='background:$bg;color:$textColor;border:1px solid $borderColor;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;'>$label</span>";
 }
 
 // ── Main inventory query ──────────────────────────────────────
@@ -438,14 +444,24 @@ function categoryIcon(string $cat): array {
 }
 
 function reasonBadge(string $reason): string {
+    // Border uses a themed soft-alpha token when $color maps to a semantic
+    // status color; otherwise falls back to the literal hex + alpha suffix.
     $map = [
         'MANUAL_UPDATE'    => ['#6b7280','#f3f4f6','Manual Update'],
         'POS_SALE'         => ['#A83535','#fdf2f2','POS Sale'],
-        'ORDER_COLLECTED'  => ['#d97706','#fffbeb','Order Collected'],
-        'RESTOCK_RECEIVED' => ['#10b981','#ecfdf5','Restock Received'],
+        'ORDER_COLLECTED'  => ['#d97706','var(--warning-bg)','Order Collected'],
+        'RESTOCK_RECEIVED' => ['#10b981','var(--success-bg)','Restock Received'],
+    ];
+    $varMap = ['POS_SALE' => 'var(--primary)', 'ORDER_COLLECTED' => 'var(--warning)', 'RESTOCK_RECEIVED' => 'var(--success)'];
+    $borderVarMap = [
+        'POS_SALE'         => 'var(--primary-border-soft)',
+        'ORDER_COLLECTED'  => 'var(--warning-border-soft)',
+        'RESTOCK_RECEIVED' => 'var(--success-border-soft)',
     ];
     [$color, $bg, $label] = $map[$reason] ?? ['#6b7280','#f3f4f6', $reason];
-    return "<span style='background:$bg;color:$color;border:1px solid {$color}44;
+    $textColor = $varMap[$reason] ?? $color;
+    $borderColor = $borderVarMap[$reason] ?? "{$color}44";
+    return "<span style='background:$bg;color:$textColor;border:1px solid $borderColor;
                 padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600;
                 white-space:nowrap;'>$label</span>";
 }
@@ -457,6 +473,9 @@ function reasonBadge(string $reason): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus — Inventory</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css">
     <style>
         :root {
             --primary: #A83535;
@@ -474,28 +493,6 @@ function reasonBadge(string $reason): string {
         * { margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif; }
         body { background-color:var(--background);color:var(--text-primary);min-height:100vh;display:flex; }
 
-        /* ── Sidebar ── */
-        .sidebar { width:var(--sidebar-width);background-color:var(--white);border-right:1px solid var(--border);height:100vh;position:fixed;left:0;top:0;display:flex;flex-direction:column;box-shadow:2px 0 10px rgba(0,0,0,0.03);overflow-y:auto; }
-        .logo-area { padding:25px;border-bottom:1px solid var(--border);display:flex;align-items:center;flex-shrink:0; }
-        .logo-icon { background-color:var(--primary);width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:12px;color:white;font-size:20px; }
-        .logo-text { font-size:22px;font-weight:700;color:var(--primary); }
-        .nav-section { padding:20px 0;border-bottom:1px solid var(--border); }
-        .nav-title { font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.8px;padding:0 25px 10px 25px; }
-        .nav-menu { list-style:none; }
-        .nav-item { margin-bottom:2px; }
-        .nav-link { display:flex;align-items:center;padding:13px 25px;color:var(--text-primary);text-decoration:none;transition:all 0.2s;border-left:4px solid transparent; }
-        .nav-link:hover { background-color:rgba(168,53,53,0.05);color:var(--primary);border-left-color:rgba(168,53,53,0.3); }
-        .nav-link.active { background-color:rgba(168,53,53,0.08);color:var(--primary);border-left-color:var(--primary);font-weight:600; }
-        .nav-icon { width:22px;text-align:center;margin-right:14px;font-size:16px; }
-        .nav-text { font-size:15px; }
-        .user-section { margin-top:auto;padding:20px 25px;border-top:1px solid var(--border); }
-        .user-info { display:flex;align-items:center;margin-bottom:14px; }
-        .user-avatar { width:40px;height:40px;border-radius:50%;background-color:rgba(168,53,53,0.1);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:700;font-size:16px;margin-right:12px;flex-shrink:0; }
-        .user-name { font-weight:600;font-size:15px;color:var(--text-primary); }
-        .user-role { font-size:12px;color:var(--text-secondary);margin-top:2px; }
-        .logout-link { display:flex;align-items:center;gap:10px;padding:10px 14px;background-color:rgba(168,53,53,0.06);color:var(--primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;transition:background-color 0.2s; }
-        .logout-link:hover { background-color:rgba(168,53,53,0.14); }
-
         /* ── Main ── */
         .main-content { flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column; }
 
@@ -507,27 +504,27 @@ function reasonBadge(string $reason): string {
         .search-wrap { position:relative; }
         .search-icon-pos { position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text-secondary);font-size:14px; }
         .search-input { padding:9px 12px 9px 36px;border:1.5px solid var(--border);border-radius:8px;width:220px;font-size:13px;background:var(--accent);transition:all 0.2s; }
-        .search-input:focus { outline:none;border-color:var(--primary);background:var(--white);box-shadow:0 0 0 3px rgba(168,53,53,0.08); }
+        .search-input:focus { outline:none;border-color:var(--primary);background:var(--white);box-shadow:0 0 0 3px var(--primary-tint-light); }
 
         .filter-select { padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;background:var(--white);color:var(--text-primary);cursor:pointer; }
         .filter-select:focus { outline:none;border-color:var(--primary); }
 
         .tab { padding:8px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;color:var(--text-secondary);background:var(--white);cursor:pointer;text-decoration:none;transition:all 0.2s; }
         .tab:hover { border-color:var(--primary);color:var(--primary); }
-        .tab.active { background:var(--primary);color:white;border-color:var(--primary); }
+        .tab.active { background:var(--primary);color:var(--on-primary);border-color:var(--primary); }
 
         /* Success banner */
-        .success-banner { margin:16px 28px 0;padding:12px 18px;background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;border-radius:8px;font-size:14px;display:flex;align-items:center;gap:10px; }
-        .success-banner.warn { background:#fffbeb;color:#92400e;border-color:#fde68a; }
+        .success-banner { margin:16px 28px 0;padding:12px 18px;background:var(--success-bg);color:var(--success);border:1px solid var(--success-border);border-radius:8px;font-size:14px;display:flex;align-items:center;gap:10px; }
+        .success-banner.warn { background:var(--warning-bg);color:var(--warning);border-color:var(--warning); }
 
         /* Tab bar */
         .inv-tab-bar { display:flex;gap:4px;padding:0 28px;background:var(--white);border-bottom:1px solid var(--border); }
         .inv-tab-btn { display:flex;align-items:center;gap:8px;padding:13px 20px;background:none;border:none;
                        border-bottom:3px solid transparent;font-size:13px;font-weight:600;color:var(--text-secondary);
                        cursor:pointer;transition:all 0.2s ease;white-space:nowrap; }
-        .inv-tab-btn:hover { color:var(--primary);background:rgba(168,53,53,0.03); }
+        .inv-tab-btn:hover { color:var(--primary);background:var(--primary-tint-subtle); }
         .inv-tab-btn.active { color:var(--primary);border-bottom-color:var(--primary); }
-        .inv-tab-badge { background:#A83535;color:white;font-size:10px;font-weight:700;padding:1px 7px;
+        .inv-tab-badge { background:#A83535;color:var(--on-primary);font-size:10px;font-weight:700;padding:1px 7px;
                          border-radius:10px;min-width:16px;text-align:center; }
         .inv-tab-badge.blue { background:#1d4ed8; }
         .inv-tab-panel { display:none; }
@@ -545,25 +542,25 @@ function reasonBadge(string $reason): string {
 
         /* Section card */
         .section-card { background:var(--white);border-radius:10px;box-shadow:var(--card-shadow);border:1px solid var(--border);overflow:hidden; }
-        .section-card.alert-card { border-color:rgba(168,53,53,0.2); }
-        .card-header { padding:16px 22px;border-bottom:1px solid var(--border);background:rgba(168,53,53,0.03);display:flex;justify-content:space-between;align-items:center; }
-        .alert-card .card-header { background:rgba(168,53,53,0.06); }
+        .section-card.alert-card { border-color:var(--primary-tint-active); }
+        .card-header { padding:16px 22px;border-bottom:1px solid var(--border);background:var(--primary-tint-subtle);display:flex;justify-content:space-between;align-items:center; }
+        .alert-card .card-header { background:var(--primary-tint-light); }
         .card-title { font-size:16px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:8px; }
-        .card-count { background:var(--primary);color:white;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700; }
+        .card-count { background:var(--primary);color:var(--on-primary);padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700; }
 
         /* Table */
         .table-wrap { overflow-x:auto; }
         .inv-table { width:100%;border-collapse:collapse; }
-        .inv-table thead { background:rgba(168,53,53,0.03);border-bottom:2px solid var(--border); }
+        .inv-table thead { background:var(--primary-tint-subtle);border-bottom:2px solid var(--border); }
         .inv-table th { padding:12px 18px;text-align:left;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap; }
         .inv-table tbody tr { border-bottom:1px solid var(--border);transition:background 0.15s; }
         .inv-table tbody tr:last-child { border-bottom:none; }
-        .inv-table tbody tr:hover { background:rgba(168,53,53,0.02); }
+        .inv-table tbody tr:hover { background:var(--primary-tint-subtle); }
         .inv-table td { padding:14px 18px;font-size:13px;color:var(--text-primary);vertical-align:middle; }
 
         /* Product cell */
         .prod-cell { display:flex;align-items:center;gap:12px; }
-        .prod-icon { width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:15px;flex-shrink:0; }
+        .prod-icon { width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--on-primary);font-size:15px;flex-shrink:0; }
         .prod-name { font-weight:600;font-size:13px; }
         .prod-cat { font-size:11px;color:var(--text-secondary);margin-top:2px; }
 
@@ -571,31 +568,31 @@ function reasonBadge(string $reason): string {
         .stock-cell { display:flex;align-items:center;gap:10px; }
         .bar-wrap { width:80px;height:7px;background:var(--border);border-radius:4px;overflow:hidden;flex-shrink:0; }
         .bar-fill { height:100%;border-radius:4px; }
-        .bar-ok       { background:#10b981; }
-        .bar-warning  { background:#f59e0b; }
-        .bar-critical { background:#ef4444; }
+        .bar-ok       { background:var(--success); }
+        .bar-warning  { background:var(--warning); }
+        .bar-critical { background:var(--danger); }
         .stock-num { font-weight:700;font-size:14px; }
-        .stock-num.ok       { color:#10b981; }
-        .stock-num.warning  { color:#f59e0b; }
-        .stock-num.critical { color:#ef4444; }
+        .stock-num.ok       { color:var(--success); }
+        .stock-num.warning  { color:var(--warning); }
+        .stock-num.critical { color:var(--danger); }
 
         /* Inline update form */
         .update-form { display:flex;align-items:center;gap:8px; }
         .qty-input { width:72px;padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;text-align:center;background:var(--accent);transition:border-color 0.2s,background 0.2s; }
         .qty-input:focus { outline:none;border-color:var(--primary);background:var(--white); }
-        .qty-input.below { border-color:#f59e0b;background:#fffbeb; }
-        .save-btn { padding:7px 14px;background:var(--primary);color:white;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;transition:background 0.2s;white-space:nowrap; }
-        .save-btn:hover { background:#8b2a2a; }
+        .qty-input.below { border-color:var(--warning);background:var(--warning-bg); }
+        .save-btn { padding:7px 14px;background:var(--primary);color:var(--on-primary);border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;transition:background 0.2s;white-space:nowrap; }
+        .save-btn:hover { background:var(--primary-dark); }
 
         /* Alert badges */
-        .level-critical { background:rgba(168,53,53,0.12);color:var(--primary);border:1px solid rgba(168,53,53,0.3);padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600; }
-        .level-warning  { background:rgba(245,158,11,0.12);color:#d97706;border:1px solid rgba(245,158,11,0.3);padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600; }
-        .shortage-text  { font-size:12px;color:#ef4444;font-weight:600; }
+        .level-critical { background:var(--primary-tint-medium);color:var(--primary);border:1px solid var(--primary-tint-active);padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600; }
+        .level-warning  { background:rgba(245,158,11,0.12);color:var(--warning);border:1px solid rgba(245,158,11,0.3);padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600; }
+        .shortage-text  { font-size:12px;color:var(--danger);font-weight:600; }
 
         /* Movement history — change qty chip */
         .change-chip { font-size:12px;font-weight:700;padding:3px 9px;border-radius:20px;font-family:monospace;white-space:nowrap; }
-        .change-pos { background:#ecfdf5;color:#059669;border:1px solid #a7f3d0; }
-        .change-neg { background:#fef2f2;color:#dc2626;border:1px solid #fca5a5; }
+        .change-pos { background:var(--success-bg);color:#059669;border:1px solid var(--success-border); }
+        .change-neg { background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger); }
         .qty-flow { font-size:12px;color:var(--text-secondary);white-space:nowrap; }
         .ref-link { font-family:monospace;font-size:11px;color:var(--primary);font-weight:600; }
 
@@ -609,7 +606,7 @@ function reasonBadge(string $reason): string {
         .ai-restock-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
         .ai-restock-title{font-size:15px;font-weight:700;color:#1d4ed8;display:flex;align-items:center;gap:9px;}
         .ai-restock-sub{font-size:12px;color:var(--text-secondary);margin-top:3px;}
-        .ai-restock-btn{padding:8px 18px;background:#1d4ed8;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px;transition:background 0.2s;white-space:nowrap;}
+        .ai-restock-btn{padding:8px 18px;background:#1d4ed8;color:var(--on-primary);border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px;transition:background 0.2s;white-space:nowrap;}
         .ai-restock-btn:hover:not(:disabled){background:#1e40af;}
         .ai-restock-btn:disabled{background:#d1d5db;cursor:not-allowed;}
         .ai-restock-body{display:none;margin-top:16px;}
@@ -623,8 +620,8 @@ function reasonBadge(string $reason): string {
         .rec-card.high{border-color:#fde68a;background:rgba(245,158,11,0.02);}
         .rec-card.medium{border-color:#bfdbfe;background:rgba(59,130,246,0.02);}
         .rec-priority{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;display:inline-block;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;}
-        .priority-critical{background:#fef2f2;color:#c62828;border:1px solid #ef9a9a;}
-        .priority-high{background:#fffbeb;color:#92400e;border:1px solid #fde68a;}
+        .priority-critical{background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger);}
+        .priority-high{background:var(--warning-bg);color:var(--warning);border:1px solid var(--warning);}
         .priority-medium{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;}
         .rec-product{font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:3px;}
         .rec-branch{font-size:12px;color:var(--text-secondary);margin-bottom:10px;}
@@ -635,18 +632,9 @@ function reasonBadge(string $reason): string {
         .rec-order-label{font-size:12px;font-weight:600;color:#1d4ed8;}
         .rec-order-qty{font-size:20px;font-weight:700;color:#1d4ed8;}
         .rec-reason{font-size:12px;color:var(--text-secondary);line-height:1.5;font-style:italic;}
-        .ai-all-clear{padding:16px 18px;background:rgba(16,185,129,0.06);border:1px solid #a7f3d0;border-radius:9px;font-size:13px;color:#065f46;display:flex;align-items:center;gap:10px;}
-        .ai-err-r{padding:12px 16px;background:#fff0f0;border:1px solid #ef9a9a;border-radius:9px;font-size:13px;color:#c62828;}
+        .ai-all-clear{padding:16px 18px;background:rgba(16,185,129,0.06);border:1px solid var(--success-border);border-radius:9px;font-size:13px;color:#065f46;display:flex;align-items:center;gap:10px;}
+        .ai-err-r{padding:12px 16px;background:var(--danger-bg);border:1px solid var(--danger);border-radius:9px;font-size:13px;color:var(--danger);}
 
-        @media (max-width:1024px) {
-            :root { --sidebar-width:70px; }
-            .logo-text,.nav-text,.user-details,.nav-title,.logout-link span { display:none; }
-            .logo-area,.nav-section,.user-section { padding:18px 12px; }
-            .nav-link { justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent; }
-            .nav-link:hover,.nav-link.active { border-left:none;border-right-color:var(--primary); }
-            .nav-icon { margin-right:0;font-size:20px; }
-            .logout-link { justify-content:center;padding:10px; }
-        }
         @media (max-width:768px) {
             .stats-row { grid-template-columns:1fr 1fr; }
             .search-input { width:160px; }
@@ -694,15 +682,15 @@ function reasonBadge(string $reason): string {
                class="tab <?= $filterView==='low' ? 'active':'' ?>">
                 Low Stock
                 <?php if ($lowStockCount > 0): ?>
-                    <span style="background:white;color:var(--primary);border-radius:10px;padding:1px 6px;font-size:11px;margin-left:4px;font-weight:700;"><?= $lowStockCount ?></span>
+                    <span style="background:var(--white);color:var(--primary);border-radius:10px;padding:1px 6px;font-size:11px;margin-left:4px;font-weight:700;"><?= $lowStockCount ?></span>
                 <?php endif; ?>
             </a>
         </form>
     </header>
 
     <?php if (!$branchActive): ?>
-    <div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:8px;
-                padding:12px 18px;margin-bottom:16px;font-size:13px;color:#991b1b;
+    <div style="background:var(--danger-bg);border:1.5px solid #fecaca;border-radius:8px;
+                padding:12px 18px;margin-bottom:16px;font-size:13px;color:var(--danger);
                 display:flex;align-items:center;gap:10px;">
         <i class="fas fa-triangle-exclamation" style="font-size:16px;"></i>
         <span>Your assigned branch is temporarily unavailable (inactive/under renovation). Stock updates and restock requests are disabled — contact an admin to be reassigned.</span>
@@ -748,7 +736,7 @@ function reasonBadge(string $reason): string {
         <!-- Stats -->
         <div class="stats-row">
             <div class="stat-card">
-                <div class="stat-icon" style="background:rgba(168,53,53,0.1);color:var(--primary);">
+                <div class="stat-icon" style="background:var(--primary-tint-medium);color:var(--primary);">
                     <i class="fas fa-boxes"></i>
                 </div>
                 <div>
@@ -757,7 +745,7 @@ function reasonBadge(string $reason): string {
                 </div>
             </div>
             <div class="stat-card">
-                <div class="stat-icon" style="background:rgba(245,158,11,0.1);color:#d97706;">
+                <div class="stat-icon" style="background:rgba(245,158,11,0.1);color:var(--warning);">
                     <i class="fas fa-exclamation-triangle"></i>
                 </div>
                 <div>
@@ -840,7 +828,7 @@ function reasonBadge(string $reason): string {
                             <td>
                                 <?php $reserved = (int)($item['reserved_quantity'] ?? 0); ?>
                                 <?php if ($reserved > 0): ?>
-                                    <span style="background:#fffbeb;color:#d97706;border:1px solid #fde68a;
+                                    <span style="background:var(--warning-bg);color:var(--warning);border:1px solid #fde68a;
                                                  padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600;">
                                         <i class="fas fa-lock" style="font-size:10px;"></i> <?= $reserved ?>
                                     </span>
@@ -1032,7 +1020,7 @@ function reasonBadge(string $reason): string {
                                 <form method="POST" action="s_inv.php" style="display:inline;"
                                       onsubmit="return confirm('Confirm that this stock has physically arrived? This will update inventory immediately.')">
                                     <input type="hidden" name="request_id" value="<?= htmlspecialchars($req['request_id']) ?>">
-                                    <button type="submit" name="mark_received" class="save-btn" style="background:#10b981;" <?= $branchActive ? '' : 'disabled' ?>>
+                                    <button type="submit" name="mark_received" class="save-btn" style="background:var(--success);" <?= $branchActive ? '' : 'disabled' ?>>
                                         <i class="fas fa-check"></i> Mark as Received
                                     </button>
                                 </form>
@@ -1267,7 +1255,7 @@ function closeRestockModal() {
 
 <!-- Request Restock modal -->
 <div id="restockModalOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:300;align-items:center;justify-content:center;">
-    <div style="background:white;border-radius:12px;width:90%;max-width:420px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+    <div style="background:var(--white);border-radius:12px;width:90%;max-width:420px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
         <h3 style="font-size:16px;color:#1d4ed8;margin-bottom:6px;display:flex;align-items:center;gap:8px;">
             <i class="fas fa-truck-loading"></i> Request Restock
         </h3>
@@ -1298,7 +1286,7 @@ function closeRestockModal() {
                     Cancel
                 </button>
                 <button type="submit" name="submit_restock"
-                        style="flex:1;padding:10px;background:#1d4ed8;color:white;border:none;
+                        style="flex:1;padding:10px;background:#1d4ed8;color:var(--on-primary);border:none;
                                border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;"
                         <?= $branchActive ? '' : 'disabled' ?>>
                     <i class="fas fa-paper-plane"></i> Submit Request

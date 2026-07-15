@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // ============================================================
 //  c_preorder.php — Pre-order (Session Cart)
 // ============================================================
@@ -269,7 +269,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_preorder'])) {
 
             // FIX #3: remove the "We'll notify you" lie — link to order status instead
             $message = "Pre-order <strong>$orderId</strong> submitted! "
-                     . "<a href='c_orderstatus.php' style='color:#2e7d32;font-weight:700;'>"
+                     . "<a href='c_orderstatus.php' style='color:var(--success);font-weight:700;'>"
                      . "Track your order status &rarr;</a>";
             $msgType = 'success';
         }
@@ -327,45 +327,28 @@ if (!empty($_SESSION['cart'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus — Pre-order</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css">
     <style>
         :root { --primary:#A83535;--secondary:#F4A261;--accent:#F1EDE8;--background:#FAFAFA;--text-primary:#2E2E2E;--text-secondary:#707070;--border:#E0E0E0;--white:#FFFFFF;--sidebar-width:260px;--card-shadow:0 4px 12px rgba(0,0,0,0.05); }
         *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif;}
         body{background-color:var(--background);color:var(--text-primary);min-height:100vh;display:flex;}
-        .sidebar{width:var(--sidebar-width);background-color:var(--white);border-right:1px solid var(--border);height:100vh;position:fixed;left:0;top:0;display:flex;flex-direction:column;box-shadow:2px 0 10px rgba(0,0,0,0.03);overflow-y:auto;}
-        .logo-area{padding:25px;border-bottom:1px solid var(--border);display:flex;align-items:center;flex-shrink:0;}
-        .logo-icon{background-color:var(--primary);width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:12px;color:white;font-size:20px;}
-        .logo-text{font-size:22px;font-weight:700;color:var(--primary);}
-        .nav-section{padding:25px 0;border-bottom:1px solid var(--border);}
-        .nav-title{font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.8px;padding:0 25px 12px 25px;}
-        .nav-menu{list-style:none;}
-        .nav-item{margin-bottom:2px;}
-        .nav-link{display:flex;align-items:center;padding:13px 25px;color:var(--text-primary);text-decoration:none;transition:all 0.2s ease;border-left:4px solid transparent;}
-        .nav-link:hover{background-color:rgba(168,53,53,0.05);color:var(--primary);border-left-color:rgba(168,53,53,0.3);}
-        .nav-link.active{background-color:rgba(168,53,53,0.08);color:var(--primary);border-left-color:var(--primary);font-weight:600;}
-        .nav-icon{width:22px;text-align:center;margin-right:14px;font-size:16px;}
-        .nav-text{font-size:15px;}
-        .user-section{margin-top:auto;padding:20px 25px;border-top:1px solid var(--border);}
-        .user-info{display:flex;align-items:center;margin-bottom:14px;}
-        .user-avatar{width:40px;height:40px;border-radius:50%;background-color:rgba(168,53,53,0.1);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:700;font-size:16px;margin-right:12px;flex-shrink:0;}
-        .user-name{font-weight:600;font-size:15px;color:var(--text-primary);}
-        .user-role{font-size:12px;color:var(--text-secondary);margin-top:2px;}
-        .logout-link{display:flex;align-items:center;gap:10px;padding:10px 14px;background-color:rgba(168,53,53,0.06);color:var(--primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;transition:background-color 0.2s ease;}
-        .logout-link:hover{background-color:rgba(168,53,53,0.14);}
         .main-content{flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column;}
         .top-header{background-color:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;}
         .page-title{font-size:24px;font-weight:700;color:var(--text-primary);}
         .page-subtitle{font-size:14px;color:var(--text-secondary);margin-top:4px;}
         .alert{margin:20px 30px 0;padding:14px 18px;border-radius:8px;font-size:14px;display:flex;align-items:center;gap:10px;}
-        .alert-success{background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;}
-        .alert-error{background:#fff0f0;color:#c62828;border:1px solid #ef9a9a;}
+        .alert-success{background:var(--success-bg);color:var(--success);border:1px solid var(--success-border);}
+        .alert-error{background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger);}
         .alert-info{background:#e3f2fd;color:#1565c0;border:1px solid #90caf9;}
         .content-container{padding:24px 30px 30px;flex-grow:1;display:grid;grid-template-columns:1fr 340px;gap:24px;align-items:start;}
         .cart-panel{background:var(--white);border-radius:12px;border:1px solid var(--border);box-shadow:var(--card-shadow);overflow:hidden;}
-        .panel-header{padding:20px 24px;border-bottom:1px solid var(--border);background-color:rgba(168,53,53,0.03);display:flex;justify-content:space-between;align-items:center;}
+        .panel-header{padding:20px 24px;border-bottom:1px solid var(--border);background-color:var(--primary-tint-subtle);display:flex;justify-content:space-between;align-items:center;}
         .panel-title{font-size:18px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:10px;}
         .clear-link{font-size:13px;color:var(--text-secondary);text-decoration:none;display:flex;align-items:center;gap:5px;transition:color 0.2s;}
-        .clear-link:hover{color:#c62828;}
-        .cart-table-head{display:grid;grid-template-columns:2fr 90px 110px 36px;gap:12px;padding:12px 24px;background:rgba(168,53,53,0.03);border-bottom:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;}
+        .clear-link:hover{color:var(--danger);}
+        .cart-table-head{display:grid;grid-template-columns:2fr 90px 110px 36px;gap:12px;padding:12px 24px;background:var(--primary-tint-subtle);border-bottom:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;}
         .cart-row{display:grid;grid-template-columns:2fr 90px 110px 36px;gap:12px;padding:16px 24px;border-bottom:1px solid var(--border);align-items:center;}
         .cart-row:last-child{border-bottom:none;}
         .item-name{font-weight:600;font-size:14px;color:var(--text-primary);}
@@ -381,15 +364,15 @@ if (!empty($_SESSION['cart'])) {
         .qty-input{width:42px;height:30px;text-align:center;border:1.5px solid var(--border);border-left:none;border-right:none;font-size:14px;font-weight:600;background:var(--white);color:var(--text-primary);}
         .qty-input:focus{outline:none;}
         .remove-btn{background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:15px;padding:4px;border-radius:5px;transition:all 0.15s ease;display:flex;align-items:center;justify-content:center;text-decoration:none;}
-        .remove-btn:hover{color:#c62828;background:rgba(239,68,68,0.08);}
+        .remove-btn:hover{color:var(--danger);background:rgba(239,68,68,0.08);}
         .browse-bar{padding:16px 24px;text-align:center;border-top:1px solid var(--border);}
         .browse-link{display:inline-flex;align-items:center;gap:8px;padding:10px 22px;border:1.5px dashed var(--primary);border-radius:8px;color:var(--primary);text-decoration:none;font-size:14px;font-weight:600;transition:all 0.2s ease;}
-        .browse-link:hover{background:rgba(168,53,53,0.05);}
+        .browse-link:hover{background:var(--primary-tint-subtle);}
         .empty-cart{padding:50px 20px;text-align:center;color:var(--text-secondary);}
         .empty-cart i{font-size:44px;opacity:0.25;margin-bottom:14px;display:block;}
         .empty-cart p{font-size:15px;margin-bottom:18px;}
         .summary-panel{background:var(--white);border-radius:12px;border:1px solid var(--border);box-shadow:var(--card-shadow);overflow:hidden;position:sticky;top:90px;}
-        .summary-header{padding:20px 24px;border-bottom:1px solid var(--border);background-color:rgba(168,53,53,0.03);}
+        .summary-header{padding:20px 24px;border-bottom:1px solid var(--border);background-color:var(--primary-tint-subtle);}
         .summary-title{font-size:17px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:8px;}
         .summary-body{padding:20px 24px;}
         .summary-row{display:flex;justify-content:space-between;margin-bottom:12px;font-size:14px;}
@@ -401,35 +384,34 @@ if (!empty($_SESSION['cart'])) {
         .total-value{font-size:20px;font-weight:700;color:var(--primary);}
         .notes-label{font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:8px;display:block;}
         .notes-textarea{width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;color:var(--text-primary);background:var(--accent);resize:vertical;min-height:80px;transition:border-color 0.2s ease,background 0.2s ease;margin-bottom:16px;font-family:inherit;}
-        .notes-textarea:focus{outline:none;border-color:var(--primary);background:var(--white);box-shadow:0 0 0 3px rgba(168,53,53,0.08);}
-        .submit-btn{width:100%;padding:14px;background-color:var(--primary);color:white;border:none;border-radius:8px;font-weight:700;font-size:15px;cursor:pointer;transition:background-color 0.2s ease;display:flex;align-items:center;justify-content:center;gap:10px;}
-        .submit-btn:hover{background-color:#8b2a2a;}
+        .notes-textarea:focus{outline:none;border-color:var(--primary);background:var(--white);box-shadow:0 0 0 3px var(--primary-tint-light);}
+        .submit-btn{width:100%;padding:14px;background-color:var(--primary);color:var(--on-primary);border:none;border-radius:8px;font-weight:700;font-size:15px;cursor:pointer;transition:background-color 0.2s ease;display:flex;align-items:center;justify-content:center;gap:10px;}
+        .submit-btn:hover{background-color:var(--primary-dark);}
         .submit-btn:disabled{background-color:#d1d5db;cursor:not-allowed;}
-        .cart-count{background:var(--primary);color:white;border-radius:12px;padding:2px 8px;font-size:12px;font-weight:700;}
+        .cart-count{background:var(--primary);color:var(--on-primary);border-radius:12px;padding:2px 8px;font-size:12px;font-weight:700;}
         .page-footer{text-align:center;padding:22px;color:var(--text-secondary);font-size:13px;border-top:1px solid var(--border);background-color:var(--white);}
         .footer-links{margin-top:8px;}
         .footer-links a{color:var(--primary);text-decoration:none;margin:0 10px;}
-        @media(max-width:1024px){:root{--sidebar-width:70px;}.logo-text,.nav-text,.user-details,.nav-title,.logout-link span{display:none;}.logo-area,.nav-section,.user-section{padding:18px 12px;}.nav-link{justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent;}.nav-link:hover,.nav-link.active{border-left:none;border-right-color:var(--primary);}.nav-icon{margin-right:0;font-size:20px;}.logout-link{justify-content:center;padding:10px;}}
         @media(max-width:900px){.content-container{grid-template-columns:1fr;}.summary-panel{position:static;}}
         @media(max-width:600px){.cart-table-head,.cart-row{grid-template-columns:1fr 80px 30px;}.cart-table-head .col-price,.item-price{display:none;}}
         /* ── Custom Dialog (replaces native alert/confirm) ── */
         .custom-dialog-overlay { display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center; }
         .custom-dialog-overlay.show { display:flex; }
-        .custom-dialog-box { background:white;border-radius:12px;width:90%;max-width:400px;padding:28px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,0.2);text-align:center;animation:dialogPop 0.15s ease; }
+        .custom-dialog-box { background:var(--white);border-radius:12px;width:90%;max-width:400px;padding:28px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,0.2);text-align:center;animation:dialogPop 0.15s ease; }
         @keyframes dialogPop { from{transform:scale(0.95);opacity:0;} to{transform:scale(1);opacity:1;} }
         .custom-dialog-icon { width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:22px; }
         .custom-dialog-icon.dialog-info { background:#eff6ff;color:#1d4ed8; }
-        .custom-dialog-icon.dialog-success { background:#ecfdf5;color:#059669; }
-        .custom-dialog-icon.dialog-error { background:#fef2f2;color:#dc2626; }
-        .custom-dialog-icon.dialog-warning { background:#fffbeb;color:#d97706; }
+        .custom-dialog-icon.dialog-success { background:var(--success-bg);color:var(--success); }
+        .custom-dialog-icon.dialog-error { background:var(--danger-bg);color:var(--danger); }
+        .custom-dialog-icon.dialog-warning { background:var(--warning-bg);color:var(--warning); }
         .custom-dialog-message { font-size:14px;color:#2E2E2E;line-height:1.6;margin-bottom:22px;white-space:pre-line; }
         .custom-dialog-actions { display:flex;gap:10px; }
         .custom-dialog-btn { flex:1;padding:11px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:background 0.2s ease; }
         .custom-dialog-cancel { background:#F1EDE8;color:#2E2E2E;border:1.5px solid #E0E0E0; }
         .custom-dialog-cancel:hover { background:#e8e2da; }
-        .custom-dialog-confirm { background:#A83535;color:white; }
-        .custom-dialog-confirm:hover { background:#8b2a2a; }
-        .custom-dialog-danger { background:#dc2626;color:white; }
+        .custom-dialog-confirm { background:#A83535;color:var(--on-primary); }
+        .custom-dialog-confirm:hover { background:var(--primary-dark); }
+        .custom-dialog-danger { background:var(--danger);color:var(--on-primary); }
         .custom-dialog-danger:hover { background:#b91c1c; }
     </style>
 </head>

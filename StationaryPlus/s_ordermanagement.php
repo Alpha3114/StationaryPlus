@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // ============================================================
 //  s_ordermanagement.php — Staff Order Management
 // ============================================================
@@ -354,10 +354,10 @@ $stmt->close();
 function statusBadge(string $status): string {
     $map = [
         'NEW'        => ['#3b82f6','#eff6ff','New'],
-        'PROCESSING' => ['#f59e0b','#fffbeb','Processing'],
-        'READY'      => ['#10b981','#ecfdf5','Ready'],
+        'PROCESSING' => ['var(--warning)','var(--warning-bg)','Processing'],
+        'READY'      => ['var(--success)','var(--success-bg)','Ready'],
         'COLLECTED'  => ['#6b7280','#f3f4f6','Collected'],
-        'CANCELLED'  => ['#ef4444','#fef2f2','Cancelled'],
+        'CANCELLED'  => ['var(--danger)','var(--danger-bg)','Cancelled'],
     ];
     [$color, $bg, $label] = $map[$status] ?? ['#888','#f3f4f6', $status];
     return "<span style='background:$bg;color:$color;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;'>$label</span>";
@@ -370,32 +370,13 @@ function statusBadge(string $status): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus — Order Management</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css">
     <style>
         :root { --primary:#A83535;--secondary:#F4A261;--accent:#F1EDE8;--background:#FAFAFA;--text-primary:#2E2E2E;--text-secondary:#707070;--border:#E0E0E0;--white:#FFFFFF;--sidebar-width:260px;--card-shadow:0 4px 12px rgba(0,0,0,0.05); }
         * { margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif; }
         body { background-color:var(--background);color:var(--text-primary);min-height:100vh;display:flex; }
-
-        /* ── Sidebar ── */
-        .sidebar { width:var(--sidebar-width);background-color:var(--white);border-right:1px solid var(--border);height:100vh;position:fixed;left:0;top:0;display:flex;flex-direction:column;box-shadow:2px 0 10px rgba(0,0,0,0.03);overflow-y:auto; }
-        .logo-area { padding:25px;border-bottom:1px solid var(--border);display:flex;align-items:center;flex-shrink:0; }
-        .logo-icon { background-color:var(--primary);width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:12px;color:white;font-size:20px; }
-        .logo-text { font-size:22px;font-weight:700;color:var(--primary); }
-        .nav-section { padding:20px 0;border-bottom:1px solid var(--border); }
-        .nav-title { font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.8px;padding:0 25px 10px 25px; }
-        .nav-menu { list-style:none; }
-        .nav-item { margin-bottom:2px; }
-        .nav-link { display:flex;align-items:center;padding:13px 25px;color:var(--text-primary);text-decoration:none;transition:all 0.2s;border-left:4px solid transparent; }
-        .nav-link:hover { background-color:rgba(168,53,53,0.05);color:var(--primary);border-left-color:rgba(168,53,53,0.3); }
-        .nav-link.active { background-color:rgba(168,53,53,0.08);color:var(--primary);border-left-color:var(--primary);font-weight:600; }
-        .nav-icon { width:22px;text-align:center;margin-right:14px;font-size:16px; }
-        .nav-text { font-size:15px; }
-        .user-section { margin-top:auto;padding:20px 25px;border-top:1px solid var(--border); }
-        .user-info { display:flex;align-items:center;margin-bottom:14px; }
-        .user-avatar { width:40px;height:40px;border-radius:50%;background-color:rgba(168,53,53,0.1);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:700;font-size:16px;margin-right:12px;flex-shrink:0; }
-        .user-name { font-weight:600;font-size:15px;color:var(--text-primary); }
-        .user-role { font-size:12px;color:var(--text-secondary);margin-top:2px; }
-        .logout-link { display:flex;align-items:center;gap:10px;padding:10px 14px;background-color:rgba(168,53,53,0.06);color:var(--primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;transition:background-color 0.2s; }
-        .logout-link:hover { background-color:rgba(168,53,53,0.14); }
 
         /* ── Main ── */
         .main-content { flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column; }
@@ -410,13 +391,13 @@ function statusBadge(string $status): string {
         .search-wrap { position:relative; }
         .search-icon { position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text-secondary);font-size:14px; }
         .search-input { padding:9px 12px 9px 36px;border:1.5px solid var(--border);border-radius:8px;width:240px;font-size:13px;background:var(--accent);transition:all 0.2s; }
-        .search-input:focus { outline:none;border-color:var(--primary);background:var(--white);box-shadow:0 0 0 3px rgba(168,53,53,0.08); }
+        .search-input:focus { outline:none;border-color:var(--primary);background:var(--white);box-shadow:0 0 0 3px var(--primary-tint-light); }
 
         /* Filter tabs */
         .filter-tabs { display:flex;gap:6px; }
         .tab { padding:8px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;color:var(--text-secondary);background:var(--white);cursor:pointer;text-decoration:none;transition:all 0.2s; }
         .tab:hover { border-color:var(--primary);color:var(--primary); }
-        .tab.active { background:var(--primary);color:white;border-color:var(--primary); }
+        .tab.active { background:var(--primary);color:var(--on-primary);border-color:var(--primary); }
 
         /* Status filter */
         .status-select { padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;background:var(--white);color:var(--text-primary);cursor:pointer; }
@@ -427,16 +408,16 @@ function statusBadge(string $status): string {
 
         /* Orders list pane */
         .list-pane { flex:1;overflow-y:auto;padding:0; }
-        .list-header { padding:14px 22px;border-bottom:1px solid var(--border);background:rgba(168,53,53,0.03);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:5; }
+        .list-header { padding:14px 22px;border-bottom:1px solid var(--border);background:var(--primary-tint-subtle);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:5; }
         .list-title { font-size:15px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:8px; }
-        .list-count { font-size:12px;color:var(--text-secondary);background:rgba(168,53,53,0.08);padding:3px 10px;border-radius:20px;font-weight:600; }
+        .list-count { font-size:12px;color:var(--text-secondary);background:var(--primary-tint-light);padding:3px 10px;border-radius:20px;font-weight:600; }
 
         /* Order rows */
         .order-row { padding:14px 22px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.15s;display:flex;align-items:center;gap:14px; }
-        .order-row:hover { background:rgba(168,53,53,0.03); }
-        .order-row.active { background:rgba(168,53,53,0.07);border-left:3px solid var(--primary); }
+        .order-row:hover { background:var(--primary-tint-subtle); }
+        .order-row.active { background:var(--primary-tint-light);border-left:3px solid var(--primary); }
         .order-row.active { padding-left:19px; }
-        .avatar { width:36px;height:36px;border-radius:50%;background:rgba(168,53,53,0.1);color:var(--primary);font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
+        .avatar { width:36px;height:36px;border-radius:50%;background:var(--primary-tint-medium);color:var(--primary);font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
         .row-main { flex-grow:1;min-width:0; }
         .row-top { display:flex;justify-content:space-between;align-items:center;margin-bottom:4px; }
         .row-id { font-size:12px;font-weight:700;color:var(--primary);font-family:monospace; }
@@ -447,7 +428,7 @@ function statusBadge(string $status): string {
 
         /* Detail pane */
         .detail-pane { width:400px;border-left:1px solid var(--border);background:var(--white);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0; }
-        .detail-header { padding:18px 22px;border-bottom:1px solid var(--border);background:rgba(168,53,53,0.03); }
+        .detail-header { padding:18px 22px;border-bottom:1px solid var(--border);background:var(--primary-tint-subtle); }
         .detail-title { font-size:15px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:8px; }
         .detail-body { flex-grow:1;overflow-y:auto;padding:22px; }
 
@@ -468,7 +449,7 @@ function statusBadge(string $status): string {
 
         /* Items table inside detail */
         .items-table { width:100%;border-collapse:collapse;margin-top:4px; }
-        .items-table thead { background:rgba(168,53,53,0.04); }
+        .items-table thead { background:var(--primary-tint-subtle); }
         .items-table th { padding:8px 10px;text-align:left;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase; }
         .items-table tbody tr { border-bottom:1px solid var(--border); }
         .items-table tbody tr:last-child { border-bottom:none; }
@@ -477,15 +458,15 @@ function statusBadge(string $status): string {
         .items-total span:last-child { color:var(--primary); }
 
         /* Status update form */
-        .update-form { background:rgba(168,53,53,0.03);border:1px solid var(--border);border-radius:10px;padding:16px; }
+        .update-form { background:var(--primary-tint-subtle);border:1px solid var(--border);border-radius:10px;padding:16px; }
         .update-form-title { font-size:13px;font-weight:700;color:var(--primary);margin-bottom:12px;display:flex;align-items:center;gap:6px; }
         .status-select-form { width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;margin-bottom:12px;background:var(--white);color:var(--text-primary);transition:border-color 0.2s; }
         .status-select-form:focus { outline:none;border-color:var(--primary); }
-        .update-btn { width:100%;padding:11px;background:var(--primary);color:white;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:background 0.2s; }
-        .update-btn:hover { background:#8b2a2a; }
+        .update-btn { width:100%;padding:11px;background:var(--primary);color:var(--on-primary);border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:background 0.2s; }
+        .update-btn:hover { background:var(--primary-dark); }
 
         /* Inventory notice shown below update form when COLLECTED is selected */
-        .inv-notice { display:none;margin-top:10px;padding:9px 13px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;font-size:12px;color:#065f46;align-items:center;gap:8px; }
+        .inv-notice { display:none;margin-top:10px;padding:9px 13px;background:var(--success-bg);border:1px solid var(--success-border);border-radius:8px;font-size:12px;color:#065f46;align-items:center;gap:8px; }
         .inv-notice.show { display:flex; }
 
         /* Empty list */
@@ -493,13 +474,6 @@ function statusBadge(string $status): string {
         .empty-list i { font-size:40px;opacity:0.2;margin-bottom:12px;display:block; }
 
         @media (max-width:1024px) {
-            :root { --sidebar-width:70px; }
-            .logo-text,.nav-text,.user-details,.nav-title,.logout-link span { display:none; }
-            .logo-area,.nav-section,.user-section { padding:18px 12px; }
-            .nav-link { justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent; }
-            .nav-link:hover,.nav-link.active { border-left:none;border-right-color:var(--primary); }
-            .nav-icon { margin-right:0;font-size:20px; }
-            .logout-link { justify-content:center;padding:10px; }
             .detail-pane { width:320px; }
         }
         @media (max-width:800px) {
@@ -567,16 +541,16 @@ function statusBadge(string $status): string {
 
         <?php if (isset($_GET['error']) && $_GET['error'] === 'branch_inactive'): ?>
         <div style="position:fixed;top:74px;left:var(--sidebar-width);right:0;z-index:20;
-                    padding:12px 24px;background:#fef2f2;border-bottom:1px solid #fecaca;
-                    display:flex;align-items:center;gap:10px;font-size:13px;color:#991b1b;">
+                    padding:12px 24px;background:var(--danger-bg);border-bottom:1px solid #fecaca;
+                    display:flex;align-items:center;gap:10px;font-size:13px;color:var(--danger);">
             <i class="fas fa-triangle-exclamation" style="flex-shrink:0;"></i>
             <strong>Cannot update status:</strong>
             Your assigned branch is inactive/under renovation — contact an admin to be reassigned.
         </div>
         <?php elseif (!$branchActive): ?>
         <div style="position:fixed;top:74px;left:var(--sidebar-width);right:0;z-index:20;
-                    padding:12px 24px;background:#fef2f2;border-bottom:1px solid #fecaca;
-                    display:flex;align-items:center;gap:10px;font-size:13px;color:#991b1b;">
+                    padding:12px 24px;background:var(--danger-bg);border-bottom:1px solid #fecaca;
+                    display:flex;align-items:center;gap:10px;font-size:13px;color:var(--danger);">
             <i class="fas fa-triangle-exclamation" style="flex-shrink:0;"></i>
             Your assigned branch is temporarily unavailable (inactive/under renovation). Order status updates are disabled — contact an admin to be reassigned.
         </div>
@@ -730,7 +704,7 @@ function renderDetail(d, id, type) {
                 </div>
 
                 <div id="cancelReasonWrap" style="display:none;margin-top:10px;">
-                    <label style="font-size:12px;font-weight:600;color:#dc2626;
+                    <label style="font-size:12px;font-weight:600;color:var(--danger);
                                   margin-bottom:6px;display:block;">
                         <i class="fas fa-times-circle"></i> Cancellation reason
                         <span style="font-weight:400;">(shown to customer)</span>
@@ -739,7 +713,7 @@ function renderDetail(d, id, type) {
                               placeholder="e.g. Item out of stock, customer requested cancellation…"
                               style="width:100%;padding:9px 12px;border:1.5px solid #fca5a5;
                                      border-radius:7px;font-size:13px;resize:none;min-height:70px;
-                                     font-family:inherit;background:#fef2f2;color:#991b1b;
+                                     font-family:inherit;background:var(--danger-bg);color:var(--danger);
                                      outline:none;"></textarea>
                 </div>
 

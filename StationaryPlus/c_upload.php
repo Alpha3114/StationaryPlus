@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // ============================================================
 //  c_upload.php — Customer: Upload files for printing
 // ============================================================
@@ -54,13 +54,19 @@ $recentUploads = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
 
 function statusBadge(string $s): string {
+    // Border uses a themed soft-alpha token when $c maps to a semantic status
+    // color; otherwise falls back to the literal hex + alpha suffix.
     $map = [
         'RECEIVED' => ['#3b82f6','#eff6ff','Under Review'],
-        'REVIEWED' => ['#10b981','#ecfdf5','Approved'],
-        'REJECTED' => ['#ef4444','#fef2f2','Rejected'],
+        'REVIEWED' => ['#10b981','var(--success-bg)','Approved'],
+        'REJECTED' => ['#ef4444','var(--danger-bg)','Rejected'],
     ];
+    $varMap = ['REVIEWED' => 'var(--success)', 'REJECTED' => 'var(--danger)'];
+    $borderVarMap = ['REVIEWED' => 'var(--success-border-soft)', 'REJECTED' => 'var(--danger-border-soft)'];
     [$c,$bg,$l] = $map[$s] ?? ['#6b7280','#f3f4f6',$s];
-    return "<span style='background:$bg;color:$c;border:1px solid {$c}55;
+    $textColor = $varMap[$s] ?? $c;
+    $borderColor = $borderVarMap[$s] ?? "{$c}55";
+    return "<span style='background:$bg;color:$textColor;border:1px solid $borderColor;
                 padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;
                 white-space:nowrap;'>$l</span>";
 }
@@ -72,6 +78,9 @@ function statusBadge(string $s): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus — Upload Files for Printing</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css">
     <style>
         :root {
             --primary:#A83535; --secondary:#F4A261; --accent:#F1EDE8;
@@ -81,28 +90,6 @@ function statusBadge(string $s): string {
         }
         *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif;}
         body{background-color:var(--background);color:var(--text-primary);min-height:100vh;display:flex;}
-
-        /* ── Sidebar ── */
-        .sidebar{width:var(--sidebar-width);background-color:var(--white);border-right:1px solid var(--border);height:100vh;position:fixed;left:0;top:0;display:flex;flex-direction:column;box-shadow:2px 0 10px rgba(0,0,0,0.03);overflow-y:auto;}
-        .logo-area{padding:25px;border-bottom:1px solid var(--border);display:flex;align-items:center;flex-shrink:0;}
-        .logo-icon{background-color:var(--primary);width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:12px;color:white;font-size:20px;}
-        .logo-text{font-size:22px;font-weight:700;color:var(--primary);}
-        .nav-section{padding:25px 0;border-bottom:1px solid var(--border);}
-        .nav-title{font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.8px;padding:0 25px 12px 25px;}
-        .nav-menu{list-style:none;}
-        .nav-item{margin-bottom:2px;}
-        .nav-link{display:flex;align-items:center;padding:13px 25px;color:var(--text-primary);text-decoration:none;transition:all 0.2s ease;border-left:4px solid transparent;}
-        .nav-link:hover{background-color:rgba(168,53,53,0.05);color:var(--primary);border-left-color:rgba(168,53,53,0.3);}
-        .nav-link.active{background-color:rgba(168,53,53,0.08);color:var(--primary);border-left-color:var(--primary);font-weight:600;}
-        .nav-icon{width:22px;text-align:center;margin-right:14px;font-size:16px;}
-        .nav-text{font-size:15px;}
-        .user-section{margin-top:auto;padding:20px 25px;border-top:1px solid var(--border);}
-        .user-info{display:flex;align-items:center;margin-bottom:14px;}
-        .user-avatar{width:40px;height:40px;border-radius:50%;background-color:rgba(168,53,53,0.1);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:700;font-size:16px;margin-right:12px;flex-shrink:0;}
-        .user-name{font-weight:600;font-size:15px;color:var(--text-primary);}
-        .user-role{font-size:12px;color:var(--text-secondary);margin-top:2px;}
-        .logout-link{display:flex;align-items:center;gap:10px;padding:10px 14px;background-color:rgba(168,53,53,0.06);color:var(--primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;transition:background-color 0.2s ease;}
-        .logout-link:hover{background-color:rgba(168,53,53,0.14);}
 
         /* ── Main ── */
         .main-content{flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column;}
@@ -124,7 +111,7 @@ function statusBadge(string $s): string {
         .form-label{display:block;margin-bottom:7px;font-weight:600;font-size:13px;color:var(--text-primary);}
         .form-label small{font-weight:400;color:var(--text-secondary);}
         .form-select,.form-input{width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;background:var(--accent);color:var(--text-primary);transition:all 0.2s;}
-        .form-select:focus,.form-input:focus{outline:none;border-color:var(--primary);background:var(--white);box-shadow:0 0 0 3px rgba(168,53,53,0.08);}
+        .form-select:focus,.form-input:focus{outline:none;border-color:var(--primary);background:var(--white);box-shadow:0 0 0 3px var(--primary-tint-light);}
         textarea.form-input{resize:vertical;min-height:80px;font-family:inherit;}
 
         /* ── Print mode selector ── */
@@ -140,7 +127,7 @@ function statusBadge(string $s): string {
         .mode-label:hover{border-color:var(--primary);color:var(--primary);}
         .mode-label .mode-icon{font-size:22px;line-height:1;transition:transform 0.2s;}
         .mode-label .mode-desc{font-size:11px;font-weight:400;color:var(--text-secondary);}
-        .mode-card input:checked + .mode-label{border-color:var(--primary);background:rgba(168,53,53,0.06);color:var(--primary);}
+        .mode-card input:checked + .mode-label{border-color:var(--primary);background:var(--primary-tint-light);color:var(--primary);}
         .mode-card input:checked + .mode-label .mode-icon{transform:scale(1.12);}
         .mode-card input:checked + .mode-label .mode-desc{color:rgba(168,53,53,0.7);}
         .mode-note{
@@ -151,22 +138,22 @@ function statusBadge(string $s): string {
         .mode-note.show{display:flex;}
 
         /* ── Drop zone ── */
-        .drop-zone{border:2px dashed var(--border);border-radius:10px;padding:36px 20px;text-align:center;background:rgba(168,53,53,0.02);cursor:pointer;transition:all 0.2s;position:relative;}
-        .drop-zone:hover,.drop-zone.drag-over{border-color:var(--primary);background:rgba(168,53,53,0.05);}
-        .drop-zone.has-file{border-color:#10b981;background:rgba(16,185,129,0.04);border-style:solid;}
+        .drop-zone{border:2px dashed var(--border);border-radius:10px;padding:36px 20px;text-align:center;background:var(--primary-tint-subtle);cursor:pointer;transition:all 0.2s;position:relative;}
+        .drop-zone:hover,.drop-zone.drag-over{border-color:var(--primary);background:var(--primary-tint-subtle);}
+        .drop-zone.has-file{border-color:var(--success);background:rgba(16,185,129,0.04);border-style:solid;}
         .drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;}
         .drop-icon{font-size:36px;color:var(--primary);opacity:0.5;margin-bottom:10px;}
         .drop-title{font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:5px;}
         .drop-subtitle{font-size:13px;color:var(--text-secondary);}
-        .file-chosen{display:none;align-items:center;gap:12px;padding:10px 14px;background:rgba(16,185,129,0.08);border-radius:8px;margin-top:14px;border:1px solid #a7f3d0;}
+        .file-chosen{display:none;align-items:center;gap:12px;padding:10px 14px;background:rgba(16,185,129,0.08);border-radius:8px;margin-top:14px;border:1px solid var(--success-border);}
         .file-chosen.show{display:flex;}
         .file-chosen-name{font-size:13px;font-weight:600;color:#065f46;flex-grow:1;word-break:break-all;}
         .file-clear{background:none;border:none;color:#6b7280;cursor:pointer;font-size:16px;padding:2px 5px;border-radius:4px;flex-shrink:0;}
-        .file-clear:hover{color:#dc2626;}
+        .file-clear:hover{color:var(--danger);}
 
         /* ── Analyse button ── */
-        .analyse-btn{width:100%;padding:14px;background:var(--primary);color:white;border:none;border-radius:9px;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:background 0.2s;margin-top:4px;}
-        .analyse-btn:hover:not(:disabled){background:#8b2a2a;}
+        .analyse-btn{width:100%;padding:14px;background:var(--primary);color:var(--on-primary);border:none;border-radius:9px;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:background 0.2s;margin-top:4px;}
+        .analyse-btn:hover:not(:disabled){background:var(--primary-dark);}
         .analyse-btn:disabled{background:#d1d5db;cursor:not-allowed;}
 
         /* ── Loading overlay ── */
@@ -204,23 +191,23 @@ function statusBadge(string $s): string {
 
         .duration-badge{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;background:rgba(59,130,246,0.07);border:1px solid #bfdbfe;border-radius:8px;font-size:13px;color:#1d4ed8;font-weight:600;margin-top:14px;}
 
-        .confirm-btn{width:100%;padding:13px;background:#10b981;color:white;border:none;border-radius:9px;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:background 0.2s;margin-top:16px;}
+        .confirm-btn{width:100%;padding:13px;background:var(--success);color:var(--on-primary);border:none;border-radius:9px;font-size:15px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:background 0.2s;margin-top:16px;}
         .confirm-btn:hover{background:#059669;}
         .confirm-btn:disabled{background:#d1d5db;cursor:not-allowed;}
 
         /* ── Alerts ── */
         .alert{padding:13px 18px;border-radius:8px;font-size:14px;display:flex;align-items:flex-start;gap:10px;margin-bottom:4px;}
-        .alert-error{background:#fff0f0;color:#c62828;border:1px solid #ef9a9a;}
-        .alert-success{background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;}
-        .alert-warn{background:#fffbeb;color:#92400e;border:1px solid #fde68a;}
+        .alert-error{background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger);}
+        .alert-success{background:var(--success-bg);color:var(--success);border:1px solid var(--success-border);}
+        .alert-warn{background:var(--warning-bg);color:var(--warning);border:1px solid var(--warning);}
 
         /* ── History table ── */
         .hist-table{width:100%;border-collapse:collapse;}
-        .hist-table thead{background:rgba(168,53,53,0.04);border-bottom:2px solid var(--border);}
+        .hist-table thead{background:var(--primary-tint-subtle);border-bottom:2px solid var(--border);}
         .hist-table th{padding:11px 16px;text-align:left;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;}
         .hist-table tbody tr{border-bottom:1px solid var(--border);transition:background 0.15s;}
         .hist-table tbody tr:last-child{border-bottom:none;}
-        .hist-table tbody tr:hover{background:rgba(168,53,53,0.02);}
+        .hist-table tbody tr:hover{background:var(--primary-tint-subtle);}
         .hist-table td{padding:12px 16px;font-size:13px;vertical-align:middle;}
         .file-id{font-family:monospace;font-size:11px;font-weight:700;color:var(--primary);}
         .empty-hist{text-align:center;padding:36px;color:var(--text-secondary);}
@@ -230,15 +217,6 @@ function statusBadge(string $s): string {
         .page-footer{text-align:center;padding:20px;color:var(--text-secondary);font-size:13px;border-top:1px solid var(--border);background:var(--white);}
         .footer-links a{color:var(--primary);text-decoration:none;margin:0 10px;}
 
-        @media(max-width:1024px){
-            :root{--sidebar-width:70px;}
-            .logo-text,.nav-text,.user-details,.nav-title,.logout-link span{display:none;}
-            .logo-area,.nav-section,.user-section{padding:18px 12px;}
-            .nav-link{justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent;}
-            .nav-link:hover,.nav-link.active{border-left:none;border-right-color:var(--primary);}
-            .nav-icon{margin-right:0;font-size:20px;}
-            .logout-link{justify-content:center;padding:10px;}
-        }
         @media(max-width:768px){
             .form-grid,.form-grid.three{grid-template-columns:1fr;}
             .full{grid-column:span 1;}
@@ -299,8 +277,8 @@ function statusBadge(string $s): string {
                             <?php endforeach; ?>
                         </select>
                         <?php if ($linkOrderId): ?>
-                        <div style="margin-top:7px;padding:8px 13px;background:#fffbeb;border:1px solid #fde68a;
-                                    border-radius:7px;font-size:12px;color:#92400e;display:flex;gap:7px;align-items:center;">
+                        <div style="margin-top:7px;padding:8px 13px;background:var(--warning-bg);border:1px solid #fde68a;
+                                    border-radius:7px;font-size:12px;color:var(--warning);display:flex;gap:7px;align-items:center;">
                             <i class="fas fa-info-circle"></i>
                             You're re-uploading a corrected file for order
                             <strong><?= htmlspecialchars($linkOrderId) ?></strong>.
@@ -542,7 +520,7 @@ function statusBadge(string $s): string {
                             <td><?= $u['total_pages'] ?></td>
                             <td>
                                 <?php if ($u['color_pages'] > 0): ?>
-                                    <span style="color:#A83535;font-weight:600;"><?= $u['color_pages'] ?> C</span>
+                                    <span style="color:var(--primary);font-weight:600;"><?= $u['color_pages'] ?> C</span>
                                 <?php endif; ?>
                                 <?php if ($u['bw_pages'] > 0): ?>
                                     <span style="color:#6b7280;"> / <?= $u['bw_pages'] ?> B&W</span>
@@ -562,8 +540,8 @@ function statusBadge(string $s): string {
                             <td>
                                 <?= statusBadge($u['file_status']) ?>
                                 <?php if (($u['file_status'] ?? '') === 'REJECTED' && !empty($u['rejection_reason'])): ?>
-                                <div style="margin-top:6px;padding:6px 10px;background:#fef2f2;border:1px solid #fca5a5;
-                                            border-radius:7px;font-size:11px;color:#991b1b;max-width:200px;">
+                                <div style="margin-top:6px;padding:6px 10px;background:var(--danger-bg);border:1px solid #fca5a5;
+                                            border-radius:7px;font-size:11px;color:var(--danger);max-width:200px;">
                                     <i class="fas fa-exclamation-circle"></i>
                                     <?= htmlspecialchars($u['rejection_reason']) ?>
                                 </div>
@@ -758,7 +736,7 @@ function renderResult(d, mode) {
         <span class="summary-pill pill-pages"><i class="fas fa-file"></i> ${d.total_pages} page${d.total_pages !== 1 ? 's' : ''}</span>
         ${d.color_pages > 0 ? `<span class="summary-pill pill-colour"><i class="fas fa-palette"></i> ${d.color_pages} colour</span>` : ''}
         ${d.bw_pages    > 0 ? `<span class="summary-pill pill-bw"><i class="fas fa-circle-half-stroke"></i> ${d.bw_pages} B&W</span>` : ''}
-        <span class="summary-pill" style="background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;">
+        <span class="summary-pill" style="background:var(--success-bg);color:var(--success);border:1px solid var(--success-border);">
             <i class="fas fa-copy"></i> ${b.copies} cop${b.copies !== 1 ? 'ies' : 'y'}
         </span>`;
 
@@ -885,7 +863,7 @@ function prependHistoryRow(d) {
     const dateStr = today.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, ' ');
 
     let colourCell = '';
-    if (d.color_pages > 0) colourCell += `<span style="color:#A83535;font-weight:600;">${d.color_pages} C</span>`;
+    if (d.color_pages > 0) colourCell += `<span style="color:var(--primary);font-weight:600;">${d.color_pages} C</span>`;
     if (d.bw_pages    > 0) colourCell += `<span style="color:#6b7280;"> / ${d.bw_pages} B&W</span>`;
 
     const row = document.createElement('tr');

@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once 'auth.php';
 require_role(['STAFF', 'ADMIN']);
 require_once 'db.php';
@@ -47,13 +47,17 @@ if ($conn) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus - Branch Management</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css">
     <style>
         :root {
             --primary: #A83535;      /* Brick Red */
             --secondary: #F4A261;    /* Muted Orange */
             --background: #FAFAFA;   /* Light Grey */
-            --text: #2E2E2E;         /* Dark Charcoal */
-            --light-text: #707070;   /* Secondary Text */
+            --accent: #F1EDE8;
+            --text-primary: #2E2E2E;         /* Dark Charcoal */
+            --text-secondary: #707070;   /* Secondary Text */
             --border: #E0E0E0;       /* Border Grey */
             --white: #FFFFFF;
             --sidebar-width: 260px;
@@ -69,175 +73,11 @@ if ($conn) {
         
         body {
             background-color: var(--background);
-            color: var(--text);
+            color: var(--text-primary);
             min-height: 100vh;
             display: flex;
             overflow: hidden;
         }
-        
-        /* Sidebar Navigation */
-        .sidebar {
-            width: var(--sidebar-width);
-            background-color: var(--white);
-            border-right: 1px solid var(--border);
-            height: 100vh;
-            position: fixed;
-            left: 0;
-            top: 0;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.03);
-        }
-        
-        .logo-area {
-            padding: 22px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-        }
-        
-        .logo-icon {
-            background-color: var(--primary);
-            width: 36px;
-            height: 36px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-right: 12px;
-            color: white;
-            font-size: 18px;
-        }
-        
-        .logo-text {
-            font-size: 18px;
-            font-weight: 700;
-            color: var(--primary);
-        }
-        
-        .admin-subtitle {
-            font-size: 12px;
-            color: var(--light-text);
-            margin-top: 2px;
-        }
-        
-        .nav-section {
-            padding: 18px 0;
-            border-bottom: 1px solid var(--border);
-        }
-        
-        .nav-title {
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--light-text);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            padding: 0 22px 10px 22px;
-        }
-        
-        .nav-menu {
-            list-style: none;
-        }
-        
-        .nav-item {
-            margin-bottom: 2px;
-        }
-        
-        .nav-link {
-            display: flex;
-            align-items: center;
-            padding: 14px 22px;
-            color: var(--text);
-            text-decoration: none;
-            transition: all 0.2s ease;
-            border-left: 4px solid transparent;
-        }
-        
-        .nav-link:hover {
-            background-color: rgba(168, 53, 53, 0.05);
-            color: var(--primary);
-            border-left-color: rgba(168, 53, 53, 0.3);
-        }
-        
-        .nav-link.active {
-            background-color: rgba(168, 53, 53, 0.08);
-            color: var(--primary);
-            border-left-color: var(--primary);
-            font-weight: 600;
-        }
-        
-        .nav-icon {
-            width: 18px;
-            text-align: center;
-            margin-right: 14px;
-            font-size: 16px;
-        }
-        
-        .nav-text {
-            font-size: 14px;
-        }
-        
-        .user-section {
-            margin-top: auto;
-            padding: 20px;
-            border-top: 1px solid var(--border);
-        }
-        
-        .user-info {
-            display: flex;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-        
-        .user-avatar {
-            width: 38px;
-            height: 38px;
-            border-radius: 50%;
-            background-color: rgba(168, 53, 53, 0.1);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--primary);
-            font-weight: 600;
-            font-size: 15px;
-            margin-right: 12px;
-        }
-        
-        .user-details {
-            flex-grow: 1;
-        }
-        
-        .user-name {
-            font-weight: 600;
-            font-size: 14px;
-            color: var(--text);
-            margin-bottom: 2px;
-        }
-        
-        .user-role {
-            font-size: 12px;
-            color: var(--light-text);
-        }
-        
-        
-.logout-link {
-    width: 100%;
-    padding: 9px;
-    background: rgba(168,53,53,0.1);
-    color: var(--primary);
-    border: 1.5px solid var(--primary);
-    border-radius: 5px;
-    font-weight: 600;
-    font-size: 13px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    text-decoration: none;
-    transition: all 0.2s;
-}
-.logout-link:hover { background: rgba(168,53,53,0.2); }
         
         /* Main Content Area */
         .main-content {
@@ -259,20 +99,20 @@ if ($conn) {
         
         .header-left h1 {
             font-size: 22px;
-            color: var(--text);
+            color: var(--text-primary);
             margin-bottom: 4px;
             font-weight: 700;
         }
         
         .header-left p {
             font-size: 13px;
-            color: var(--light-text);
+            color: var(--text-secondary);
         }
         
         .header-right {
             font-size: 13px;
-            color: var(--light-text);
-            background-color: rgba(168, 53, 53, 0.05);
+            color: var(--text-secondary);
+            background-color: var(--primary-tint-subtle);
             padding: 8px 15px;
             border-radius: 20px;
         }
@@ -302,7 +142,7 @@ if ($conn) {
         .section-header {
             padding: 20px;
             border-bottom: 1px solid var(--border);
-            background-color: rgba(168, 53, 53, 0.03);
+            background-color: var(--primary-tint-subtle);
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -311,7 +151,7 @@ if ($conn) {
         .filter-bar {
             padding: 14px 18px;
             border-bottom: 1px solid var(--border);
-            background: rgba(168,53,53,0.01);
+            background: var(--primary-tint-subtle);
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
@@ -319,14 +159,14 @@ if ($conn) {
         }
         .filter-bar form { display:flex; gap:8px; flex-wrap:wrap; align-items:center; flex:1; }
         .search-wrap { position:relative; flex:1; min-width:160px; }
-        .search-icon { position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--light-text); font-size:13px; }
+        .search-icon { position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--text-secondary); font-size:13px; }
         .search-input { width:100%; padding:8px 10px 8px 32px; border:1.5px solid var(--border); border-radius:7px; font-size:13px; background:var(--white); }
         .search-input:focus { outline:none; border-color:var(--primary); }
         .filter-select { padding:8px 12px; border:1.5px solid var(--border); border-radius:7px; font-size:13px; background:var(--white); cursor:pointer; }
         .filter-select:focus { outline:none; border-color:var(--primary); }
-        .filter-btn { padding:8px 16px; background:var(--primary); color:white; border:none; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer; }
-        .filter-btn:hover { background:#8b2a2a; }
-        .filter-clear { font-size:12px; color:var(--light-text); text-decoration:none; white-space:nowrap; }
+        .filter-btn { padding:8px 16px; background:var(--primary); color:var(--on-primary); border:none; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer; }
+        .filter-btn:hover { background:var(--primary-dark); }
+        .filter-clear { font-size:12px; color:var(--text-secondary); text-decoration:none; white-space:nowrap; }
         .filter-clear:hover { color:var(--primary); }
 
         
@@ -354,7 +194,7 @@ if ($conn) {
         }
         
         .branch-table thead {
-            background-color: rgba(168, 53, 53, 0.03);
+            background-color: var(--primary-tint-subtle);
             position: sticky;
             top: 0;
         }
@@ -363,7 +203,7 @@ if ($conn) {
             padding: 16px 18px;
             text-align: left;
             font-weight: 600;
-            color: var(--text);
+            color: var(--text-primary);
             font-size: 13px;
             border-bottom: 1px solid var(--border);
         }
@@ -372,17 +212,17 @@ if ($conn) {
             padding: 16px 18px;
             border-bottom: 1px solid var(--border);
             font-size: 13px;
-            color: var(--text);
+            color: var(--text-primary);
             vertical-align: middle;
         }
         
         .branch-table tbody tr:hover {
-            background-color: rgba(168, 53, 53, 0.02);
+            background-color: var(--primary-tint-subtle);
             cursor: pointer;
         }
-        
+
         .branch-table tbody tr.selected {
-            background-color: rgba(168, 53, 53, 0.05);
+            background-color: var(--primary-tint-subtle);
         }
         
         .branch-info {
@@ -395,7 +235,7 @@ if ($conn) {
             width: 36px;
             height: 36px;
             border-radius: 8px;
-            background-color: rgba(168, 53, 53, 0.1);
+            background-color: var(--primary-tint-medium);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -411,13 +251,13 @@ if ($conn) {
         
         .branch-code {
             font-size: 11px;
-            color: var(--light-text);
+            color: var(--text-secondary);
             margin-top: 2px;
         }
         
         .branch-address {
             font-size: 13px;
-            color: var(--text);
+            color: var(--text-primary);
             line-height: 1.4;
             white-space: normal;
             word-wrap: break-word;
@@ -425,7 +265,7 @@ if ($conn) {
         
         .branch-contact {
             font-size: 13px;
-            color: var(--text);
+            color: var(--text-primary);
         }
         
         .branch-status {
@@ -438,8 +278,8 @@ if ($conn) {
         }
         
         .status-active {
-            background-color: rgba(76, 175, 80, 0.1);
-            color: #4CAF50;
+            background-color: var(--success-bg);
+            color: var(--success);
         }
         
         .status-inactive {
@@ -466,7 +306,7 @@ if ($conn) {
         .form-header {
             padding: 20px;
             border-bottom: 1px solid var(--border);
-            background-color: rgba(168, 53, 53, 0.03);
+            background-color: var(--primary-tint-subtle);
         }
         
         .form-header h2 {
@@ -482,8 +322,8 @@ if ($conn) {
         }
 
         .form-mode-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
-        .badge-edit { background: rgba(168,53,53,0.1); color: var(--primary); }
-        .badge-new  { background: rgba(76,175,80,0.1); color: #2e7d32; }
+        .badge-edit { background: var(--primary-tint-medium); color: var(--primary); }
+        .badge-new  { background: var(--success-bg); color: var(--success); }
 
         .form-container {
             flex-grow: 1;
@@ -493,17 +333,17 @@ if ($conn) {
         }
 
         /* Placeholder state (shown before any selection) */
-        .form-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; flex-grow: 1; color: var(--light-text); text-align: center; padding: 30px; gap: 12px; }
+        .form-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; flex-grow: 1; color: var(--text-secondary); text-align: center; padding: 30px; gap: 12px; }
         .form-placeholder i { font-size: 38px; opacity: 0.2; }
         .form-placeholder p { font-size: 14px; }
 
         /* Status toggle buttons (edit mode only) */
         .status-btn { flex: 1; padding: 12px; border-radius: 6px; font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; gap: 8px; }
-        .status-btn-activate { background-color: rgba(76,175,80,0.1); color: #4CAF50; border: 1.5px solid #4CAF50; }
+        .status-btn-activate { background-color: var(--success-bg); color: var(--success); border: 1.5px solid var(--success); }
         .status-btn-activate:hover { background-color: rgba(76,175,80,0.2); }
-        .status-btn-deactivate { background-color: rgba(239,68,68,0.08); color: #c62828; border: 1.5px solid #ef9a9a; }
+        .status-btn-deactivate { background-color: var(--danger-bg); color: var(--danger); border: 1.5px solid var(--danger); }
         .status-btn-deactivate:hover { background-color: rgba(239,68,68,0.16); }
-        .renovation-link { font-size: 12px; color: var(--light-text); text-decoration: underline; cursor: pointer; background: none; border: none; padding: 0; }
+        .renovation-link { font-size: 12px; color: var(--text-secondary); text-decoration: underline; cursor: pointer; background: none; border: none; padding: 0; }
         .renovation-link:hover { color: var(--secondary); }
         
         .form-group {
@@ -514,7 +354,7 @@ if ($conn) {
             display: block;
             margin-bottom: 8px;
             font-weight: 600;
-            color: var(--text);
+            color: var(--text-primary);
             font-size: 13px;
         }
         
@@ -526,13 +366,13 @@ if ($conn) {
             font-size: 13px;
             transition: all 0.2s ease;
             background-color: var(--white);
-            color: var(--text);
+            color: var(--text-primary);
         }
         
         .form-input:focus {
             outline: none;
             border-color: var(--primary);
-            box-shadow: 0 0 0 2px rgba(168, 53, 53, 0.1);
+            box-shadow: 0 0 0 2px var(--primary-tint-medium);
         }
         
         .form-textarea {
@@ -543,7 +383,7 @@ if ($conn) {
             font-size: 13px;
             transition: all 0.2s ease;
             background-color: var(--white);
-            color: var(--text);
+            color: var(--text-primary);
             resize: vertical;
             min-height: 80px;
             font-family: inherit;
@@ -552,7 +392,7 @@ if ($conn) {
         .form-textarea:focus {
             outline: none;
             border-color: var(--primary);
-            box-shadow: 0 0 0 2px rgba(168, 53, 53, 0.1);
+            box-shadow: 0 0 0 2px var(--primary-tint-medium);
         }
         
         .radio-group {
@@ -572,7 +412,7 @@ if ($conn) {
         }
         
         .radio-label {
-            color: var(--text);
+            color: var(--text-primary);
             font-size: 13px;
         }
         
@@ -589,7 +429,7 @@ if ($conn) {
             flex: 1;
             padding: 12px;
             background-color: var(--primary);
-            color: white;
+            color: var(--on-primary);
             border: none;
             border-radius: 6px;
             font-weight: 600;
@@ -601,15 +441,15 @@ if ($conn) {
             justify-content: center;
             gap: 8px;
         }
-        
+
         .primary-btn:hover {
-            background-color: #8b2a2a;
+            background-color: var(--primary-dark);
         }
-        
+
         .secondary-btn {
             flex: 1;
             padding: 12px;
-            background-color: rgba(168, 53, 53, 0.1);
+            background-color: var(--primary-tint-medium);
             color: var(--primary);
             border: 1.5px solid var(--primary);
             border-radius: 6px;
@@ -624,7 +464,7 @@ if ($conn) {
         }
         
         .secondary-btn:hover {
-            background-color: rgba(168, 53, 53, 0.2);
+            background-color: var(--primary-tint-active);
         }
         
         /* Table column widths */
@@ -652,67 +492,24 @@ if ($conn) {
             }
         }
         
-        @media (max-width: 1024px) {
-            :root {
-                --sidebar-width: 70px;
-            }
-            
-            .logo-text, .admin-subtitle, .nav-text, .user-details, .nav-title {
-                display: none;
-            }
-            
-            .logo-area, .nav-section, .user-section {
-                padding: 18px 15px;
-            }
-            
-            .logo-area {
-                justify-content: center;
-            }
-            
-            .nav-link {
-                justify-content: center;
-                padding: 14px;
-                border-left: none;
-                border-right: 4px solid transparent;
-            }
-            
-            .nav-link:hover, .nav-link.active {
-                border-left: none;
-                border-right-color: var(--primary);
-            }
-            
-            .nav-icon {
-                margin-right: 0;
-                font-size: 17px;
-            }
-            
-            .logout-link span {
-                display: none;
-            }
-            
-            .logout-link {
-                justify-content: center;
-                padding: 9px;
-            }
-        }
         /* ── Custom Dialog (replaces native alert/confirm) ── */
         .custom-dialog-overlay { display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center; }
         .custom-dialog-overlay.show { display:flex; }
-        .custom-dialog-box { background:white;border-radius:12px;width:90%;max-width:400px;padding:28px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,0.2);text-align:center;animation:dialogPop 0.15s ease; }
+        .custom-dialog-box { background:var(--white);border-radius:12px;width:90%;max-width:400px;padding:28px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,0.2);text-align:center;animation:dialogPop 0.15s ease; }
         @keyframes dialogPop { from{transform:scale(0.95);opacity:0;} to{transform:scale(1);opacity:1;} }
         .custom-dialog-icon { width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:22px; }
         .custom-dialog-icon.dialog-info { background:#eff6ff;color:#1d4ed8; }
-        .custom-dialog-icon.dialog-success { background:#ecfdf5;color:#059669; }
-        .custom-dialog-icon.dialog-error { background:#fef2f2;color:#dc2626; }
-        .custom-dialog-icon.dialog-warning { background:#fffbeb;color:#d97706; }
+        .custom-dialog-icon.dialog-success { background:var(--success-bg);color:var(--success); }
+        .custom-dialog-icon.dialog-error { background:var(--danger-bg);color:var(--danger); }
+        .custom-dialog-icon.dialog-warning { background:var(--warning-bg);color:var(--warning); }
         .custom-dialog-message { font-size:14px;color:#2E2E2E;line-height:1.6;margin-bottom:22px;white-space:pre-line; }
         .custom-dialog-actions { display:flex;gap:10px; }
         .custom-dialog-btn { flex:1;padding:11px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:background 0.2s ease; }
         .custom-dialog-cancel { background:#F1EDE8;color:#2E2E2E;border:1.5px solid #E0E0E0; }
         .custom-dialog-cancel:hover { background:#e8e2da; }
-        .custom-dialog-confirm { background:#A83535;color:white; }
-        .custom-dialog-confirm:hover { background:#8b2a2a; }
-        .custom-dialog-danger { background:#dc2626;color:white; }
+        .custom-dialog-confirm { background:#A83535;color:var(--on-primary); }
+        .custom-dialog-confirm:hover { background:var(--primary-dark); }
+        .custom-dialog-danger { background:var(--danger);color:var(--on-primary); }
         .custom-dialog-danger:hover { background:#b91c1c; }
     </style>
 </head>
@@ -776,7 +573,7 @@ if ($conn) {
                         </thead>
                         <tbody>
                             <?php if (empty($branches)): ?>
-                                <tr><td colspan="4" style="color:var(--light-text); padding:18px;">
+                                <tr><td colspan="4" style="color:var(--text-secondary); padding:18px;">
                                     <?= ($search !== '' || $filterStatus !== 'all')
                                         ? 'No branches match your filters.'
                                         : 'No branches found in the database.' ?>

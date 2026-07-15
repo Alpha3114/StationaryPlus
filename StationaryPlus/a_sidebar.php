@@ -14,6 +14,7 @@ $navMapping = [
     'a_productmanagement.php'=> 'products',
     'a_branch.php'          => 'branches',
     'a_report.php'          => 'sales',
+    'a_banners.php'         => 'banners',
     'a_auditlog.php'        => 'audit',
     // Staff/Ops pages accessed by admin
     's_ordermanagement.php' => 'ops_orders',
@@ -66,7 +67,7 @@ if (isset($conn)) {
 }
 .ops-badge-wrap {
     margin-left: auto;
-    background: #2563eb; color: white;
+    background: #2563eb; color: var(--on-primary);
     font-size: 9px; font-weight: 700;
     padding: 1px 6px; border-radius: 10px;
 }
@@ -83,7 +84,7 @@ if (isset($conn)) {
 }
 .ops-alert {
     margin-left: auto;
-    background: #ef4444; color: white;
+    background: var(--danger); color: var(--on-primary);
     font-size: 10px; font-weight: 700;
     padding: 1px 6px; border-radius: 10px;
     min-width: 18px; text-align: center;
@@ -139,6 +140,12 @@ if (isset($conn)) {
                 <a href="a_report.php" class="nav-link <?= $activePage==='sales'?'active':'' ?>">
                     <div class="nav-icon"><i class="fas fa-chart-bar"></i></div>
                     <div class="nav-text">Sales Report</div>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="a_banners.php" class="nav-link <?= $activePage==='banners'?'active':'' ?>">
+                    <div class="nav-icon"><i class="fas fa-images"></i></div>
+                    <div class="nav-text">Banners</div>
                 </a>
             </li>
             <li class="nav-item">
@@ -219,6 +226,12 @@ if (isset($conn)) {
                 </div>
             </div>
         </div>
+        <div class="theme-toggle" role="group" aria-label="Theme">
+            <button type="button" class="theme-toggle-btn" data-theme-option="light" title="Light theme" aria-label="Light theme"><i class="fas fa-sun"></i></button>
+            <button type="button" class="theme-toggle-btn" data-theme-option="dark" title="Dark theme" aria-label="Dark theme"><i class="fas fa-moon"></i></button>
+            <button type="button" class="theme-toggle-btn" data-theme-option="high-contrast" title="High contrast" aria-label="High contrast theme"><i class="fas fa-adjust"></i></button>
+        </div>
+        <script>if (window.initThemeToggle) initThemeToggle();</script>
         <a href="logout.php" class="logout-link">
             <i class="fas fa-sign-out-alt"></i>
             <span>Logout</span>

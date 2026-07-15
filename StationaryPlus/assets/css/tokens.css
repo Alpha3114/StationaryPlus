@@ -1,0 +1,148 @@
+/* ============================================================
+   tokens.css — Shared design tokens (single source of truth)
+   Must be linked before sidebar.css and before every page's own
+   inline <style> block, so its :root values are the first to
+   apply and any (still-present) per-page :root block simply
+   redeclares the same variable names/values on top of it.
+
+   Theming: `[data-theme]` lives on <html> (see assets/js/theme.js).
+   The dark/high-contrast override blocks below are written as
+   `html[data-theme="..."]` (specificity 0,1,1) rather than plain
+   `[data-theme="..."]` (0,1,0) on purpose: several pages still
+   carry a leftover per-page `:root { ... }` block in their own
+   <style> (specificity 0,1,0) *after* this stylesheet in the
+   cascade. Equal-specificity rules resolve by source order, so a
+   plain `[data-theme="dark"]` would lose to that later `:root`
+   block and dark mode would silently no-op on those pages. Using
+   `html[data-theme="..."]` guarantees the override always wins
+   regardless of what any page-local `:root` block declares.
+   ============================================================ */
+
+:root {
+    /* structural vars — existing values, unchanged */
+    --primary:#A83535;
+    --secondary:#F4A261;
+    --accent:#F1EDE8;
+    --background:#FAFAFA;
+    --text-primary:#2E2E2E;
+    --text-secondary:#707070;
+    --border:#E0E0E0;
+    --white:#FFFFFF;
+    --sidebar-width:260px;
+    --card-shadow:0 4px 12px rgba(0,0,0,0.05);
+
+    /* primary tint scale — replaces raw rgba(168,53,53,X) literals */
+    --primary-tint-subtle: rgba(168,53,53,0.03);
+    --primary-tint-light: rgba(168,53,53,0.08);
+    --primary-tint-medium: rgba(168,53,53,0.1);
+    --primary-tint-active: rgba(168,53,53,0.16);
+    --primary-dark: #8b2a2a;
+
+    /* status tokens — collapses the app's duplicate red/green/amber families */
+    --success: #10b981;
+    --success-bg: #ecfdf5;
+    --success-border: #a7f3d0;
+    --warning: #f59e0b;
+    --warning-bg: #fffbeb;
+    --danger: #ef4444;
+    --danger-bg: #fef2f2;
+
+    /* soft translucent-border tokens — replace PHP "{$color}NN" hex-alpha
+       string concatenation (which breaks once $color becomes a var()) */
+    --primary-border-soft: rgba(168,53,53,0.27);
+    --success-border-soft: rgba(16,185,129,0.27);
+    --warning-border-soft: rgba(245,158,11,0.27);
+    --danger-border-soft: rgba(239,68,68,0.27);
+
+    /* text-on-colored-background token */
+    --on-primary: #FFFFFF;
+}
+
+/* ------------------------------------------------------------
+   Dark theme
+   Dark neutral canvas with a brightened brand red (the raw
+   #A83535 only hits ~2.7:1 against #1a1a1a — fails WCAG AA 4.5:1
+   for normal text — so it's swapped for a lighter #E06666,
+   ~5:1). success/warning already clear >6.8:1 on the dark
+   background unchanged; danger is nudged from #ef4444 (~4.6:1,
+   passing but thin) to #F87171 (~6.3:1) for a safer margin.
+   ------------------------------------------------------------ */
+html[data-theme="dark"] {
+    --primary:#E06666;
+    --secondary:#F4A261;
+    --accent:#2f2f2f;
+    --background:#1a1a1a;
+    --text-primary:#f0f0f0;
+    --text-secondary:#a8a8a8;
+    --border:#3a3a3a;
+    --white:#242424;
+    --sidebar-width:260px;
+    --card-shadow:0 4px 12px rgba(0,0,0,0.4);
+
+    --primary-tint-subtle: rgba(168,53,53,0.05);
+    --primary-tint-light: rgba(168,53,53,0.12);
+    --primary-tint-medium: rgba(168,53,53,0.16);
+    --primary-tint-active: rgba(168,53,53,0.22);
+    --primary-dark: #B84545;
+
+    --success: #10b981;
+    --success-bg: rgba(16,185,129,0.15);
+    --success-border: rgba(16,185,129,0.4);
+    --warning: #f59e0b;
+    --warning-bg: rgba(245,158,11,0.15);
+    --danger: #F87171;
+    --danger-bg: rgba(239,68,68,0.18);
+
+    --primary-border-soft: rgba(224,102,102,0.35);
+    --success-border-soft: rgba(16,185,129,0.35);
+    --warning-border-soft: rgba(245,158,11,0.35);
+    --danger-border-soft: rgba(248,113,113,0.35);
+
+    --on-primary: #FFFFFF;
+}
+
+/* ------------------------------------------------------------
+   High-contrast theme
+   Accessibility-first, not just "darker": near-pure black canvas,
+   near-pure white text/borders, and boosted-saturation status
+   colors chosen to clear WCAG AAA (7:1) against #000 wherever
+   feasible: primary #FF6B6B ~7.6:1, success #00E676 ~12.6:1,
+   warning #FFC107 ~12.9:1, danger #FF8A65 ~9.1:1 (kept a shade
+   more orange than primary so the two vivid reds stay visually
+   distinguishable). Tint-scale alphas are roughly doubled vs.
+   light mode since very low-alpha tints defeat the point of a
+   high-contrast mode.
+   ------------------------------------------------------------ */
+html[data-theme="high-contrast"] {
+    --primary:#FF6B6B;
+    --secondary:#F4A261;
+    --accent:#141414;
+    --background:#000000;
+    --text-primary:#FFFFFF;
+    --text-secondary:#E0E0E0;
+    --border:#FFFFFF;
+    --white:#0d0d0d;
+    --sidebar-width:260px;
+    --card-shadow:none;
+
+    --primary-tint-subtle: rgba(255,107,107,0.08);
+    --primary-tint-light: rgba(255,107,107,0.18);
+    --primary-tint-medium: rgba(255,107,107,0.24);
+    --primary-tint-active: rgba(255,107,107,0.36);
+    --primary-dark: #E64545;
+
+    --success: #00E676;
+    --success-bg: rgba(0,230,118,0.18);
+    --success-border: rgba(0,230,118,0.6);
+    --warning: #FFC107;
+    --warning-bg: rgba(255,193,7,0.18);
+    --danger: #FF8A65;
+    --danger-bg: rgba(255,138,101,0.2);
+
+    --primary-border-soft: rgba(255,107,107,0.5);
+    --success-border-soft: rgba(0,230,118,0.5);
+    --warning-border-soft: rgba(255,193,7,0.5);
+    --danger-border-soft: rgba(255,138,101,0.5);
+
+    --on-primary: #FFFFFF;
+}

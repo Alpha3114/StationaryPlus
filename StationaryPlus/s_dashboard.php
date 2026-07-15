@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // ============================================================
 //  s_dashboard.php — Staff Dashboard
 //
@@ -124,10 +124,10 @@ $stmt->close();
 function orderStatusBadge(string $status): string {
     $map = [
         'NEW'        => ['#3b82f6','#eff6ff','New'],
-        'PROCESSING' => ['#f59e0b','#fffbeb','Processing'],
-        'READY'      => ['#10b981','#ecfdf5','Ready'],
+        'PROCESSING' => ['var(--warning)','var(--warning-bg)','Processing'],
+        'READY'      => ['var(--success)','var(--success-bg)','Ready'],
         'COLLECTED'  => ['#6b7280','#f3f4f6','Collected'],
-        'CANCELLED'  => ['#ef4444','#fef2f2','Cancelled'],
+        'CANCELLED'  => ['var(--danger)','var(--danger-bg)','Cancelled'],
     ];
     [$color, $bg, $label] = $map[$status] ?? ['#888','#f3f4f6', $status];
     return "<span style='background:$bg;color:$color;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;'>$label</span>";
@@ -140,6 +140,9 @@ function orderStatusBadge(string $status): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus — Staff Dashboard</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css">
     <style>
         :root {
             --primary: #A83535;
@@ -158,28 +161,6 @@ function orderStatusBadge(string $status): string {
 
         body { background-color:var(--background);color:var(--text-primary);min-height:100vh;display:flex; }
 
-        /* ── Sidebar ── */
-        .sidebar { width:var(--sidebar-width);background-color:var(--white);border-right:1px solid var(--border);height:100vh;position:fixed;left:0;top:0;display:flex;flex-direction:column;box-shadow:2px 0 10px rgba(0,0,0,0.03);overflow-y:auto; }
-        .logo-area { padding:25px;border-bottom:1px solid var(--border);display:flex;align-items:center;flex-shrink:0; }
-        .logo-icon { background-color:var(--primary);width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:12px;color:white;font-size:20px; }
-        .logo-text { font-size:22px;font-weight:700;color:var(--primary); }
-        .nav-section { padding:20px 0;border-bottom:1px solid var(--border); }
-        .nav-title { font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.8px;padding:0 25px 10px 25px; }
-        .nav-menu { list-style:none; }
-        .nav-item { margin-bottom:2px; }
-        .nav-link { display:flex;align-items:center;padding:13px 25px;color:var(--text-primary);text-decoration:none;transition:all 0.2s;border-left:4px solid transparent; }
-        .nav-link:hover { background-color:rgba(168,53,53,0.05);color:var(--primary);border-left-color:rgba(168,53,53,0.3); }
-        .nav-link.active { background-color:rgba(168,53,53,0.08);color:var(--primary);border-left-color:var(--primary);font-weight:600; }
-        .nav-icon { width:22px;text-align:center;margin-right:14px;font-size:16px; }
-        .nav-text { font-size:15px; }
-        .user-section { margin-top:auto;padding:20px 25px;border-top:1px solid var(--border); }
-        .user-info { display:flex;align-items:center;margin-bottom:14px; }
-        .user-avatar { width:40px;height:40px;border-radius:50%;background-color:rgba(168,53,53,0.1);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:700;font-size:16px;margin-right:12px;flex-shrink:0; }
-        .user-name { font-weight:600;font-size:15px;color:var(--text-primary); }
-        .user-role { font-size:12px;color:var(--text-secondary);margin-top:2px; }
-        .logout-link { display:flex;align-items:center;gap:10px;padding:10px 14px;background-color:rgba(168,53,53,0.06);color:var(--primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;transition:background-color 0.2s; }
-        .logout-link:hover { background-color:rgba(168,53,53,0.14); }
-
         /* ── Main ── */
         .main-content { flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column; }
         .top-header { background-color:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10; }
@@ -189,7 +170,7 @@ function orderStatusBadge(string $status): string {
         .dashboard-content { padding:28px 30px;flex-grow:1;display:flex;flex-direction:column;gap:26px; }
 
         /* ── Welcome ── */
-        .welcome-card { background:linear-gradient(135deg,rgba(168,53,53,0.06) 0%,rgba(244,162,97,0.06) 100%);border-radius:12px;padding:22px 28px;border-left:5px solid var(--primary); }
+        .welcome-card { background:linear-gradient(135deg,var(--primary-tint-light) 0%,rgba(244,162,97,0.06) 100%);border-radius:12px;padding:22px 28px;border-left:5px solid var(--primary); }
         .welcome-title { font-size:22px;font-weight:700;color:var(--text-primary);margin-bottom:6px; }
         .welcome-sub { font-size:14px;color:var(--text-secondary);line-height:1.6; }
 
@@ -200,10 +181,10 @@ function orderStatusBadge(string $status): string {
         .stat-header { display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px; }
         .stat-label { font-size:13px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px; }
         .stat-icon { width:38px;height:38px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:17px; }
-        .icon-red    { background:rgba(168,53,53,0.1);color:var(--primary); }
+        .icon-red    { background:var(--primary-tint-medium);color:var(--primary); }
         .icon-orange { background:rgba(244,162,97,0.15);color:#d97706; }
         .icon-blue   { background:rgba(59,130,246,0.1);color:#3b82f6; }
-        .icon-green  { background:rgba(16,185,129,0.1);color:#10b981; }
+        .icon-green  { background:rgba(16,185,129,0.1);color:var(--success); }
         .stat-value { font-size:30px;font-weight:700;color:var(--primary);margin-bottom:4px; }
         .stat-footer { font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:5px; }
 
@@ -220,20 +201,20 @@ function orderStatusBadge(string $status): string {
 
         /* ── Table card ── */
         .table-card { background-color:var(--white);border-radius:10px;box-shadow:var(--card-shadow);border:1px solid var(--border);overflow:hidden; }
-        .card-header { padding:18px 22px;border-bottom:1px solid var(--border);background:rgba(168,53,53,0.03);display:flex;justify-content:space-between;align-items:center; }
+        .card-header { padding:18px 22px;border-bottom:1px solid var(--border);background:var(--primary-tint-subtle);display:flex;justify-content:space-between;align-items:center; }
         .card-title { font-size:16px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:8px; }
         .card-link { font-size:13px;color:var(--primary);text-decoration:none;font-weight:600; }
         .card-link:hover { text-decoration:underline; }
         .data-table { width:100%;border-collapse:collapse; }
-        .data-table thead { background:rgba(168,53,53,0.03);border-bottom:2px solid var(--border); }
+        .data-table thead { background:var(--primary-tint-subtle);border-bottom:2px solid var(--border); }
         .data-table th { padding:11px 18px;text-align:left;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap; }
         .data-table tbody tr { border-bottom:1px solid var(--border);transition:background 0.15s; }
         .data-table tbody tr:last-child { border-bottom:none; }
-        .data-table tbody tr:hover { background:rgba(168,53,53,0.02); }
+        .data-table tbody tr:hover { background:var(--primary-tint-subtle); }
         .data-table td { padding:13px 18px;font-size:13px;color:var(--text-primary);vertical-align:middle; }
         .order-id { font-weight:700;color:var(--primary);font-family:monospace;font-size:12px; }
-        .process-btn { padding:6px 14px;background:var(--primary);color:white;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block;transition:background 0.2s; }
-        .process-btn:hover { background:#8b2a2a; }
+        .process-btn { padding:6px 14px;background:var(--primary);color:var(--on-primary);border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block;transition:background 0.2s; }
+        .process-btn:hover { background:var(--primary-dark); }
 
         /* ── Low stock panel ── */
         .stock-panel { background-color:var(--white);border-radius:10px;box-shadow:var(--card-shadow);border:1px solid var(--border);overflow:hidden; }
@@ -243,8 +224,8 @@ function orderStatusBadge(string $status): string {
         .stock-meta { font-size:12px;color:var(--text-secondary); }
         .stock-bar-wrap { height:6px;background:var(--border);border-radius:3px;overflow:hidden; }
         .stock-bar { height:100%;border-radius:3px; }
-        .bar-critical { background:#ef4444; }
-        .bar-low      { background:#f59e0b; }
+        .bar-critical { background:var(--danger); }
+        .bar-low      { background:var(--warning); }
         .empty-state { padding:40px 20px;text-align:center;color:var(--text-secondary);font-size:14px; }
         .empty-state i { font-size:36px;opacity:0.2;margin-bottom:10px;display:block; }
 
@@ -252,15 +233,6 @@ function orderStatusBadge(string $status): string {
         .page-footer { text-align:center;padding:20px;color:var(--text-secondary);font-size:13px;border-top:1px solid var(--border);background-color:var(--white);margin-top:auto; }
 
         @media (max-width:1200px) { .stats-grid { grid-template-columns:repeat(2,1fr); } .bottom-grid { grid-template-columns:1fr; } }
-        @media (max-width:1024px) {
-            :root { --sidebar-width:70px; }
-            .logo-text,.nav-text,.user-details,.nav-title,.logout-link span { display:none; }
-            .logo-area,.nav-section,.user-section { padding:18px 12px; }
-            .nav-link { justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent; }
-            .nav-link:hover,.nav-link.active { border-left:none;border-right-color:var(--primary); }
-            .nav-icon { margin-right:0;font-size:20px; }
-            .logout-link { justify-content:center;padding:10px; }
-        }
         @media (max-width:768px) { .stats-grid { grid-template-columns:repeat(2,1fr); } .actions-grid { grid-template-columns:repeat(2,1fr); } }
     </style>
 </head>
@@ -276,8 +248,8 @@ function orderStatusBadge(string $status): string {
     </header>
 
     <?php if (!$branchActive): ?>
-    <div style="margin:16px 30px 0;background:#fef2f2;border:1.5px solid #fecaca;border-radius:8px;
-                padding:12px 18px;font-size:13px;color:#991b1b;
+    <div style="margin:16px 30px 0;background:var(--danger-bg);border:1.5px solid #fecaca;border-radius:8px;
+                padding:12px 18px;font-size:13px;color:var(--danger);
                 display:flex;align-items:center;gap:10px;">
         <i class="fas fa-triangle-exclamation" style="font-size:16px;"></i>
         <span>Your assigned branch is temporarily unavailable (inactive/under renovation). POS, inventory, and order actions are disabled — contact an admin to be reassigned.</span>
@@ -338,21 +310,21 @@ function orderStatusBadge(string $status): string {
         <!-- Quick Actions -->
         <div class="actions-grid">
             <a href="s_ordermanagement.php" class="action-card">
-                <div class="action-icon" style="background:rgba(168,53,53,0.1);color:var(--primary);">
+                <div class="action-icon" style="background:var(--primary-tint-medium);color:var(--primary);">
                     <i class="fas fa-tasks"></i>
                 </div>
                 <div class="action-title">Manage Orders</div>
                 <div class="action-desc">View, process and update customer orders</div>
             </a>
             <a href="s_inv.php" class="action-card">
-                <div class="action-icon" style="background:rgba(16,185,129,0.1);color:#10b981;">
+                <div class="action-icon" style="background:rgba(16,185,129,0.1);color:var(--success);">
                     <i class="fas fa-boxes"></i>
                 </div>
                 <div class="action-title">Inventory</div>
                 <div class="action-desc">Check stock levels and update quantities</div>
             </a>
             <a href="s_ordermanagement.php?filter=preorder" class="action-card">
-                <div class="action-icon" style="background:rgba(244,162,97,0.15);color:#d97706;">
+                <div class="action-icon" style="background:rgba(244,162,97,0.15);color:var(--warning);">
                     <i class="fas fa-clipboard-check"></i>
                 </div>
                 <div class="action-title">Pre-orders</div>

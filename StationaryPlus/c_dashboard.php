@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // ============================================================
 //  c_dashboard.php — Customer Dashboard
 // ============================================================
@@ -8,6 +8,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'auth.php';
 require_role('CUSTOMER');
 require_once 'db.php';
+require_once 'banner_slot.php';
 
 $userId         = $_SESSION['user_id'];
 $userName       = $_SESSION['user_name'] ?? 'Customer';
@@ -143,16 +144,32 @@ $stmt->close();
 
 // ── Status badge ──────────────────────────────────────────────
 function orderStatusBadge(string $status): string {
+    // Border uses a themed soft-alpha token (--*-border-soft) when the status
+    // maps to a semantic status color; statuses outside that set (blue/purple/
+    // grey) fall back to the literal hex + hand alpha suffix since they aren't
+    // part of the token system.
     $map = [
         'NEW'        => ['#3b82f6','#eff6ff','New'],
-        'PROCESSING' => ['#f59e0b','#fffbeb','Processing'],
-        'READY'      => ['#10b981','#ecfdf5','Ready'],
+        'PROCESSING' => ['#f59e0b','var(--warning-bg)','Processing'],
+        'READY'      => ['#10b981','var(--success-bg)','Ready'],
         'COLLECTED'  => ['#6b7280','#f3f4f6','Collected'],
-        'CANCELLED'  => ['#ef4444','#fef2f2','Cancelled'],
+        'CANCELLED'  => ['#ef4444','var(--danger-bg)','Cancelled'],
         'SUBMITTED'  => ['#8b5cf6','#f5f3ff','Submitted'],
     ];
+    $varMap = [
+        'PROCESSING' => 'var(--warning)',
+        'READY'      => 'var(--success)',
+        'CANCELLED'  => 'var(--danger)',
+    ];
+    $borderVarMap = [
+        'PROCESSING' => 'var(--warning-border-soft)',
+        'READY'      => 'var(--success-border-soft)',
+        'CANCELLED'  => 'var(--danger-border-soft)',
+    ];
     [$c,$bg,$l] = $map[$status] ?? ['#6b7280','#f3f4f6',$status];
-    return "<span style='background:$bg;color:$c;border:1px solid {$c}44;
+    $textColor = $varMap[$status] ?? $c;
+    $borderColor = $borderVarMap[$status] ?? "{$c}44";
+    return "<span style='background:$bg;color:$textColor;border:1px solid $borderColor;
                 padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;
                 white-space:nowrap;'>$l</span>";
 }
@@ -164,6 +181,9 @@ function orderStatusBadge(string $status): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus — Dashboard</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css">
     <style>
         :root {
             --primary:#A83535; --secondary:#F4A261; --accent:#F1EDE8;
@@ -174,27 +194,6 @@ function orderStatusBadge(string $status): string {
         *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif;}
         body{background:var(--background);color:var(--text-primary);min-height:100vh;display:flex;}
 
-        /* Sidebar */
-        .sidebar{width:var(--sidebar-width);background:var(--white);border-right:1px solid var(--border);height:100vh;position:fixed;left:0;top:0;display:flex;flex-direction:column;box-shadow:2px 0 10px rgba(0,0,0,0.03);overflow-y:auto;}
-        .logo-area{padding:25px;border-bottom:1px solid var(--border);display:flex;align-items:center;flex-shrink:0;}
-        .logo-icon{background:var(--primary);width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:12px;color:white;font-size:20px;}
-        .logo-text{font-size:22px;font-weight:700;color:var(--primary);}
-        .nav-section{padding:25px 0;border-bottom:1px solid var(--border);}
-        .nav-title{font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.8px;padding:0 25px 12px;}
-        .nav-menu{list-style:none;}
-        .nav-link{display:flex;align-items:center;padding:13px 25px;color:var(--text-primary);text-decoration:none;transition:all 0.2s;border-left:4px solid transparent;}
-        .nav-link:hover{background:rgba(168,53,53,0.05);color:var(--primary);border-left-color:rgba(168,53,53,0.3);}
-        .nav-link.active{background:rgba(168,53,53,0.08);color:var(--primary);border-left-color:var(--primary);font-weight:600;}
-        .nav-icon{width:22px;text-align:center;margin-right:14px;font-size:16px;}
-        .nav-text{font-size:15px;}
-        .user-section{margin-top:auto;padding:20px 25px;border-top:1px solid var(--border);}
-        .user-info{display:flex;align-items:center;margin-bottom:14px;cursor:pointer;}
-        .user-avatar{width:40px;height:40px;border-radius:50%;background:rgba(168,53,53,0.1);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:700;font-size:16px;margin-right:12px;flex-shrink:0;}
-        .user-name{font-weight:600;font-size:15px;}
-        .user-role{font-size:12px;color:var(--text-secondary);margin-top:2px;}
-        .logout-link{display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(168,53,53,0.06);color:var(--primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;}
-        .logout-link:hover{background:rgba(168,53,53,0.14);}
-
         /* Main */
         .main-content{flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column;}
         .top-header{background:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:10;}
@@ -203,7 +202,7 @@ function orderStatusBadge(string $status): string {
         .dashboard-content{padding:30px;flex-grow:1;}
 
         /* Welcome */
-        .welcome-card{background:linear-gradient(135deg,rgba(168,53,53,0.06),rgba(244,162,97,0.06));border-radius:12px;padding:28px 30px;margin-bottom:28px;border-left:5px solid var(--primary);}
+        .welcome-card{background:linear-gradient(135deg,var(--primary-tint-light),rgba(244,162,97,0.06));border-radius:12px;padding:28px 30px;margin-bottom:28px;border-left:5px solid var(--primary);}
         .welcome-title{font-size:24px;font-weight:700;margin-bottom:8px;}
         .welcome-subtitle{font-size:14px;color:var(--text-secondary);line-height:1.6;}
 
@@ -225,9 +224,9 @@ function orderStatusBadge(string $status): string {
         .action-card{background:var(--white);border-radius:10px;padding:22px;box-shadow:var(--card-shadow);border:1px solid var(--border);text-align:center;text-decoration:none;transition:all 0.2s;display:block;}
         .action-card:hover{transform:translateY(-4px);box-shadow:0 8px 20px rgba(0,0,0,0.08);border-color:var(--primary);}
         .action-icon{width:54px;height:54px;border-radius:10px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:22px;}
-        .action-icon.red   {background:rgba(168,53,53,0.1);color:var(--primary);}
+        .action-icon.red   {background:var(--primary-tint-medium);color:var(--primary);}
         .action-icon.orange{background:rgba(244,162,97,0.1);color:var(--secondary);}
-        .action-icon.green {background:rgba(16,185,129,0.1);color:#10b981;}
+        .action-icon.green {background:var(--success-bg);color:var(--success);}
         .action-icon.blue  {background:rgba(59,130,246,0.1);color:#3b82f6;}
         .action-icon.purple{background:rgba(139,92,246,0.1);color:#8b5cf6;}
         .action-title{font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:6px;}
@@ -236,11 +235,11 @@ function orderStatusBadge(string $status): string {
         /* Tables */
         .table-card{background:var(--white);border-radius:10px;overflow:hidden;box-shadow:var(--card-shadow);border:1px solid var(--border);}
         .data-table{width:100%;border-collapse:collapse;}
-        .data-table thead{background:rgba(168,53,53,0.04);border-bottom:2px solid var(--border);}
+        .data-table thead{background:var(--primary-tint-subtle);border-bottom:2px solid var(--border);}
         .data-table th{padding:14px 20px;text-align:left;font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.4px;}
         .data-table tbody tr{border-bottom:1px solid var(--border);transition:background 0.15s;}
         .data-table tbody tr:last-child{border-bottom:none;}
-        .data-table tbody tr:hover{background:rgba(168,53,53,0.02);}
+        .data-table tbody tr:hover{background:var(--primary-tint-subtle);}
         .data-table td{padding:14px 20px;font-size:14px;vertical-align:middle;}
         .order-id{font-weight:600;color:var(--primary);font-family:monospace;font-size:13px;}
         .empty-row td{text-align:center;padding:28px;color:var(--text-secondary);font-style:italic;}
@@ -251,23 +250,23 @@ function orderStatusBadge(string $status): string {
         .advisor-hint{font-size:13px;color:var(--text-secondary);margin-bottom:12px;line-height:1.6;}
         .advisor-row{display:flex;gap:10px;align-items:flex-start;}
         .advisor-textarea{flex:1;padding:12px 14px;border:1.5px solid var(--border);border-radius:9px;font-size:14px;font-family:inherit;resize:none;background:var(--accent);color:var(--text-primary);transition:border-color 0.2s,box-shadow 0.2s;outline:none;min-height:52px;}
-        .advisor-textarea:focus{border-color:var(--primary);background:var(--white);box-shadow:0 0 0 3px rgba(168,53,53,0.08);}
-        .advisor-btn{padding:0 20px;height:52px;background:var(--primary);color:white;border:none;border-radius:9px;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background 0.2s;flex-shrink:0;}
-        .advisor-btn:hover:not(:disabled){background:#8b2a2a;}
+        .advisor-textarea:focus{border-color:var(--primary);background:var(--white);box-shadow:0 0 0 3px var(--primary-tint-light);}
+        .advisor-btn{padding:0 20px;height:52px;background:var(--primary);color:var(--on-primary);border:none;border-radius:9px;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background 0.2s;flex-shrink:0;}
+        .advisor-btn:hover:not(:disabled){background:var(--primary-dark);}
         .advisor-btn:disabled{background:#d1d5db;cursor:not-allowed;}
-        .advisor-error{display:none;margin-top:10px;padding:10px 14px;background:#fff0f0;color:#c62828;border-radius:7px;font-size:13px;border:1px solid #ef9a9a;}
+        .advisor-error{display:none;margin-top:10px;padding:10px 14px;background:var(--danger-bg);color:var(--danger);border-radius:7px;font-size:13px;border:1px solid var(--danger);}
         .advisor-results{display:none;border-top:1px solid var(--border);}
         .advisor-loading{display:none;padding:32px;text-align:center;color:var(--text-secondary);}
         .advisor-spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.7s linear infinite;margin:0 auto 12px;}
         .rec-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;padding:20px;}
         .rec-card{background:var(--white);border-radius:10px;padding:18px;border:1px solid var(--border);transition:transform 0.2s,box-shadow 0.2s,border-color 0.2s;}
         .rec-card:hover{transform:translateY(-3px);box-shadow:0 8px 20px rgba(0,0,0,0.08);border-color:var(--primary);}
-        .rec-category{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--primary);background:rgba(168,53,53,0.08);padding:2px 8px;border-radius:20px;display:inline-block;margin-bottom:10px;}
+        .rec-category{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--primary);background:var(--primary-tint-light);padding:2px 8px;border-radius:20px;display:inline-block;margin-bottom:10px;}
         .rec-name{font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:5px;}
         .rec-price{font-size:17px;font-weight:700;color:var(--primary);margin-bottom:10px;}
         .rec-reason{font-size:12px;color:var(--text-secondary);line-height:1.6;margin-bottom:14px;}
-        .rec-btn{display:block;width:100%;padding:9px;text-align:center;background:rgba(168,53,53,0.06);color:var(--primary);border-radius:7px;text-decoration:none;font-size:13px;font-weight:600;transition:background 0.2s;border:none;cursor:pointer;}
-        .rec-btn:hover{background:rgba(168,53,53,0.14);}
+        .rec-btn{display:block;width:100%;padding:9px;text-align:center;background:var(--primary-tint-light);color:var(--primary);border-radius:7px;text-decoration:none;font-size:13px;font-weight:600;transition:background 0.2s;border:none;cursor:pointer;}
+        .rec-btn:hover{background:var(--primary-tint-active);}
 
         /* Collaborative filtering */
         .collab-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px;}
@@ -289,15 +288,6 @@ function orderStatusBadge(string $status): string {
 
         @keyframes spin{to{transform:rotate(360deg);}}
 
-        @media(max-width:1024px){
-            :root{--sidebar-width:70px;}
-            .logo-text,.nav-text,.user-name,.user-role,.nav-title,.logout-link span{display:none;}
-            .logo-area,.nav-section,.user-section{padding:18px 12px;}
-            .nav-link{justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent;}
-            .nav-link:hover,.nav-link.active{border-left:none;border-right-color:var(--primary);}
-            .nav-icon{margin-right:0;font-size:20px;}
-            .logout-link{justify-content:center;}
-        }
         @media(max-width:768px){
             .dashboard-stats{grid-template-columns:repeat(2,1fr);}
             .quick-actions{grid-template-columns:repeat(2,1fr);}
@@ -325,14 +315,14 @@ function orderStatusBadge(string $status): string {
                        border:1.5px solid var(--border);border-radius:20px;font-size:13px;
                        font-weight:600;color:var(--primary);background:rgba(168,53,53,0.06);
                        cursor:pointer;outline:none;transition:background 0.2s;">
-                <i class="fas fa-star" style="font-size:11px;color:#f59e0b;"></i>
+                <i class="fas fa-star" style="font-size:11px;color:var(--warning);"></i>
                 <span>Preferred: <?= htmlspecialchars($currentBranch ?? 'Select Branch') ?></span>
                 <i class="fas fa-chevron-down" style="font-size:11px;opacity:0.6;"></i>
             </button>
 
             <div id="branchPanel"
                  style="display:none;position:absolute;top:calc(100% + 8px);right:0;
-                        background:white;border:1.5px solid var(--border);border-radius:12px;
+                        background:var(--white);border:1.5px solid var(--border);border-radius:12px;
                         box-shadow:0 8px 24px rgba(0,0,0,0.1);padding:18px;min-width:260px;
                         max-height:90vh;overflow-y:auto;z-index:100;">
                 <form method="POST" action="c_dashboard.php">
@@ -340,7 +330,7 @@ function orderStatusBadge(string $status): string {
 
                     <p style="font-size:11px;font-weight:700;color:var(--text-secondary);
                               text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;">
-                        <i class="fas fa-star" style="color:#f59e0b;"></i>
+                        <i class="fas fa-star" style="color:var(--warning);"></i>
                         Your Preferred Branch
                     </p>
                     <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;line-height:1.5;">
@@ -357,7 +347,7 @@ function orderStatusBadge(string $status): string {
                                       border-radius:8px;cursor:pointer;transition:all 0.15s;font-size:13px;
                                       font-weight:500;border:1.5px solid var(--border);
                                       <?= ($activeBranchId === $b['branch_id'])
-                                          ? 'background:rgba(168,53,53,0.08);border-color:var(--primary);color:var(--primary);'
+                                          ? 'background:var(--primary-tint-light);border-color:var(--primary);color:var(--primary);'
                                           : 'color:var(--text-primary);' ?>">
                             <input type="radio" name="branch_id"
                                    value="<?= htmlspecialchars($b['branch_id']) ?>"
@@ -369,7 +359,7 @@ function orderStatusBadge(string $status): string {
                     </div>
 
                     <button type="submit"
-                            style="width:100%;padding:10px;background:var(--primary);color:white;
+                            style="width:100%;padding:10px;background:var(--primary);color:var(--on-primary);
                                    border:none;border-radius:8px;font-size:13px;font-weight:700;
                                    cursor:pointer;display:flex;align-items:center;justify-content:center;
                                    gap:8px;transition:background 0.2s;">
@@ -381,6 +371,8 @@ function orderStatusBadge(string $status): string {
     </header>
 
     <div class="dashboard-content">
+
+        <?php render_banner_slot($conn, 'C_DASHBOARD'); ?>
 
         <!-- Welcome -->
         <div class="welcome-card">
@@ -456,7 +448,7 @@ function orderStatusBadge(string $status): string {
         <!-- Customers Also Bought -->
         <div class="content-section">
             <h3 class="section-title">
-                <i class="fas fa-users" style="color:#d97706;"></i>
+                <i class="fas fa-users" style="color:var(--warning);"></i>
                 Customers Also Bought
                 <span id="collabTypeLabel" style="font-size:12px;font-weight:400;color:var(--text-secondary);margin-left:6px;"></span>
             </h3>
@@ -536,7 +528,7 @@ function orderStatusBadge(string $status): string {
                                 <td>RM <?= number_format($po['estimated_total'] ?? 0, 2) ?></td>
                                 <td>
                                     <button type="button" onclick="openOrderModal('<?= htmlspecialchars($po['preorder_id'], ENT_QUOTES) ?>')"
-                                            style="padding:6px 12px;background:rgba(168,53,53,0.08);color:var(--primary);
+                                            style="padding:6px 12px;background:var(--primary-tint-light);color:var(--primary);
                                                    border:1px solid rgba(168,53,53,0.3);border-radius:7px;font-size:12px;
                                                    font-weight:600;cursor:pointer;white-space:nowrap;">
                                         <i class="fas fa-arrow-right"></i>
@@ -575,9 +567,9 @@ function orderStatusBadge(string $status): string {
 <div id="branchPopup"
      style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:999;
             display:flex;align-items:center;justify-content:center;">
-    <div style="background:white;border-radius:14px;padding:36px 32px;width:90%;max-width:420px;
+    <div style="background:var(--white);border-radius:14px;padding:36px 32px;width:90%;max-width:420px;
                 box-shadow:0 20px 60px rgba(0,0,0,0.2);text-align:center;">
-        <div style="width:56px;height:56px;background:rgba(168,53,53,0.1);border-radius:12px;
+        <div style="width:56px;height:56px;background:var(--primary-tint-medium);border-radius:12px;
                     display:flex;align-items:center;justify-content:center;margin:0 auto 16px;
                     font-size:24px;color:var(--primary);">
             <i class="fas fa-store"></i>
@@ -595,8 +587,8 @@ function orderStatusBadge(string $status): string {
         </p>
         <?php endif; ?>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:24px;
-                  background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;">
-            <i class="fas fa-star" style="color:#f59e0b;"></i>
+                  background:var(--warning-bg);border:1px solid #fde68a;border-radius:8px;padding:8px 12px;">
+            <i class="fas fa-star" style="color:var(--warning);"></i>
             This will be saved as your <strong>preferred branch</strong>.
             You can change it anytime from your dashboard.
         </p>
@@ -659,7 +651,7 @@ async function loadCollabRecommendations() {
                 <div class="collab-price">RM ${parseFloat(p.price).toFixed(2)}</div>
                 <div class="collab-freq">
                     <i class="fas fa-${data.type === 'collaborative' ? 'users' : 'fire'}"
-                       style="color:#d97706;font-size:11px;flex-shrink:0;"></i>
+                       style="color:var(--warning);font-size:11px;flex-shrink:0;"></i>
                     ${escHtml(p.freq_label)}
                 </div>
                 <a href="c_viewproducts.php?search=${encodeURIComponent(p.product_name)}"
@@ -739,7 +731,7 @@ function renderCards(recs) {
             <div class="rec-name">${esc(p.product_name)}</div>
             <div class="rec-price">RM ${parseFloat(p.price).toFixed(2)}</div>
             <div class="rec-reason">
-                <i class="fas fa-check-circle" style="color:#10b981;margin-right:4px;font-size:11px;"></i>
+                <i class="fas fa-check-circle" style="color:var(--success);margin-right:4px;font-size:11px;"></i>
                 ${esc(p.reason)}
             </div>
             <a href="c_viewproducts.php?search=${encodeURIComponent(p.product_name)}" class="rec-btn">
@@ -768,7 +760,7 @@ function openOrderModal(id) {
         .then(d => renderOrderReceipt(d))
         .catch(() => {
             document.getElementById('orderModalBody').innerHTML =
-                '<p style="text-align:center;color:#c62828;padding:30px;">Failed to load details.</p>';
+                '<p style="text-align:center;color:var(--danger);padding:30px;">Failed to load details.</p>';
         });
 }
 
@@ -780,7 +772,7 @@ function closeOrderModal() {
 function renderOrderReceipt(d) {
     if (d.error) {
         document.getElementById('orderModalBody').innerHTML =
-            '<p style="text-align:center;color:#c62828;padding:30px;">' + esc(d.error) + '</p>';
+            '<p style="text-align:center;color:var(--danger);padding:30px;">' + esc(d.error) + '</p>';
         return;
     }
 
@@ -821,7 +813,7 @@ function renderOrderReceipt(d) {
         </div>
         <div style="margin-top:14px;text-align:center;">
             <a href="c_orderstatus.php" style="display:inline-flex;align-items:center;gap:8px;padding:9px 20px;
-                   background:rgba(168,53,53,0.08);color:var(--primary);border:1.5px solid rgba(168,53,53,0.3);
+                   background:var(--primary-tint-light);color:var(--primary);border:1.5px solid rgba(168,53,53,0.3);
                    border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;">
                 <i class="fas fa-list"></i> View all orders
             </a>

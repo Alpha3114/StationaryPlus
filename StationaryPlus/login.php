@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // ============================================================
 //  login.php — Login + Forgot Password + Reset Password
 //
@@ -12,6 +12,7 @@
 if (session_status() === PHP_SESSION_NONE) session_start();
 
 require_once 'db.php';
+require_once 'banner_slot.php';
 
 // Already logged in? Go to dashboard
 if (!empty($_SESSION['user_id'])) {
@@ -234,10 +235,12 @@ $doneMode = $_GET['mode'] ?? '';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus <?= $step !== 'login' ? '— ' . match($step) { 'forgot' => 'Forgot Password', 'reset' => 'Reset Password', 'done' => 'All Done', default => '' } : '' ?></title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
     <style>
         :root {
             --primary: #A83535; --secondary: #F4A261; --accent: #F1EDE8;
-            --background: #F5F5F5; --text-primary: #2E2E2E; --text-secondary: #707070;
+            --background: #FAFAFA; --text-primary: #2E2E2E; --text-secondary: #707070;
             --border: #E0E0E0; --white: #FFFFFF;
         }
         * { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI',system-ui,sans-serif; }
@@ -260,8 +263,12 @@ $doneMode = $_GET['mode'] ?? '';
             padding: 50px 40px;
             display: flex;
             flex-direction: column;
-            color: var(--white);
+            color: var(--on-primary);
         }
+        .theme-toggle-standalone { position: fixed; top: 16px; right: 16px; z-index: 1000; display: flex; gap: 6px; background: var(--white); padding: 6px; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); border: 1px solid var(--border); }
+        .theme-toggle-standalone .theme-toggle-btn { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--primary-tint-subtle); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; font-size: 13px; transition: all 0.15s; }
+        .theme-toggle-standalone .theme-toggle-btn:hover { background: var(--primary-tint-light); color: var(--primary); }
+        .theme-toggle-standalone .theme-toggle-btn.active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
         .logo { display:flex;align-items:center;margin-bottom:40px; }
         .logo-icon { background:rgba(255,255,255,0.15);width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;margin-right:12px;font-size:22px; }
         .logo-text { font-size:24px;font-weight:700;letter-spacing:0.5px; }
@@ -295,8 +302,8 @@ $doneMode = $_GET['mode'] ?? '';
             width:100%;padding:14px 14px 14px 46px;border:1.5px solid var(--border);border-radius:8px;
             font-size:15px;transition:all 0.2s;background-color:var(--accent);color:var(--text-primary);
         }
-        input:focus { outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(168,53,53,0.1);background-color:var(--white); }
-        input.input-error { border-color:#D32F2F;background-color:#fff5f5; }
+        input:focus { outline:none;border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-tint-medium);background-color:var(--white); }
+        input.input-error { border-color:var(--danger);background-color:var(--danger-bg); }
         .input-icon { position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--text-secondary);font-size:16px;pointer-events:none; }
         .password-toggle { position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--text-secondary);cursor:pointer;font-size:16px; }
 
@@ -305,11 +312,11 @@ $doneMode = $_GET['mode'] ?? '';
 
         /* Alerts */
         .alert-error {
-            background:#fff0f0;color:#c62828;border:1px solid #ef9a9a;border-radius:8px;
+            background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger);border-radius:8px;
             padding:12px 16px;font-size:14px;margin-bottom:20px;display:flex;align-items:flex-start;gap:8px;
         }
         .alert-success {
-            background:#e8f5e9;color:#2e7d32;border:1px solid #a5d6a7;border-radius:8px;
+            background:var(--success-bg);color:var(--success);border:1px solid var(--success-border);border-radius:8px;
             padding:12px 16px;font-size:14px;margin-bottom:20px;display:flex;align-items:flex-start;gap:8px;
         }
         .alert-info {
@@ -324,13 +331,13 @@ $doneMode = $_GET['mode'] ?? '';
             transition:background-color 0.2s;margin-top:8px;margin-bottom:24px;
             display:flex;align-items:center;justify-content:center;gap:8px;
         }
-        .btn-primary:hover { background-color:#8b2a2a; }
+        .btn-primary:hover { background-color:var(--primary-dark); }
         .btn-done {
             display:inline-flex;align-items:center;gap:8px;padding:12px 28px;
-            background:var(--primary);color:white;border-radius:8px;text-decoration:none;
+            background:var(--primary);color:var(--on-primary);border-radius:8px;text-decoration:none;
             font-size:15px;font-weight:600;transition:background 0.2s;
         }
-        .btn-done:hover { background:#8b2a2a; }
+        .btn-done:hover { background:var(--primary-dark); }
 
         /* Back / secondary links */
         .back-link {
@@ -356,7 +363,7 @@ $doneMode = $_GET['mode'] ?? '';
 
         /* Done screen */
         .done-icon { width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:28px; }
-        .done-icon.success { background:#ecfdf5;color:#059669; }
+        .done-icon.success { background:var(--success-bg);color:var(--success); }
         .done-icon.info    { background:#eff6ff;color:#1d4ed8; }
 
         .form-footer { margin-top:24px;font-size:13px;color:var(--text-secondary);text-align:center; }
@@ -369,6 +376,13 @@ $doneMode = $_GET['mode'] ?? '';
     </style>
 </head>
 <body>
+
+<div class="theme-toggle-standalone" role="group" aria-label="Theme">
+    <button type="button" class="theme-toggle-btn" data-theme-option="light" title="Light theme" aria-label="Light theme"><i class="fas fa-sun"></i></button>
+    <button type="button" class="theme-toggle-btn" data-theme-option="dark" title="Dark theme" aria-label="Dark theme"><i class="fas fa-moon"></i></button>
+    <button type="button" class="theme-toggle-btn" data-theme-option="high-contrast" title="High contrast" aria-label="High contrast theme"><i class="fas fa-adjust"></i></button>
+</div>
+<script>if (window.initThemeToggle) initThemeToggle();</script>
 
 <div class="login-container">
 
@@ -403,6 +417,10 @@ $doneMode = $_GET['mode'] ?? '';
             <div class="badge" title="For branch/company administrators"><i class="fas fa-user-shield"></i> Admin</div>
             <div class="badge" title="For branch staff"><i class="fas fa-user-tie"></i> Staff</div>
             <div class="badge" title="For registered customers"><i class="fas fa-user"></i> Customer</div>
+        </div>
+
+        <div style="margin-top:28px;">
+            <?php render_banner_slot($conn, 'LOGIN'); ?>
         </div>
     </div>
 
@@ -657,16 +675,16 @@ function checkStrength(val) {
 
     if (!long) {
         el.textContent = 'Too short — minimum 8 characters';
-        el.style.color = '#dc2626';
+        el.style.color = 'var(--danger)';
     } else if (hasLetter && hasNumber && hasSpecial) {
         el.textContent = '✓ Strong password';
-        el.style.color = '#059669';
+        el.style.color = 'var(--success)';
     } else if (hasLetter && hasNumber) {
         el.textContent = '✓ Good — add a symbol to make it stronger';
-        el.style.color = '#d97706';
+        el.style.color = 'var(--warning)';
     } else {
         el.textContent = 'Use letters and numbers';
-        el.style.color = '#dc2626';
+        el.style.color = 'var(--danger)';
     }
 }
 

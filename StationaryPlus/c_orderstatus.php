@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // ============================================================
 //  c_orderstatus.php — Customer Order & Pre-order Status
 // ============================================================
@@ -186,10 +186,10 @@ $stmt->close();
 function statusBadge(string $status): string {
     $map = [
         'NEW'        => ['#3b82f6','#eff6ff','New'],
-        'PROCESSING' => ['#f59e0b','#fffbeb','Processing'],
-        'READY'      => ['#10b981','#ecfdf5','Ready for Collection'],
+        'PROCESSING' => ['var(--warning)','var(--warning-bg)','Processing'],
+        'READY'      => ['var(--success)','var(--success-bg)','Ready for Collection'],
         'COLLECTED'  => ['#6b7280','#f3f4f6','Collected'],
-        'CANCELLED'  => ['#ef4444','#fef2f2','Cancelled'],
+        'CANCELLED'  => ['var(--danger)','var(--danger-bg)','Cancelled'],
     ];
     [$color, $bg, $label] = $map[$status] ?? ['#888','#f3f4f6', $status];
     return "<span style='background:$bg;color:$color;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;white-space:nowrap;'>$label</span>";
@@ -207,9 +207,9 @@ function paymentBadge(?string $status): string {
         return "<span style='background:#f3f4f6;color:#6b7280;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;'>Not submitted</span>";
     }
     $map = [
-        'VALID'   => ['#10b981','#ecfdf5','✓ Verified'],
-        'PENDING' => ['#f59e0b','#fffbeb','Pending Review'],
-        'INVALID' => ['#ef4444','#fef2f2','✗ Rejected'],
+        'VALID'   => ['var(--success)','var(--success-bg)','✓ Verified'],
+        'PENDING' => ['var(--warning)','var(--warning-bg)','Pending Review'],
+        'INVALID' => ['var(--danger)','var(--danger-bg)','✗ Rejected'],
     ];
     [$color, $bg, $label] = $map[$status] ?? ['#6b7280','#f3f4f6', $status];
     return "<span style='background:$bg;color:$color;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;white-space:nowrap;'>$label</span>";
@@ -222,66 +222,49 @@ function paymentBadge(?string $status): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus - Order Status</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="assets/css/tokens.css">
+    <script src="assets/js/theme.js"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css">
     <style>
         :root { --primary:#A83535;--secondary:#F4A261;--accent:#F1EDE8;--background:#FAFAFA;--text-primary:#2E2E2E;--text-secondary:#707070;--border:#E0E0E0;--white:#FFFFFF;--sidebar-width:260px;--card-shadow:0 4px 12px rgba(0,0,0,0.05); }
         * { margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif; }
         body { background-color:var(--background);color:var(--text-primary);min-height:100vh;display:flex; }
-        .sidebar { width:var(--sidebar-width);background-color:var(--white);border-right:1px solid var(--border);height:100vh;position:fixed;left:0;top:0;display:flex;flex-direction:column;box-shadow:2px 0 10px rgba(0,0,0,0.03);overflow-y:auto; }
-        .logo-area { padding:25px;border-bottom:1px solid var(--border);display:flex;align-items:center;flex-shrink:0; }
-        .logo-icon { background-color:var(--primary);width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-right:12px;color:white;font-size:20px; }
-        .logo-text { font-size:22px;font-weight:700;color:var(--primary); }
-        .nav-section { padding:25px 0;border-bottom:1px solid var(--border); }
-        .nav-title { font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.8px;padding:0 25px 12px 25px; }
-        .nav-menu { list-style:none; }
-        .nav-item { margin-bottom:2px; }
-        .nav-link { display:flex;align-items:center;padding:13px 25px;color:var(--text-primary);text-decoration:none;transition:all 0.2s;border-left:4px solid transparent; }
-        .nav-link:hover { background-color:rgba(168,53,53,0.05);color:var(--primary);border-left-color:rgba(168,53,53,0.3); }
-        .nav-link.active { background-color:rgba(168,53,53,0.08);color:var(--primary);border-left-color:var(--primary);font-weight:600; }
-        .nav-icon { width:22px;text-align:center;margin-right:14px;font-size:16px; }
-        .nav-text { font-size:15px; }
-        .user-section { margin-top:auto;padding:20px 25px;border-top:1px solid var(--border); }
-        .user-info { display:flex;align-items:center;margin-bottom:14px; }
-        .user-avatar { width:40px;height:40px;border-radius:50%;background-color:rgba(168,53,53,0.1);display:flex;align-items:center;justify-content:center;color:var(--primary);font-weight:700;font-size:16px;margin-right:12px;flex-shrink:0; }
-        .user-name { font-weight:600;font-size:15px;color:var(--text-primary); }
-        .user-role { font-size:12px;color:var(--text-secondary);margin-top:2px; }
-        .logout-link { display:flex;align-items:center;gap:10px;padding:10px 14px;background-color:rgba(168,53,53,0.06);color:var(--primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600; }
-        .logout-link:hover { background-color:rgba(168,53,53,0.14); }
         .main-content { flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column; }
         .top-header { background-color:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap; }
         .page-title { font-size:24px;font-weight:700; }
         .page-subtitle { font-size:14px;color:var(--text-secondary);margin-top:4px; }
         .content-container { padding:30px;flex-grow:1;display:flex;flex-direction:column;gap:24px; }
         .section-card { background:var(--white);border-radius:12px;box-shadow:var(--card-shadow);border:1px solid var(--border);overflow:hidden; }
-        .section-header { padding:18px 24px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:rgba(168,53,53,0.02); }
+        .section-header { padding:18px 24px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--primary-tint-subtle); }
         .section-title { font-size:16px;font-weight:700;color:var(--primary);display:flex;align-items:center;gap:8px; }
-        .result-count { font-size:13px;color:var(--text-secondary);background:rgba(168,53,53,0.08);padding:4px 12px;border-radius:20px;font-weight:600; }
-        .filter-bar { display:flex;gap:10px;align-items:center;padding:16px 24px;border-bottom:1px solid var(--border);flex-wrap:wrap;background:rgba(168,53,53,0.01); }
+        .result-count { font-size:13px;color:var(--text-secondary);background:var(--primary-tint-light);padding:4px 12px;border-radius:20px;font-weight:600; }
+        .filter-bar { display:flex;gap:10px;align-items:center;padding:16px 24px;border-bottom:1px solid var(--border);flex-wrap:wrap;background:var(--primary-tint-subtle); }
         .filter-select { padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;background:var(--white);color:var(--text-primary);cursor:pointer; }
         .filter-select:focus { outline:none;border-color:var(--primary); }
-        .filter-btn { padding:8px 18px;background:var(--primary);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px; }
+        .filter-btn { padding:8px 18px;background:var(--primary);color:var(--on-primary);border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px; }
         .reset-link { font-size:13px;color:var(--text-secondary);text-decoration:none;padding:8px 12px;border-radius:8px;transition:all 0.2s; }
-        .reset-link:hover { color:var(--primary);background:rgba(168,53,53,0.06); }
+        .reset-link:hover { color:var(--primary);background:var(--primary-tint-light); }
         .table-wrap { overflow-x:auto; }
         .pagination-bar { display:flex;align-items:center;justify-content:center;gap:18px;padding:16px 24px;border-top:1px solid var(--border); }
         .page-link { display:inline-flex;align-items:center;gap:6px;padding:7px 14px;background:var(--white);color:var(--primary);border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;transition:all 0.2s; }
-        .page-link:hover { border-color:var(--primary);background:rgba(168,53,53,0.05); }
+        .page-link:hover { border-color:var(--primary);background:var(--primary-tint-subtle); }
         .page-link.disabled { color:var(--text-secondary);pointer-events:none;opacity:0.5; }
         .page-info { font-size:13px;color:var(--text-secondary);font-weight:600; }
         .orders-table { width:100%;border-collapse:collapse; }
-        .orders-table thead { background:rgba(168,53,53,0.03);border-bottom:2px solid var(--border); }
+        .orders-table thead { background:var(--primary-tint-subtle);border-bottom:2px solid var(--border); }
         .orders-table th { padding:13px 20px;text-align:left;font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap; }
         .orders-table tbody tr { border-bottom:1px solid var(--border);transition:background-color 0.15s; }
         .orders-table tbody tr:last-child { border-bottom:none; }
-        .orders-table tbody tr:hover { background-color:rgba(168,53,53,0.02); }
+        .orders-table tbody tr:hover { background-color:var(--primary-tint-subtle); }
         .orders-table td { padding:14px 20px;font-size:14px;color:var(--text-primary);vertical-align:middle; }
         .order-id { font-weight:700;color:var(--primary);font-family:monospace;font-size:13px; }
         .order-date { color:var(--text-secondary);font-size:13px; }
-        .detail-btn { padding:7px 14px;background-color:rgba(168,53,53,0.08);color:var(--primary);border:1px solid rgba(168,53,53,0.3);border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;white-space:nowrap; }
-        .detail-btn:hover { background-color:rgba(168,53,53,0.16); }
-        .cancel-order-btn { padding:7px 14px;background:rgba(239,68,68,0.08);color:#dc2626;border:1px solid rgba(239,68,68,0.3);border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;white-space:nowrap;margin-left:6px; }
-        .cancel-order-btn:hover { background:#dc2626;color:white;border-color:#dc2626; }
-        .resubmit-link { display:inline-flex;align-items:center;gap:5px;margin-top:5px;font-size:11px;font-weight:600;color:#dc2626;text-decoration:none;padding:3px 8px;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;transition:all 0.15s; }
-        .resubmit-link:hover { background:#dc2626;color:white; }
+        .detail-btn { padding:7px 14px;background-color:var(--primary-tint-light);color:var(--primary);border:1px solid var(--primary-tint-active);border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;white-space:nowrap; }
+        .detail-btn:hover { background-color:var(--primary-tint-active); }
+        .cancel-order-btn { padding:7px 14px;background:rgba(239,68,68,0.08);color:var(--danger);border:1px solid rgba(239,68,68,0.3);border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;white-space:nowrap;margin-left:6px; }
+        .cancel-order-btn:hover { background:var(--danger);color:var(--on-primary);border-color:var(--danger); }
+        .resubmit-link { display:inline-flex;align-items:center;gap:5px;margin-top:5px;font-size:11px;font-weight:600;color:var(--danger);text-decoration:none;padding:3px 8px;background:var(--danger-bg);border:1px solid #fca5a5;border-radius:6px;transition:all 0.15s; }
+        .resubmit-link:hover { background:var(--danger);color:var(--on-primary); }
         .empty-state { padding:60px 20px;text-align:center;color:var(--text-secondary); }
         .empty-state i { font-size:44px;opacity:0.2;margin-bottom:14px;display:block; }
         /* Modal */
@@ -300,15 +283,6 @@ function paymentBadge(?string $status): string {
         .page-footer { text-align:center;padding:22px;color:var(--text-secondary);font-size:13px;border-top:1px solid var(--border);background-color:var(--white); }
         .footer-links { margin-top:8px; }
         .footer-links a { color:var(--primary);text-decoration:none;margin:0 10px; }
-        @media (max-width:1024px) {
-            :root { --sidebar-width:70px; }
-            .logo-text,.nav-text,.user-details,.nav-title,.logout-link span { display:none; }
-            .logo-area,.nav-section,.user-section { padding:18px 12px; }
-            .nav-link { justify-content:center;padding:14px;border-left:none;border-right:4px solid transparent; }
-            .nav-link:hover,.nav-link.active { border-left:none;border-right-color:var(--primary); }
-            .nav-icon { margin-right:0;font-size:20px; }
-            .logout-link { justify-content:center;padding:10px; }
-        }
     </style>
 </head>
 <body>
@@ -390,8 +364,8 @@ function paymentBadge(?string $status): string {
                         <td><?= statusBadge($row['status']) ?>
                             <?php if ($row['status'] === 'CANCELLED' && !empty($row['cancellation_reason'])): ?>
                             <div style="margin-top:6px;padding:7px 11px;
-                                        background:#fef2f2;border:1px solid #fca5a5;
-                                        border-radius:7px;font-size:12px;color:#991b1b;
+                                        background:var(--danger-bg);border:1px solid #fca5a5;
+                                        border-radius:7px;font-size:12px;color:var(--danger);
                                         display:flex;align-items:flex-start;gap:6px;">
                                 <i class="fas fa-times-circle" style="flex-shrink:0;margin-top:2px;"></i>
                                 <div>
@@ -453,8 +427,8 @@ function paymentBadge(?string $status): string {
                             $pfStatus = $row['pf_file_status'] ?? '';
                             $pfColors = [
                                 'RECEIVED' => ['#3b82f6','#eff6ff','Under Review'],
-                                'REVIEWED' => ['#10b981','#ecfdf5','File Approved'],
-                                'REJECTED' => ['#ef4444','#fef2f2','File Rejected'],
+                                'REVIEWED' => ['var(--success)','var(--success-bg)','File Approved'],
+                                'REJECTED' => ['var(--danger)','var(--danger-bg)','File Rejected'],
                             ];
                             [$pfColor, $pfBg, $pfLabel] = $pfColors[$pfStatus] ?? ['#6b7280','#f3f4f6', $pfStatus];
                             ?>
@@ -466,8 +440,8 @@ function paymentBadge(?string $status): string {
 
                             <?php if ($pfStatus === 'REJECTED' && !empty($row['pf_rejection_reason'])): ?>
                             <div style="margin-top:6px;padding:8px 12px;
-                                        background:#fef2f2;border:1px solid #fca5a5;
-                                        border-radius:7px;font-size:12px;color:#991b1b;
+                                        background:var(--danger-bg);border:1px solid #fca5a5;
+                                        border-radius:7px;font-size:12px;color:var(--danger);
                                         display:flex;align-items:flex-start;gap:7px;">
                                 <i class="fas fa-exclamation-circle" style="margin-top:2px;flex-shrink:0;"></i>
                                 <div>
@@ -476,7 +450,7 @@ function paymentBadge(?string $status): string {
                                     <div style="margin-top:6px;">
                                         <a href="c_upload.php?link_order=<?= urlencode($row['id']) ?>"
                                            style="display:inline-flex;align-items:center;gap:5px;
-                                                  padding:4px 10px;background:#dc2626;color:white;
+                                                  padding:4px 10px;background:var(--danger);color:var(--on-primary);
                                                   border-radius:6px;font-size:11px;font-weight:700;
                                                   text-decoration:none;">
                                             <i class="fas fa-upload"></i> Re-upload corrected file
@@ -556,7 +530,7 @@ function paymentBadge(?string $status): string {
 <div class="modal-overlay" id="cancelModalOverlay" onclick="if(event.target===this)closeCancelModal()">
     <div class="modal" style="max-width:420px;">
         <div class="modal-header">
-            <div class="modal-title" style="color:#dc2626;">
+            <div class="modal-title" style="color:var(--danger);">
                 <i class="fas fa-times-circle"></i> Cancel Order
             </div>
             <button class="modal-close" onclick="closeCancelModal()"><i class="fas fa-times"></i></button>
@@ -590,11 +564,11 @@ function paymentBadge(?string $status): string {
                         Keep Order
                     </button>
                     <button type="submit"
-                            style="flex:1;padding:11px;background:#dc2626;color:white;
+                            style="flex:1;padding:11px;background:var(--danger);color:var(--on-primary);
                                    border:none;border-radius:8px;font-size:14px;font-weight:600;
                                    cursor:pointer;transition:background 0.2s;"
                             onmouseover="this.style.background='#b91c1c'"
-                            onmouseout="this.style.background='#dc2626'">
+                            onmouseout="this.style.background='var(--danger)'">
                         <i class="fas fa-times-circle"></i> Yes, Cancel Order
                     </button>
                 </div>
@@ -615,14 +589,14 @@ function openModal(id) {
         .then(d => renderReceipt(d))
         .catch(() => {
             document.getElementById('modalBody').innerHTML =
-                '<p style="text-align:center;color:#c62828;padding:30px;">Failed to load details.</p>';
+                '<p style="text-align:center;color:var(--danger);padding:30px;">Failed to load details.</p>';
         });
 }
 
 function renderReceipt(d) {
     if (d.error) {
         document.getElementById('modalBody').innerHTML =
-            '<p style="text-align:center;color:#c62828;padding:30px;">' + d.error + '</p>';
+            '<p style="text-align:center;color:var(--danger);padding:30px;">' + d.error + '</p>';
         return;
     }
 
@@ -630,9 +604,9 @@ function renderReceipt(d) {
     const typeLabel  = isPreorder ? 'Pre-order / Reservation' : 'Walk-in Sale';
 
     const payBadge = {
-        'VALID':   "<span style='background:#ecfdf5;color:#059669;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;'>✓ Verified</span>",
-        'PENDING': "<span style='background:#fffbeb;color:#d97706;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;'>Pending Review</span>",
-        'INVALID': "<span style='background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;'>✗ Rejected — please resubmit</span>",
+        'VALID':   "<span style='background:var(--success-bg);color:var(--success);padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;'>✓ Verified</span>",
+        'PENDING': "<span style='background:var(--warning-bg);color:var(--warning);padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;'>Pending Review</span>",
+        'INVALID': "<span style='background:var(--danger-bg);color:var(--danger);padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;'>✗ Rejected — please resubmit</span>",
     }[d.pay_status] || "<span style='background:#f3f4f6;color:#6b7280;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;'>Not submitted</span>";
 
     // Order items rows
@@ -697,9 +671,9 @@ function renderReceipt(d) {
         <div class="detail-row"><span class="detail-label">Order Status</span><span class="detail-value">${esc(d.status)}</span></div>
         <div class="detail-row"><span class="detail-label">Payment</span><span class="detail-value">${payBadge}</span></div>
         ${d.status === 'CANCELLED' && d.cancellation_reason ? `
-        <div class="detail-row" style="background:#fef2f2;border-radius:7px;padding:10px 12px;margin-top:4px;">
-            <span class="detail-label" style="color:#dc2626;"><i class="fas fa-times-circle"></i> Cancellation Reason</span>
-            <span class="detail-value" style="color:#991b1b;">${esc(d.cancellation_reason)}</span>
+        <div class="detail-row" style="background:var(--danger-bg);border-radius:7px;padding:10px 12px;margin-top:4px;">
+            <span class="detail-label" style="color:var(--danger);"><i class="fas fa-times-circle"></i> Cancellation Reason</span>
+            <span class="detail-value" style="color:var(--danger);">${esc(d.cancellation_reason)}</span>
         </div>` : ''}
         ${d.notes ? `<div class="detail-row"><span class="detail-label">Notes</span><span class="detail-value">${esc(d.notes)}</span></div>` : ''}
 
@@ -713,13 +687,13 @@ function renderReceipt(d) {
             </span>
         </div>
         ${d.pay_status === 'INVALID' ? `
-        <div style="margin-top:14px;padding:10px 14px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:13px;color:#991b1b;">
+        <div style="margin-top:14px;padding:10px 14px;background:var(--danger-bg);border:1px solid #fca5a5;border-radius:8px;font-size:13px;color:var(--danger);">
             <i class="fas fa-exclamation-circle"></i>
-            Your payment was rejected. <a href="c_payment.php?order_id=${encodeURIComponent(d.id)}" style="color:#dc2626;font-weight:700;">Click here to resubmit.</a>
+            Your payment was rejected. <a href="c_payment.php?order_id=${encodeURIComponent(d.id)}" style="color:var(--danger);font-weight:700;">Click here to resubmit.</a>
         </div>` : ''}
         ${d.pay_status === null && d.status === 'NEW' ? `
         <div style="margin-top:14px;text-align:center;">
-            <a href="c_payment.php?order_id=${encodeURIComponent(d.id)}" style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;background:var(--primary);color:white;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;">
+            <a href="c_payment.php?order_id=${encodeURIComponent(d.id)}" style="display:inline-flex;align-items:center;gap:8px;padding:10px 20px;background:var(--primary);color:var(--on-primary);border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;">
                 <i class="fas fa-paper-plane"></i> Submit Payment
             </a>
         </div>` : ''}
