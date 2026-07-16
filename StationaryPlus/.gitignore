@@ -1,5 +1,5 @@
-# API keys and config — never commit these
-config.php
+# Credentials — never commit this (see .env.example for the template)
+.env
 
 # Uploaded print files
 uploads/print_files/
