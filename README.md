@@ -63,8 +63,3 @@ StationaryPlus/
 ├── assets/js/             theme.js (Light/Dark/High-Contrast toggle)
 └── uploads/               Print files & payment proof uploads (gitignored)
 ```
-
-## Security notes
-
-- All credentials live in `StationaryPlus/.env`, which is gitignored and never committed — `config.php`, `db.php`, and `db_server.php` contain no secrets and are safe to commit.
-- `uploads/print_files/` is also gitignored — never commit customer uploads.
