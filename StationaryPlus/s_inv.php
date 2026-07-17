@@ -8,6 +8,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'auth.php';
 require_role(['STAFF', 'ADMIN']);
 require_once 'db.php';
+require_once 'audit.php';
 
 $userId       = $_SESSION['user_id'];
 $branchId     = $_SESSION['branch_id'] ?? null;
@@ -163,13 +164,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_restock'])) {
 // ── Handle marking a restock request as RECEIVED ───────────────
 // This is the ONLY point in the restock workflow where stock_quantity
 // actually increases — Accept/Reject by admin never touches stock.
+// Staff record the ACTUAL qty received and how many of those are
+// damaged; only the good portion is added to sellable stock, and a
+// shortfall/damage is flagged (has_issue) for admin visibility.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_received'])) {
-    $requestId = trim($_POST['request_id'] ?? '');
+    $requestId   = trim($_POST['request_id'] ?? '');
+    $receivedQty = (int)($_POST['received_qty'] ?? -1);
+    $damagedQty  = (int)($_POST['damaged_qty'] ?? 0);
 
     if (!$branchActive) {
         $rrMsg = "Your branch is inactive — restock actions are unavailable.";
         $rrMsgType = 'error';
-    } elseif ($requestId) {
+    } elseif (!$requestId || $receivedQty < 0 || $damagedQty < 0 || $damagedQty > $receivedQty) {
+        $rrMsg = "Enter a valid received quantity — damaged units can't exceed units received.";
+        $rrMsgType = 'error';
+    } else {
         $conn->begin_transaction();
 
         $stmt = $conn->prepare(
@@ -181,7 +190,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_received'])) {
         $rrRow = $stmt->get_result()->fetch_assoc();
         $stmt->close();
 
-        if ($rrRow) {
+        // Sanity cap against fat-finger entry — no legitimate shipment
+        // arrives at more than 3x what was requested.
+        if ($rrRow && $receivedQty > (int)$rrRow['requested_qty'] * 3) {
+            $conn->rollback();
+            $rrMsg = "Received quantity looks too high for what was requested — please double-check.";
+            $rrMsgType = 'error';
+        } elseif ($rrRow) {
+            $goodQty  = $receivedQty - $damagedQty;
+            $hasIssue = ($receivedQty < (int)$rrRow['requested_qty']) || ($damagedQty > 0);
+
             // Find the inventory row for this product+branch
             $invStmt = $conn->prepare(
                 "SELECT inventory_id, stock_quantity FROM inventory
@@ -192,9 +210,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_received'])) {
             $invRow = $invStmt->get_result()->fetch_assoc();
             $invStmt->close();
 
-            if ($invRow) {
+            if ($invRow && $goodQty !== 0) {
                 $oldQty = (int)$invRow['stock_quantity'];
-                $newQty = $oldQty + (int)$rrRow['requested_qty'];
+                $newQty = $oldQty + $goodQty;
 
                 $upd = $conn->prepare(
                     "UPDATE inventory SET stock_quantity = ?, last_updated = NOW() WHERE inventory_id = ?"
@@ -210,31 +228,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_received'])) {
                          reason, reference_id, changed_by)
                      VALUES (?, ?, ?, ?, ?, ?, 'RESTOCK_RECEIVED', ?, ?)"
                 );
-                $changeQty = (int)$rrRow['requested_qty'];
                 $log->bind_param(
                     'sssiiiss',
                     $invRow['inventory_id'], $rrRow['product_id'], $rrRow['branch_id'],
-                    $changeQty, $oldQty, $newQty,
+                    $goodQty, $oldQty, $newQty,
                     $requestId, $userId
                 );
                 $log->execute();
                 $log->close();
             }
 
-            // Mark the request as RECEIVED
+            // Mark the request as RECEIVED with the actual quantities
             $stmt = $conn->prepare(
                 "UPDATE restock_requests
-                 SET status = 'RECEIVED', received_by = ?, received_at = NOW()
+                 SET status = 'RECEIVED', received_qty = ?, damaged_qty = ?, has_issue = ?,
+                     received_by = ?, received_at = NOW()
                  WHERE request_id = ?"
             );
-            $stmt->bind_param('ss', $userId, $requestId);
+            $hasIssueInt = $hasIssue ? 1 : 0;
+            $stmt->bind_param('iiiss', $receivedQty, $damagedQty, $hasIssueInt, $userId, $requestId);
             $stmt->execute();
             $stmt->close();
 
+            log_audit(
+                $conn, 'RESTOCK_RECEIVED', 'restock_request', $requestId,
+                "received=$receivedQty damaged=$damagedQty good=$goodQty issue=" . ($hasIssue ? 'yes' : 'no')
+            );
+
             $conn->commit();
 
-            $rrMsg = "Stock received and updated successfully.";
-            $rrMsgType = 'success';
+            $rrMsg = $hasIssue
+                ? "Received with a discrepancy — $goodQty unit(s) added to stock. Flagged for admin review."
+                : "Stock received and updated successfully.";
+            $rrMsgType = $hasIssue ? 'warning' : 'success';
         } else {
             $conn->rollback();
         }
@@ -250,11 +276,12 @@ $filterBranch = $_GET['branch']      ?? 'all';
 if ($branchId) {
     $stmt = $conn->prepare(
         "SELECT
-            (SELECT COUNT(*) FROM products WHERE product_status = 'ACTIVE') AS total_products,
+            (SELECT COUNT(*) FROM inventory i JOIN products p ON i.product_id = p.product_id
+                WHERE p.product_status = 'ACTIVE' AND i.branch_id = ?) AS total_products,
             (SELECT COUNT(*) FROM branches WHERE status = 'ACTIVE') AS total_branches,
             (SELECT COUNT(*) FROM inventory WHERE stock_quantity <= minimum_level AND branch_id = ?) AS low_stock_count"
     );
-    $stmt->bind_param('s', $branchId);
+    $stmt->bind_param('ss', $branchId, $branchId);
 } else {
     $stmt = $conn->prepare(
         "SELECT
@@ -281,19 +308,23 @@ $allProducts = $conn->query(
 )->fetch_all(MYSQLI_ASSOC);
 
 // ── Restock requests for this branch (visible to any staff there) ──
+// Includes recently-RECEIVED rows (48h window) so a shortfall/damage
+// staff just reported doesn't silently vanish from their own view.
 $myRestockRequests = [];
 if ($branchId) {
     $stmt = $conn->prepare(
-        "SELECT rr.request_id, rr.requested_qty, rr.source, rr.status,
-                rr.admin_note, rr.requested_at, rr.reviewed_at,
+        "SELECT rr.request_id, rr.requested_qty, rr.received_qty, rr.damaged_qty, rr.has_issue,
+                rr.source, rr.status,
+                rr.admin_note, rr.requested_at, rr.reviewed_at, rr.received_at,
                 p.product_name,
                 ureq.name AS requested_by_name
          FROM restock_requests rr
          JOIN products p ON rr.product_id = p.product_id
          LEFT JOIN users ureq ON rr.requested_by = ureq.user_id
          WHERE rr.branch_id = ?
-           AND rr.status IN ('PENDING','ORDERED')
-         ORDER BY rr.requested_at DESC
+           AND (rr.status IN ('PENDING','ORDERED')
+                OR (rr.status = 'RECEIVED' AND rr.received_at >= NOW() - INTERVAL 48 HOUR))
+         ORDER BY (rr.status = 'RECEIVED') ASC, rr.requested_at DESC
          LIMIT 30"
     );
     $stmt->bind_param('s', $branchId);
@@ -302,15 +333,29 @@ if ($branchId) {
     $stmt->close();
 }
 
+function rrIssueBadge(array $req): string {
+    if ((string)$req['status'] !== 'RECEIVED' || !$req['has_issue']) return '';
+    $short = (int)$req['requested_qty'] - (int)$req['received_qty'];
+    $parts = [];
+    if ($short > 0) $parts[] = "$short short";
+    if ((int)$req['damaged_qty'] > 0) $parts[] = $req['damaged_qty'] . ' damaged';
+    $label = htmlspecialchars(implode(', ', $parts));
+    return "<span style='display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;
+        padding:2px 8px;border-radius:10px;background:var(--warning-bg);color:var(--warning);
+        border:1px solid var(--warning-border-soft);margin-top:4px;'>
+        <i class='fas fa-triangle-exclamation'></i> $label</span>";
+}
+
 function rrStatusBadge(string $status): string {
     // Border uses a themed soft-alpha token when $color maps to a semantic
     // status color; otherwise falls back to the literal hex + alpha suffix.
     $map = [
-        'PENDING' => ['#d97706', 'var(--warning-bg)', 'Pending Review'],
-        'ORDERED' => ['#1d4ed8', '#eff6ff', 'Ordered — awaiting delivery'],
+        'PENDING'  => ['#d97706', 'var(--warning-bg)', 'Pending Review'],
+        'ORDERED'  => ['#1d4ed8', '#eff6ff', 'Ordered — awaiting delivery'],
+        'RECEIVED' => ['var(--success)', 'var(--success-bg)', 'Received'],
     ];
-    $varMap = ['PENDING' => 'var(--warning)'];
-    $borderVarMap = ['PENDING' => 'var(--warning-border-soft)'];
+    $varMap = ['PENDING' => 'var(--warning)', 'RECEIVED' => 'var(--success)'];
+    $borderVarMap = ['PENDING' => 'var(--warning-border-soft)', 'RECEIVED' => 'var(--success-border)'];
     [$color, $bg, $label] = $map[$status] ?? ['#6b7280', '#f3f4f6', $status];
     $textColor = $varMap[$status] ?? $color;
     $borderColor = $borderVarMap[$status] ?? "{$color}44";
@@ -473,9 +518,9 @@ function reasonBadge(string $reason): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus — Inventory</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/tokens.css">
-    <script src="assets/js/theme.js"></script>
-    <link rel="stylesheet" href="assets/css/sidebar.css">
+    <link rel="stylesheet" href="assets/css/tokens.css?v=<?= @filemtime(__DIR__.'/assets/css/tokens.css') ?>">
+    <script src="assets/js/theme.js?v=<?= @filemtime(__DIR__.'/assets/js/theme.js') ?>"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= @filemtime(__DIR__.'/assets/css/sidebar.css') ?>">
     <style>
         :root {
             --primary: #A83535;
@@ -685,8 +730,10 @@ function reasonBadge(string $reason): string {
                     <span style="background:var(--white);color:var(--primary);border-radius:10px;padding:1px 6px;font-size:11px;margin-left:4px;font-weight:700;"><?= $lowStockCount ?></span>
                 <?php endif; ?>
             </a>
+            <button type="button" class="theme-toggle-header-btn" data-theme-cycle title="Theme" aria-label="Theme"><i class="fas fa-sun"></i></button>
         </form>
     </header>
+    <script>if (window.initThemeToggle) initThemeToggle();</script>
 
     <?php if (!$branchActive): ?>
     <div style="background:var(--danger-bg);border:1.5px solid #fecaca;border-radius:8px;
@@ -1014,18 +1061,25 @@ function reasonBadge(string $reason): string {
                             <td style="font-size:12px;color:var(--text-secondary);">
                                 <?= htmlspecialchars($req['requested_by_name'] ?? '—') ?>
                             </td>
-                            <td><?= rrStatusBadge($req['status']) ?></td>
+                            <td>
+                                <?= rrStatusBadge($req['status']) ?>
+                                <?php if ($req['status'] === 'RECEIVED'): ?>
+                                    <div style="font-size:11px;color:var(--text-secondary);margin-top:3px;">
+                                        Received <?= (int)$req['received_qty'] ?>/<?= (int)$req['requested_qty'] ?>
+                                    </div>
+                                    <div><?= rrIssueBadge($req) ?></div>
+                                <?php endif; ?>
+                            </td>
                             <td>
                                 <?php if ($req['status'] === 'ORDERED'): ?>
-                                <form method="POST" action="s_inv.php" style="display:inline;"
-                                      onsubmit="return confirm('Confirm that this stock has physically arrived? This will update inventory immediately.')">
-                                    <input type="hidden" name="request_id" value="<?= htmlspecialchars($req['request_id']) ?>">
-                                    <button type="submit" name="mark_received" class="save-btn" style="background:var(--success);" <?= $branchActive ? '' : 'disabled' ?>>
+                                    <button type="button" class="save-btn" style="background:var(--success);" <?= $branchActive ? '' : 'disabled' ?>
+                                        onclick="openReceiveModal('<?= htmlspecialchars($req['request_id'], ENT_QUOTES) ?>','<?= htmlspecialchars(addslashes($req['product_name'])) ?>',<?= (int)$req['requested_qty'] ?>)">
                                         <i class="fas fa-check"></i> Mark as Received
                                     </button>
-                                </form>
-                                <?php else: ?>
+                                <?php elseif ($req['status'] === 'PENDING'): ?>
                                     <span style="font-size:12px;color:var(--text-secondary);">Awaiting admin review</span>
+                                <?php else: ?>
+                                    <span style="font-size:12px;color:var(--text-secondary);">—</span>
                                 <?php endif; ?>
                             </td>
                         </tr>
@@ -1251,6 +1305,33 @@ function openRestockModal(productId, productName, suggestedQty) {
 function closeRestockModal() {
     document.getElementById('restockModalOverlay').style.display = 'none';
 }
+
+// ── Receive Stock modal ─────────────────────────────────────────
+function openReceiveModal(requestId, productName, requestedQty) {
+    document.getElementById('receiveRequestId').value = requestId;
+    document.getElementById('receiveProductLabel').textContent = productName + ' — requested ' + requestedQty;
+    document.getElementById('receiveQtyInput').value = requestedQty;
+    document.getElementById('receiveQtyInput').max = requestedQty * 3;
+    document.getElementById('receiveDamagedInput').value = 0;
+    document.getElementById('receiveDamagedInput').max = requestedQty * 3;
+    document.getElementById('receiveModalOverlay').style.display = 'flex';
+}
+function closeReceiveModal() {
+    document.getElementById('receiveModalOverlay').style.display = 'none';
+}
+function validateReceiveForm() {
+    const received = parseInt(document.getElementById('receiveQtyInput').value, 10) || 0;
+    const damaged  = parseInt(document.getElementById('receiveDamagedInput').value, 10) || 0;
+    if (received < 0 || damaged < 0) {
+        alert('Quantities cannot be negative.');
+        return false;
+    }
+    if (damaged > received) {
+        alert("Damaged units can't exceed units received.");
+        return false;
+    }
+    return confirm('Confirm these quantities have physically arrived? This will update inventory immediately.');
+}
 </script>
 
 <!-- Request Restock modal -->
@@ -1290,6 +1371,48 @@ function closeRestockModal() {
                                border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;"
                         <?= $branchActive ? '' : 'disabled' ?>>
                     <i class="fas fa-paper-plane"></i> Submit Request
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Receive Stock modal -->
+<div id="receiveModalOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:300;align-items:center;justify-content:center;">
+    <div style="background:var(--white);border-radius:12px;width:90%;max-width:420px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+        <h3 style="font-size:16px;color:var(--success);margin-bottom:6px;display:flex;align-items:center;gap:8px;">
+            <i class="fas fa-check"></i> Receive Stock
+        </h3>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:18px;" id="receiveProductLabel"></p>
+
+        <form method="POST" action="s_inv.php" onsubmit="return validateReceiveForm()">
+            <input type="hidden" name="request_id" id="receiveRequestId">
+
+            <label style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:6px;display:block;">
+                Quantity actually received
+            </label>
+            <input type="number" name="received_qty" id="receiveQtyInput" min="0" required
+                   style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;
+                          font-size:14px;margin-bottom:14px;">
+
+            <label style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:6px;display:block;">
+                Of those, how many are damaged/unsellable?
+            </label>
+            <input type="number" name="damaged_qty" id="receiveDamagedInput" min="0" required
+                   style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;
+                          font-size:14px;margin-bottom:18px;">
+
+            <div style="display:flex;gap:10px;">
+                <button type="button" onclick="closeReceiveModal()"
+                        style="flex:1;padding:10px;background:var(--background);border:1.5px solid var(--border);
+                               border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">
+                    Cancel
+                </button>
+                <button type="submit" name="mark_received"
+                        style="flex:1;padding:10px;background:var(--success);color:var(--on-primary);border:none;
+                               border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;"
+                        <?= $branchActive ? '' : 'disabled' ?>>
+                    <i class="fas fa-check"></i> Confirm Received
                 </button>
             </div>
         </form>

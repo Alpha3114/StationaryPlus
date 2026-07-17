@@ -202,9 +202,9 @@ if ($res && $res->num_rows > 0) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus – Analytics Dashboard</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/tokens.css">
-    <script src="assets/js/theme.js"></script>
-    <link rel="stylesheet" href="assets/css/sidebar.css">
+    <link rel="stylesheet" href="assets/css/tokens.css?v=<?= @filemtime(__DIR__.'/assets/css/tokens.css') ?>">
+    <script src="assets/js/theme.js?v=<?= @filemtime(__DIR__.'/assets/js/theme.js') ?>"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= @filemtime(__DIR__.'/assets/css/sidebar.css') ?>">
     <style>
         :root{--primary:#A83535;--secondary:#F4A261;--accent:#F1EDE8;--background:#FAFAFA;--text-primary:#2E2E2E;--text-secondary:#707070;--border:#E0E0E0;--white:#FFFFFF;--sidebar-width:260px;--card-shadow:0 4px 12px rgba(0,0,0,0.05);}
         *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif;}
@@ -391,6 +391,7 @@ if ($res && $res->num_rows > 0) {
         <div class="header-title"><i class="fas fa-chart-line" style="color:var(--primary);margin-right:8px;"></i>Analytics Dashboard</div>
         <div class="header-sub"><?= htmlspecialchars($periodLabel) ?> &nbsp;&bull;&nbsp; <?= date('d M Y, H:i') ?></div>
     </div>
+    <div style="display:flex;align-items:center;gap:12px;">
     <form method="GET" action="a_report.php" class="controls">
         <input type="hidden" name="tab" value="<?= htmlspecialchars($tab) ?>">
         <?php foreach(['today'=>'Today','week'=>'7 Days','month'=>'This Month','lastmonth'=>'Last Month','quarter'=>'Quarter','year'=>'This Year','alltime'=>'All Time'] as $k=>$v): ?>
@@ -401,7 +402,10 @@ if ($res && $res->num_rows > 0) {
         <input type="hidden" name="period" value="custom">
         <button type="submit" class="apply-btn"><i class="fas fa-filter"></i> Custom</button>
     </form>
+    <button type="button" class="theme-toggle-header-btn" data-theme-cycle title="Theme" aria-label="Theme"><i class="fas fa-sun"></i></button>
+    </div>
 </header>
+<script>if (window.initThemeToggle) initThemeToggle();</script>
 
 <!-- Tabs -->
 <nav class="tab-bar">

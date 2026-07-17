@@ -209,9 +209,9 @@ $pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_statu
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus - User Management</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/tokens.css">
-    <script src="assets/js/theme.js"></script>
-    <link rel="stylesheet" href="assets/css/sidebar.css">
+    <link rel="stylesheet" href="assets/css/tokens.css?v=<?= @filemtime(__DIR__.'/assets/css/tokens.css') ?>">
+    <script src="assets/js/theme.js?v=<?= @filemtime(__DIR__.'/assets/js/theme.js') ?>"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= @filemtime(__DIR__.'/assets/css/sidebar.css') ?>">
     <style>
         :root {
             --primary: #A83535;
@@ -260,7 +260,7 @@ $pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_statu
         .search-clear { display: none; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 13px; padding: 2px 4px; }
         .search-clear:hover { color: var(--primary); }
         .search-clear.show { display: block; }
-        .filter-select { padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px; background: var(--white); cursor: pointer; }
+        .filter-select { padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px; background: var(--white); color: var(--text-primary); cursor: pointer; }
         .filter-select:focus { outline: none; border-color: var(--primary); }
         .filter-btn { padding: 8px 16px; background: var(--primary); color: var(--on-primary); border: none; border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; }
         .filter-btn:hover { background: var(--primary-dark); }
@@ -391,8 +391,10 @@ $pendingCount= $conn->query("SELECT COUNT(*) AS c FROM users WHERE account_statu
                 </div>
             <?php endif; ?>
             <div class="header-stat">Total Users: <?= $totalUsers ?></div>
+            <button type="button" class="theme-toggle-header-btn" data-theme-cycle title="Theme" aria-label="Theme"><i class="fas fa-sun"></i></button>
         </div>
     </header>
+    <script>if (window.initThemeToggle) initThemeToggle();</script>
 
     <?php if ($message): ?>
     <div class="alert alert-<?= $msgType ?>">

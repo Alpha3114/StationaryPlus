@@ -7,12 +7,17 @@
    BEFORE any page <style> block, so the data-theme attribute is
    set on <html> before first paint (avoids flash-of-wrong-theme
    on reload).
+
+   UI is a single button that cycles Light -> Dark -> High
+   Contrast -> Light on each click ([data-theme-cycle]).
    ============================================================ */
 (function () {
     'use strict';
 
     var VALID_THEMES = ['light', 'dark', 'high-contrast'];
     var STORAGE_KEY = 'theme';
+    var ICONS = { light: 'fa-sun', dark: 'fa-moon', 'high-contrast': 'fa-adjust' };
+    var LABELS = { light: 'Light theme', dark: 'Dark theme', 'high-contrast': 'High contrast theme' };
 
     function getStoredTheme() {
         var stored = null;
@@ -37,11 +42,25 @@
         }
     }
 
+    function updateToggleButtons(name) {
+        var buttons = document.querySelectorAll('[data-theme-cycle]');
+        for (var i = 0; i < buttons.length; i++) {
+            var btn = buttons[i];
+            var icon = btn.querySelector('i');
+            if (icon) icon.className = 'fas ' + ICONS[name];
+            var label = LABELS[name] + ' — click to switch theme';
+            btn.setAttribute('title', label);
+            btn.setAttribute('aria-label', label);
+        }
+    }
+
     // Apply immediately (this script runs synchronously in <head>, before
     // the rest of the page renders).
     applyTheme(getStoredTheme());
 
-    // Public API used by toggle controls (sidebars + pre-auth pages).
+    // Public API used by the toggle control (sidebars + pre-auth pages).
+    window.getTheme = getStoredTheme;
+
     window.setTheme = function (name) {
         if (VALID_THEMES.indexOf(name) === -1) return;
         applyTheme(name);
@@ -50,30 +69,23 @@
         } catch (e) {
             // Non-fatal — theme still applies for this page load, just won't persist.
         }
-        // Reflect the new active theme on any toggle controls already in the DOM.
-        var buttons = document.querySelectorAll('[data-theme-option]');
-        for (var i = 0; i < buttons.length; i++) {
-            var btn = buttons[i];
-            btn.classList.toggle('active', btn.getAttribute('data-theme-option') === name);
-            btn.setAttribute('aria-pressed', btn.getAttribute('data-theme-option') === name ? 'true' : 'false');
-        }
+        updateToggleButtons(name);
     };
 
-    // Wires up any [data-theme-option] buttons present on the page and marks
-    // the currently-active one. Call this inline, right after the toggle
-    // control's markup, so the elements already exist in the DOM at call time.
-    window.initThemeToggle = function () {
+    window.cycleTheme = function () {
         var current = getStoredTheme();
-        var buttons = document.querySelectorAll('[data-theme-option]');
+        var next = VALID_THEMES[(VALID_THEMES.indexOf(current) + 1) % VALID_THEMES.length];
+        window.setTheme(next);
+    };
+
+    // Wires up any [data-theme-cycle] button present on the page and sets
+    // its initial icon/label. Call this inline, right after the toggle
+    // control's markup, so the element already exists in the DOM at call time.
+    window.initThemeToggle = function () {
+        updateToggleButtons(getStoredTheme());
+        var buttons = document.querySelectorAll('[data-theme-cycle]');
         for (var i = 0; i < buttons.length; i++) {
-            (function (btn) {
-                var isActive = btn.getAttribute('data-theme-option') === current;
-                btn.classList.toggle('active', isActive);
-                btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-                btn.addEventListener('click', function () {
-                    window.setTheme(btn.getAttribute('data-theme-option'));
-                });
-            })(buttons[i]);
+            buttons[i].addEventListener('click', window.cycleTheme);
         }
     };
 })();

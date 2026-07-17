@@ -92,15 +92,15 @@ function actionBadgeColor(string $action): array {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus - Audit Log</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/tokens.css">
-    <script src="assets/js/theme.js"></script>
-    <link rel="stylesheet" href="assets/css/sidebar.css">
+    <link rel="stylesheet" href="assets/css/tokens.css?v=<?= @filemtime(__DIR__.'/assets/css/tokens.css') ?>">
+    <script src="assets/js/theme.js?v=<?= @filemtime(__DIR__.'/assets/js/theme.js') ?>"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= @filemtime(__DIR__.'/assets/css/sidebar.css') ?>">
     <style>
         :root { --primary:#A83535;--secondary:#F4A261;--accent:#F1EDE8;--background:#FAFAFA;--text-primary:#2E2E2E;--text-secondary:#707070;--border:#E0E0E0;--white:#FFFFFF;--sidebar-width:260px;--card-shadow:0 4px 12px rgba(0,0,0,0.05); }
         * { margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif; }
         body { background-color:var(--background);color:var(--text-primary);min-height:100vh;display:flex; }
         .main-content { flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column; }
-        .top-header { background-color:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10; }
+        .top-header { background-color:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center; }
         .page-title { font-size:24px;font-weight:700; }
         .page-subtitle { font-size:14px;color:var(--text-secondary);margin-top:4px; }
         .content-container { padding:30px;flex-grow:1;display:flex;flex-direction:column;gap:20px; }
@@ -140,9 +140,13 @@ function actionBadgeColor(string $action): array {
 
 <main class="main-content">
     <header class="top-header">
-        <h1 class="page-title">Audit Log</h1>
-        <p class="page-subtitle">Track of admin and staff actions across the system</p>
+        <div>
+            <h1 class="page-title">Audit Log</h1>
+            <p class="page-subtitle">Track of admin and staff actions across the system</p>
+        </div>
+        <button type="button" class="theme-toggle-header-btn" data-theme-cycle title="Theme" aria-label="Theme"><i class="fas fa-sun"></i></button>
     </header>
+    <script>if (window.initThemeToggle) initThemeToggle();</script>
 
     <div class="content-container">
         <div class="card">
@@ -210,7 +214,7 @@ function actionBadgeColor(string $action): array {
                             </td>
                             <td>
                                 <?= htmlspecialchars(ucfirst($log['entity_type'])) ?>
-                                <?php if ($log['entity_id']): ?>
+                                <?php if ($log['entity_id'] !== null && $log['entity_id'] !== ''): ?>
                                 <div class="entity-tag"><?= htmlspecialchars($log['entity_id']) ?></div>
                                 <?php endif; ?>
                             </td>

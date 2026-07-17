@@ -35,9 +35,9 @@ if ($branchId) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus — Point of Sale</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/tokens.css">
-    <script src="assets/js/theme.js"></script>
-    <link rel="stylesheet" href="assets/css/sidebar.css">
+    <link rel="stylesheet" href="assets/css/tokens.css?v=<?= @filemtime(__DIR__.'/assets/css/tokens.css') ?>">
+    <script src="assets/js/theme.js?v=<?= @filemtime(__DIR__.'/assets/js/theme.js') ?>"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= @filemtime(__DIR__.'/assets/css/sidebar.css') ?>">
     <!-- html5-qrcode for camera barcode scanning -->
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <style>
@@ -455,12 +455,13 @@ if ($branchId) {
             align-items: center;
             gap: 9px;
             opacity: 0;
+            pointer-events: none;
             transform: translateY(10px);
             transition: all 0.3s;
             z-index: 999;
             max-width: 360px;
         }
-        .toast.show { opacity:1;transform:translateY(0); }
+        .toast.show { opacity:1; pointer-events:auto; transform:translateY(0); }
         .toast.success { background:var(--success); }
         .toast.error   { background:var(--danger); }
         .toast.warn    { background:var(--warning); }
@@ -558,8 +559,10 @@ if ($branchId) {
             <span><i class="fas fa-store"></i> <?= htmlspecialchars($branchName) ?></span>
             <span><i class="fas fa-user-tie"></i> <?= htmlspecialchars($staffName) ?></span>
             <span><i class="fas fa-clock"></i> <span class="live-clock" id="liveClock"></span></span>
+            <button type="button" class="theme-toggle-header-btn" data-theme-cycle title="Theme" aria-label="Theme"><i class="fas fa-sun"></i></button>
         </div>
     </div>
+    <script>if (window.initThemeToggle) initThemeToggle();</script>
 
     <?php if (!$branchActive): ?>
     <div style="background:var(--danger-bg);border:1.5px solid #fecaca;border-radius:8px;

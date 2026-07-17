@@ -235,8 +235,8 @@ $doneMode = $_GET['mode'] ?? '';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus <?= $step !== 'login' ? '— ' . match($step) { 'forgot' => 'Forgot Password', 'reset' => 'Reset Password', 'done' => 'All Done', default => '' } : '' ?></title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/tokens.css">
-    <script src="assets/js/theme.js"></script>
+    <link rel="stylesheet" href="assets/css/tokens.css?v=<?= @filemtime(__DIR__.'/assets/css/tokens.css') ?>">
+    <script src="assets/js/theme.js?v=<?= @filemtime(__DIR__.'/assets/js/theme.js') ?>"></script>
     <style>
         :root {
             --primary: #A83535; --secondary: #F4A261; --accent: #F1EDE8;
@@ -268,7 +268,6 @@ $doneMode = $_GET['mode'] ?? '';
         .theme-toggle-standalone { position: fixed; top: 16px; right: 16px; z-index: 1000; display: flex; gap: 6px; background: var(--white); padding: 6px; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); border: 1px solid var(--border); }
         .theme-toggle-standalone .theme-toggle-btn { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--primary-tint-subtle); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; font-size: 13px; transition: all 0.15s; }
         .theme-toggle-standalone .theme-toggle-btn:hover { background: var(--primary-tint-light); color: var(--primary); }
-        .theme-toggle-standalone .theme-toggle-btn.active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
         .logo { display:flex;align-items:center;margin-bottom:40px; }
         .logo-icon { background:rgba(255,255,255,0.15);width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;margin-right:12px;font-size:22px; }
         .logo-text { font-size:24px;font-weight:700;letter-spacing:0.5px; }
@@ -378,9 +377,7 @@ $doneMode = $_GET['mode'] ?? '';
 <body>
 
 <div class="theme-toggle-standalone" role="group" aria-label="Theme">
-    <button type="button" class="theme-toggle-btn" data-theme-option="light" title="Light theme" aria-label="Light theme"><i class="fas fa-sun"></i></button>
-    <button type="button" class="theme-toggle-btn" data-theme-option="dark" title="Dark theme" aria-label="Dark theme"><i class="fas fa-moon"></i></button>
-    <button type="button" class="theme-toggle-btn" data-theme-option="high-contrast" title="High contrast" aria-label="High contrast theme"><i class="fas fa-adjust"></i></button>
+    <button type="button" class="theme-toggle-btn" data-theme-cycle title="Theme" aria-label="Theme"><i class="fas fa-sun"></i></button>
 </div>
 <script>if (window.initThemeToggle) initThemeToggle();</script>
 

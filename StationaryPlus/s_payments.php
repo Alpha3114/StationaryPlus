@@ -106,7 +106,7 @@ $stmt = $conn->prepare(
          u.email AS customer_email
      FROM payments p
      JOIN orders o ON p.order_id = o.order_id
-     JOIN users  u ON o.user_id  = u.user_id
+     LEFT JOIN users u ON o.user_id = u.user_id
      WHERE " . implode(' AND ', $where) . "
      ORDER BY $orderBy
      LIMIT 150"
@@ -151,9 +151,9 @@ function statusBadge(string $s): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus — Payment Verification</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/tokens.css">
-    <script src="assets/js/theme.js"></script>
-    <link rel="stylesheet" href="assets/css/sidebar.css">
+    <link rel="stylesheet" href="assets/css/tokens.css?v=<?= @filemtime(__DIR__.'/assets/css/tokens.css') ?>">
+    <script src="assets/js/theme.js?v=<?= @filemtime(__DIR__.'/assets/js/theme.js') ?>"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= @filemtime(__DIR__.'/assets/css/sidebar.css') ?>">
     <style>
         :root {
             --primary:#A83535; --secondary:#F4A261; --accent:#F1EDE8;
@@ -290,13 +290,17 @@ function statusBadge(string $s): string {
             <h1 class="page-title">Payment Verification</h1>
             <p class="page-subtitle">Review and verify customer payment submissions</p>
         </div>
+        <div style="display:flex;align-items:center;gap:12px;">
         <?php if ($counts['PENDING'] > 0): ?>
         <div style="background:var(--warning-bg);border:1px solid #fde68a;border-radius:9px;padding:10px 16px;font-size:13px;color:var(--warning);font-weight:600;">
             <i class="fas fa-exclamation-circle"></i>
             <?= $counts['PENDING'] ?> payment<?= $counts['PENDING'] > 1 ? 's' : '' ?> awaiting verification
         </div>
         <?php endif; ?>
+        <button type="button" class="theme-toggle-header-btn" data-theme-cycle title="Theme" aria-label="Theme"><i class="fas fa-sun"></i></button>
+        </div>
     </header>
+    <script>if (window.initThemeToggle) initThemeToggle();</script>
 
     <?php if (!$branchActive): ?>
     <div style="margin:16px 30px 0;background:var(--danger-bg);border:1.5px solid #fecaca;border-radius:8px;
@@ -473,8 +477,8 @@ function statusBadge(string $s): string {
                                 </td>
                                 <td><span class="mono"><?= htmlspecialchars($p['payment_id']) ?></span></td>
                                 <td>
-                                    <div style="font-weight:600;font-size:13px;"><?= htmlspecialchars($p['customer_name']) ?></div>
-                                    <div style="font-size:11px;color:var(--text-secondary);"><?= htmlspecialchars($p['customer_email']) ?></div>
+                                    <div style="font-weight:600;font-size:13px;"><?= htmlspecialchars($p['customer_name'] ?? 'Guest (walk-in)') ?></div>
+                                    <div style="font-size:11px;color:var(--text-secondary);"><?= htmlspecialchars($p['customer_email'] ?? '—') ?></div>
                                 </td>
                                 <td><span class="mono" style="color:var(--text-secondary);"><?= htmlspecialchars($p['order_id']) ?></span></td>
                                 <td>
@@ -517,7 +521,7 @@ function statusBadge(string $s): string {
                                             <div class="detail-block">
                                                 <div class="label">Customer Contact</div>
                                                 <div class="value"><?= htmlspecialchars($p['customer_phone'] ?? '—') ?></div>
-                                                <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;"><?= htmlspecialchars($p['customer_email']) ?></div>
+                                                <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;"><?= htmlspecialchars($p['customer_email'] ?? '—') ?></div>
                                             </div>
                                             <div class="detail-block">
                                                 <div class="label">Reference Number</div>

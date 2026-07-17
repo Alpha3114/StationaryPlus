@@ -222,9 +222,9 @@ function paymentBadge(?string $status): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus - Order Status</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/tokens.css">
-    <script src="assets/js/theme.js"></script>
-    <link rel="stylesheet" href="assets/css/sidebar.css">
+    <link rel="stylesheet" href="assets/css/tokens.css?v=<?= @filemtime(__DIR__.'/assets/css/tokens.css') ?>">
+    <script src="assets/js/theme.js?v=<?= @filemtime(__DIR__.'/assets/js/theme.js') ?>"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= @filemtime(__DIR__.'/assets/css/sidebar.css') ?>">
     <style>
         :root { --primary:#A83535;--secondary:#F4A261;--accent:#F1EDE8;--background:#FAFAFA;--text-primary:#2E2E2E;--text-secondary:#707070;--border:#E0E0E0;--white:#FFFFFF;--sidebar-width:260px;--card-shadow:0 4px 12px rgba(0,0,0,0.05); }
         * { margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif; }
@@ -261,7 +261,7 @@ function paymentBadge(?string $status): string {
         .order-date { color:var(--text-secondary);font-size:13px; }
         .detail-btn { padding:7px 14px;background-color:var(--primary-tint-light);color:var(--primary);border:1px solid var(--primary-tint-active);border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;white-space:nowrap; }
         .detail-btn:hover { background-color:var(--primary-tint-active); }
-        .cancel-order-btn { padding:7px 14px;background:rgba(239,68,68,0.08);color:var(--danger);border:1px solid rgba(239,68,68,0.3);border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;white-space:nowrap;margin-left:6px; }
+        .cancel-order-btn { padding:7px 14px;background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger-border-soft);border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;white-space:nowrap;margin-left:6px; }
         .cancel-order-btn:hover { background:var(--danger);color:var(--on-primary);border-color:var(--danger); }
         .resubmit-link { display:inline-flex;align-items:center;gap:5px;margin-top:5px;font-size:11px;font-weight:600;color:var(--danger);text-decoration:none;padding:3px 8px;background:var(--danger-bg);border:1px solid #fca5a5;border-radius:6px;transition:all 0.15s; }
         .resubmit-link:hover { background:var(--danger);color:var(--on-primary); }
@@ -295,11 +295,15 @@ function paymentBadge(?string $status): string {
             <h1 class="page-title">Order Status</h1>
             <p class="page-subtitle">Track your pre-orders and orders in real time</p>
         </div>
+        <div style="display:flex;align-items:center;gap:12px;">
         <div style="display:flex;flex-direction:column;gap:3px;">
             <?php render_browsing_branch_bar(); ?>
             <?php render_branch_unavailable_notice(); ?>
         </div>
+        <button type="button" class="theme-toggle-header-btn" data-theme-cycle title="Theme" aria-label="Theme"><i class="fas fa-sun"></i></button>
+        </div>
     </header>
+    <script>if (window.initThemeToggle) initThemeToggle();</script>
 
     <div class="content-container">
         <div class="section-card">
@@ -567,8 +571,8 @@ function paymentBadge(?string $status): string {
                             style="flex:1;padding:11px;background:var(--danger);color:var(--on-primary);
                                    border:none;border-radius:8px;font-size:14px;font-weight:600;
                                    cursor:pointer;transition:background 0.2s;"
-                            onmouseover="this.style.background='#b91c1c'"
-                            onmouseout="this.style.background='var(--danger)'">
+                            onmouseover="this.style.filter='brightness(0.88)'"
+                            onmouseout="this.style.filter='none'"
                         <i class="fas fa-times-circle"></i> Yes, Cancel Order
                     </button>
                 </div>

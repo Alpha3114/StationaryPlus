@@ -78,9 +78,9 @@ function statusBadge(string $s): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus — Upload Files for Printing</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/tokens.css">
-    <script src="assets/js/theme.js"></script>
-    <link rel="stylesheet" href="assets/css/sidebar.css">
+    <link rel="stylesheet" href="assets/css/tokens.css?v=<?= @filemtime(__DIR__.'/assets/css/tokens.css') ?>">
+    <script src="assets/js/theme.js?v=<?= @filemtime(__DIR__.'/assets/js/theme.js') ?>"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= @filemtime(__DIR__.'/assets/css/sidebar.css') ?>">
     <style>
         :root {
             --primary:#A83535; --secondary:#F4A261; --accent:#F1EDE8;
@@ -234,11 +234,15 @@ function statusBadge(string $s): string {
             <h1 class="page-title">Upload Files for Printing</h1>
             <p class="page-subtitle">Choose your print mode — AI analysis only runs when you need it</p>
         </div>
+        <div style="display:flex;align-items:center;gap:12px;">
         <div style="display:flex;flex-direction:column;gap:3px;">
             <?php render_browsing_branch_bar(); ?>
             <?php render_branch_unavailable_notice(); ?>
         </div>
+        <button type="button" class="theme-toggle-header-btn" data-theme-cycle title="Theme" aria-label="Theme"><i class="fas fa-sun"></i></button>
+        </div>
     </header>
+    <script>if (window.initThemeToggle) initThemeToggle();</script>
 
     <div class="content-wrap">
 

@@ -3,6 +3,7 @@
 require_once 'auth.php';
 require_role(['STAFF', 'ADMIN']);
 require_once 'db.php';
+require_once 'audit.php';
 
 $userName = $_SESSION['user_name'];
 $userId   = $_SESSION['user_id'];
@@ -38,6 +39,76 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['review_request']) && 
     }
 
     $tabParam = '?tab=restock' . (!empty($_GET['rstatus']) ? '&rstatus=' . urlencode($_GET['rstatus']) : '');
+    header('Location: a_productmanagement.php' . $tabParam);
+    exit;
+}
+
+// ── Create a follow-up restock request for a shortfall — ADMIN only ──
+// One request can only ever spawn one follow-up (guarded by the
+// followup_request_id IS NULL check inside the locked transaction).
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_followup']) && $isAdmin) {
+    $origId = trim($_POST['request_id'] ?? '');
+
+    if ($origId) {
+        $conn->begin_transaction();
+
+        $stmt = $conn->prepare(
+            "SELECT product_id, branch_id, requested_qty, received_qty, followup_request_id
+             FROM restock_requests
+             WHERE request_id = ? AND status = 'RECEIVED' AND has_issue = 1 LIMIT 1 FOR UPDATE"
+        );
+        $stmt->bind_param('s', $origId);
+        $stmt->execute();
+        $orig = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        $followupOutcome = 'skipped'; // 'created' | 'skipped' — used to decide where to land after redirect
+
+        if ($orig && $orig['followup_request_id'] === null) {
+            $shortfall = (int)$orig['requested_qty'] - (int)$orig['received_qty'];
+
+            if ($shortfall > 0) {
+                $newId = 'RR-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -6));
+                $ins = $conn->prepare(
+                    "INSERT INTO restock_requests
+                        (request_id, product_id, branch_id, requested_qty, source, status,
+                         requested_by, original_request_id)
+                     VALUES (?, ?, ?, ?, 'MANUAL', 'PENDING', ?, ?)"
+                );
+                $ins->bind_param(
+                    'sssiss', $newId, $orig['product_id'], $orig['branch_id'],
+                    $shortfall, $userId, $origId
+                );
+                $ins->execute();
+                $ins->close();
+
+                $upd = $conn->prepare("UPDATE restock_requests SET followup_request_id = ? WHERE request_id = ?");
+                $upd->bind_param('ss', $newId, $origId);
+                $upd->execute();
+                $upd->close();
+
+                log_audit(
+                    $conn, 'RESTOCK_FOLLOWUP_CREATED', 'restock_request', $newId,
+                    "shortfall=$shortfall original=$origId"
+                );
+                $followupOutcome = 'created';
+            }
+            $conn->commit();
+        } else {
+            $conn->rollback();
+        }
+    }
+
+    // A newly created follow-up lands as a PENDING request — send the admin
+    // there instead of echoing back the RECEIVED tab they clicked from,
+    // otherwise the new row is invisible and looks like nothing happened.
+    if (($followupOutcome ?? 'skipped') === 'created') {
+        $tabParam = '?tab=restock&rstatus=ALL&followup=created';
+    } else {
+        $tabParam = '?tab=restock'
+            . (!empty($_GET['rstatus']) ? '&rstatus=' . urlencode($_GET['rstatus']) : '')
+            . '&followup=skipped';
+    }
     header('Location: a_productmanagement.php' . $tabParam);
     exit;
 }
@@ -115,9 +186,12 @@ $totalRequestsRes = $conn->query(
 $totalRequestCount = $totalRequestsRes ? (int)$totalRequestsRes->fetch_assoc()['cnt'] : 0;
 
 // ── Restock requests list — filterable by status ──────────────
-$requestFilter = $_GET['rstatus'] ?? 'PENDING';
+// Defaults to ALL (with PENDING requests surfaced at the top via the
+// ORDER BY below) rather than hard-filtering to PENDING on first load,
+// so admins see the full picture without an extra click.
+$requestFilter = $_GET['rstatus'] ?? 'ALL';
 $validRStatus  = ['PENDING', 'ORDERED', 'RECEIVED', 'REJECTED', 'ALL'];
-if (!in_array($requestFilter, $validRStatus)) $requestFilter = 'PENDING';
+if (!in_array($requestFilter, $validRStatus)) $requestFilter = 'ALL';
 
 $rWhere = [];
 $rParams = [];
@@ -130,7 +204,9 @@ if ($requestFilter !== 'ALL') {
 $rWhereSQL = $rWhere ? 'WHERE ' . implode(' AND ', $rWhere) : '';
 
 $rStmt = $conn->prepare(
-    "SELECT rr.request_id, rr.requested_qty, rr.source, rr.status,
+    "SELECT rr.request_id, rr.requested_qty, rr.received_qty, rr.damaged_qty, rr.has_issue,
+            rr.followup_request_id, rr.original_request_id,
+            rr.source, rr.status,
             rr.staff_note, rr.admin_note, rr.requested_at, rr.reviewed_at, rr.received_at,
             p.product_id, p.product_name,
             b.branch_name,
@@ -144,7 +220,7 @@ $rStmt = $conn->prepare(
      LEFT JOIN users urev ON rr.reviewed_by  = urev.user_id
      LEFT JOIN users urec ON rr.received_by  = urec.user_id
      $rWhereSQL
-     ORDER BY rr.requested_at DESC
+     ORDER BY (rr.status = 'PENDING') DESC, rr.requested_at DESC
      LIMIT 100"
 );
 if ($rTypes) $rStmt->bind_param($rTypes, ...$rParams);
@@ -161,6 +237,19 @@ function requestStatusBadge(string $status): string {
     ];
     [$color, $bg, $label] = $map[$status] ?? ['#6b7280', '#f3f4f6', $status];
     return "<span class='request-status' style='color:$color;background:$bg;'>$label</span>";
+}
+
+function rrIssueBadge(array $req): string {
+    if ((string)$req['status'] !== 'RECEIVED' || !$req['has_issue']) return '';
+    $short = (int)$req['requested_qty'] - (int)$req['received_qty'];
+    $parts = [];
+    if ($short > 0) $parts[] = "$short short";
+    if ((int)$req['damaged_qty'] > 0) $parts[] = $req['damaged_qty'] . ' damaged';
+    $label = htmlspecialchars(implode(', ', $parts));
+    return "<span style='display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;
+        padding:2px 8px;border-radius:10px;background:var(--warning-bg);color:var(--warning);
+        border:1px solid var(--warning-border-soft);margin-top:4px;'>
+        <i class='fas fa-triangle-exclamation'></i> $label</span>";
 }
 
 function sourceBadge(string $source): string {
@@ -180,9 +269,9 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus - Product Management</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/tokens.css">
-    <script src="assets/js/theme.js"></script>
-    <link rel="stylesheet" href="assets/css/sidebar.css">
+    <link rel="stylesheet" href="assets/css/tokens.css?v=<?= @filemtime(__DIR__.'/assets/css/tokens.css') ?>">
+    <script src="assets/js/theme.js?v=<?= @filemtime(__DIR__.'/assets/js/theme.js') ?>"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= @filemtime(__DIR__.'/assets/css/sidebar.css') ?>">
     <style>
         :root {
             --primary: #A83535;      /* Brick Red */
@@ -347,7 +436,7 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
         .search-clear { display:none; position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-secondary); cursor:pointer; font-size:13px; padding:2px 4px; }
         .search-clear:hover { color:var(--primary); }
         .search-clear.show { display:block; }
-        .filter-select { padding:8px 12px; border:1.5px solid var(--border); border-radius:7px; font-size:13px; background:var(--white); cursor:pointer; }
+        .filter-select { padding:8px 12px; border:1.5px solid var(--border); border-radius:7px; font-size:13px; background:var(--white); color:var(--text-primary); cursor:pointer; }
         .filter-select:focus { outline:none; border-color:var(--primary); }
         .filter-btn { padding:8px 16px; background:var(--primary); color:var(--on-primary); border:none; border-radius:7px; font-size:13px; font-weight:600; cursor:pointer; }
         .filter-btn:hover { background:var(--primary-dark); }
@@ -610,12 +699,13 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
         }
 
         .reject-btn {
-            background-color: var(--primary-tint-medium);
-            color: var(--primary);
+            background-color: var(--danger-bg);
+            color: var(--danger);
         }
 
         .reject-btn:hover {
-            background-color: var(--primary-tint-active);
+            background-color: var(--danger);
+            color: var(--on-primary);
         }
         
         /* Right Section: Product Form */
@@ -920,8 +1010,10 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
             </div>
             <div class="header-right" style="display:flex;align-items:center;gap:12px;">
                 <span>Total Products: <?= $totalProductsCount ?></span>
+                <button type="button" class="theme-toggle-header-btn" data-theme-cycle title="Theme" aria-label="Theme"><i class="fas fa-sun"></i></button>
             </div>
         </header>
+        <script>if (window.initThemeToggle) initThemeToggle();</script>
 
         <!-- Tab bar -->
         <div class="tab-bar">
@@ -1128,6 +1220,20 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
         <!-- Restock Requests Tab Panel -->
         <div class="tab-panel" id="tabRestock" style="padding:25px;">
 
+            <?php if (($_GET['followup'] ?? '') === 'created'): ?>
+            <div style="margin-bottom:16px;padding:10px 14px;background:var(--success-bg);color:var(--success);
+                        border:1px solid var(--success-border);border-radius:8px;font-size:13px;font-weight:600;
+                        display:flex;align-items:center;gap:8px;">
+                <i class="fas fa-check-circle"></i> Follow-up request created — it's now waiting for review below.
+            </div>
+            <?php elseif (($_GET['followup'] ?? '') === 'skipped'): ?>
+            <div style="margin-bottom:16px;padding:10px 14px;background:var(--warning-bg);color:var(--warning);
+                        border:1px solid var(--warning-border-soft);border-radius:8px;font-size:13px;font-weight:600;
+                        display:flex;align-items:center;gap:8px;">
+                <i class="fas fa-info-circle"></i> No follow-up was created — a follow-up may already exist for this request, or there's no shortfall to re-order.
+            </div>
+            <?php endif; ?>
+
             <div class="stats-row" style="display:grid;grid-template-columns:repeat(2,1fr);gap:18px;margin-bottom:20px;">
                 <div class="stat-card" style="background-color:var(--white);border-radius:10px;padding:20px;box-shadow:var(--card-shadow);border:1px solid var(--border);display:flex;align-items:center;gap:14px;">
                     <div class="stat-icon" style="width:42px;height:42px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;background:rgba(244,162,97,0.15);color:var(--warning);">
@@ -1186,7 +1292,7 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
                         </thead>
                         <tbody>
                             <?php foreach ($restockRequests as $req): ?>
-                            <tr>
+                            <tr style="<?= $req['has_issue'] ? 'border-left:3px solid var(--warning);' : '' ?>">
                                 <td>
                                     <div class="product-info">
                                         <div class="product-icon icon-paper" style="width: 28px; height: 28px; font-size: 14px;">
@@ -1215,6 +1321,7 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
                                     <div style="font-size:10px;color:var(--text-secondary);margin-top:3px;">
                                         by <?= htmlspecialchars($req['received_by_name'] ?? '—') ?>
                                     </div>
+                                    <div><?= rrIssueBadge($req) ?></div>
                                     <?php endif; ?>
                                 </td>
                                 <?php if ($isAdmin): ?>
@@ -1230,6 +1337,13 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
                                             Reject
                                         </button>
                                     </div>
+                                    <?php elseif ($req['status'] === 'RECEIVED' && $req['has_issue'] && $req['followup_request_id'] === null && (int)$req['requested_qty'] - (int)$req['received_qty'] > 0): ?>
+                                    <button type="button" class="action-btn approve-btn"
+                                            onclick="createFollowup('<?= htmlspecialchars($req['request_id'], ENT_QUOTES) ?>')">
+                                        Create Follow-up (<?= (int)$req['requested_qty'] - (int)$req['received_qty'] ?> short)
+                                    </button>
+                                    <?php elseif ($req['status'] === 'RECEIVED' && $req['followup_request_id'] !== null): ?>
+                                    <span style="font-size:11px;color:var(--text-secondary);">Follow-up created</span>
                                     <?php else: ?>
                                     <span style="font-size:11px;color:var(--text-secondary);">—</span>
                                     <?php endif; ?>
@@ -1251,6 +1365,12 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
         <input type="hidden" name="request_id" id="reviewRequestId">
         <input type="hidden" name="action" id="reviewAction">
         <input type="hidden" name="admin_note" id="reviewNote">
+    </form>
+
+    <!-- Hidden form used by createFollowup() to submit a follow-up request -->
+    <form method="POST" action="a_productmanagement.php?tab=restock<?= !empty($_GET['rstatus']) ? '&rstatus=' . urlencode($_GET['rstatus']) : '' ?>" id="followupForm" style="display:none;">
+        <input type="hidden" name="create_followup" value="1">
+        <input type="hidden" name="request_id" id="followupRequestId">
     </form>
 
     <!-- Reject reason modal -->
@@ -1394,6 +1514,17 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
         function closeRejectModal() {
             document.getElementById('rejectModalOverlay').style.display = 'none';
             pendingRejectId = null;
+        }
+
+        function createFollowup(requestId) {
+            customConfirm(
+                'Create a follow-up restock request for the shortfall? It will go through the normal review process.',
+                { confirmText: 'Create Follow-up' }
+            ).then(ok => {
+                if (!ok) return;
+                document.getElementById('followupRequestId').value = requestId;
+                document.getElementById('followupForm').submit();
+            });
         }
 
         function confirmReject() {

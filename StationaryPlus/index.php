@@ -29,8 +29,8 @@ require_once 'banner_slot.php';
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/tokens.css">
-    <script src="assets/js/theme.js"></script>
+    <link rel="stylesheet" href="assets/css/tokens.css?v=<?= @filemtime(__DIR__.'/assets/css/tokens.css') ?>">
+    <script src="assets/js/theme.js?v=<?= @filemtime(__DIR__.'/assets/js/theme.js') ?>"></script>
     <style>
         :root {
             --primary: #A83535;
@@ -121,7 +121,6 @@ require_once 'banner_slot.php';
         .theme-toggle-nav { display: flex; gap: 4px; }
         .theme-toggle-nav .theme-toggle-btn { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; background: var(--primary-tint-subtle); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; font-size: 12px; transition: all 0.15s; }
         .theme-toggle-nav .theme-toggle-btn:hover { background: var(--primary-tint-light); color: var(--primary); }
-        .theme-toggle-nav .theme-toggle-btn.active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
 
         /* ── Hero ── */
         .hero {
@@ -445,9 +444,7 @@ require_once 'banner_slot.php';
         </a>
         <div class="nav-actions">
             <div class="theme-toggle-nav" role="group" aria-label="Theme">
-                <button type="button" class="theme-toggle-btn" data-theme-option="light" title="Light theme" aria-label="Light theme"><i class="fas fa-sun"></i></button>
-                <button type="button" class="theme-toggle-btn" data-theme-option="dark" title="Dark theme" aria-label="Dark theme"><i class="fas fa-moon"></i></button>
-                <button type="button" class="theme-toggle-btn" data-theme-option="high-contrast" title="High contrast" aria-label="High contrast theme"><i class="fas fa-adjust"></i></button>
+                <button type="button" class="theme-toggle-btn" data-theme-cycle title="Theme" aria-label="Theme"><i class="fas fa-sun"></i></button>
             </div>
             <script>if (window.initThemeToggle) initThemeToggle();</script>
             <a href="Registration.php" class="nav-link">Create account</a>

@@ -370,9 +370,9 @@ function statusBadge(string $status): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus — Order Management</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/tokens.css">
-    <script src="assets/js/theme.js"></script>
-    <link rel="stylesheet" href="assets/css/sidebar.css">
+    <link rel="stylesheet" href="assets/css/tokens.css?v=<?= @filemtime(__DIR__.'/assets/css/tokens.css') ?>">
+    <script src="assets/js/theme.js?v=<?= @filemtime(__DIR__.'/assets/js/theme.js') ?>"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= @filemtime(__DIR__.'/assets/css/sidebar.css') ?>">
     <style>
         :root { --primary:#A83535;--secondary:#F4A261;--accent:#F1EDE8;--background:#FAFAFA;--text-primary:#2E2E2E;--text-secondary:#707070;--border:#E0E0E0;--white:#FFFFFF;--sidebar-width:260px;--card-shadow:0 4px 12px rgba(0,0,0,0.05); }
         * { margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',system-ui,sans-serif; }
@@ -525,8 +525,10 @@ function statusBadge(string $status): string {
                 <a href="?filter=preorder&status=<?= urlencode($filterStatus) ?>&search=<?= urlencode($search) ?>"
                    class="tab <?= $filterType==='preorder' ? 'active':'' ?>">Reservations</a>
             </div>
+            <button type="button" class="theme-toggle-header-btn" data-theme-cycle title="Theme" aria-label="Theme"><i class="fas fa-sun"></i></button>
         </div>
     </header>
+    <script>if (window.initThemeToggle) initThemeToggle();</script>
 
     <div class="split-layout">
         <?php if (isset($_GET['error']) && $_GET['error'] === 'payment_required'): ?>

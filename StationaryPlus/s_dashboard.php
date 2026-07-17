@@ -140,9 +140,9 @@ function orderStatusBadge(string $status): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus — Staff Dashboard</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/tokens.css">
-    <script src="assets/js/theme.js"></script>
-    <link rel="stylesheet" href="assets/css/sidebar.css">
+    <link rel="stylesheet" href="assets/css/tokens.css?v=<?= @filemtime(__DIR__.'/assets/css/tokens.css') ?>">
+    <script src="assets/js/theme.js?v=<?= @filemtime(__DIR__.'/assets/js/theme.js') ?>"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= @filemtime(__DIR__.'/assets/css/sidebar.css') ?>">
     <style>
         :root {
             --primary: #A83535;
@@ -163,7 +163,7 @@ function orderStatusBadge(string $status): string {
 
         /* ── Main ── */
         .main-content { flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column; }
-        .top-header { background-color:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10; }
+        .top-header { background-color:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center; }
         .page-title { font-size:24px;font-weight:700;color:var(--text-primary); }
         .page-subtitle { font-size:14px;color:var(--text-secondary);margin-top:4px; }
 
@@ -243,9 +243,13 @@ function orderStatusBadge(string $status): string {
 <main class="main-content">
 
     <header class="top-header">
-        <h1 class="page-title">Staff Dashboard</h1>
-        <p class="page-subtitle">Manage orders, inventory and alerts for your branch</p>
+        <div>
+            <h1 class="page-title">Staff Dashboard</h1>
+            <p class="page-subtitle">Manage orders, inventory and alerts for your branch</p>
+        </div>
+        <button type="button" class="theme-toggle-header-btn" data-theme-cycle title="Theme" aria-label="Theme"><i class="fas fa-sun"></i></button>
     </header>
+    <script>if (window.initThemeToggle) initThemeToggle();</script>
 
     <?php if (!$branchActive): ?>
     <div style="margin:16px 30px 0;background:var(--danger-bg);border:1.5px solid #fecaca;border-radius:8px;

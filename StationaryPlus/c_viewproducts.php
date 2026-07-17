@@ -162,9 +162,9 @@ function pageUrl(int $p): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus — Product Catalog</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/tokens.css">
-    <script src="assets/js/theme.js"></script>
-    <link rel="stylesheet" href="assets/css/sidebar.css">
+    <link rel="stylesheet" href="assets/css/tokens.css?v=<?= @filemtime(__DIR__.'/assets/css/tokens.css') ?>">
+    <script src="assets/js/theme.js?v=<?= @filemtime(__DIR__.'/assets/js/theme.js') ?>"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= @filemtime(__DIR__.'/assets/css/sidebar.css') ?>">
     <style>
         :root {
             --primary: #A83535;
@@ -425,19 +425,7 @@ function pageUrl(int $p): string {
             <h1 class="page-title">Product Catalog</h1>
             <p class="page-subtitle">Browse stationery products and printing services</p>
         </div>
-        <form method="GET" action="c_viewproducts.php" class="search-container">
-            <?php if ($category): ?><input type="hidden" name="category" value="<?= htmlspecialchars($category) ?>"><?php endif; ?>
-            <?php if ($sort): ?><input type="hidden" name="sort" value="<?= htmlspecialchars($sort) ?>"><?php endif; ?>
-            <i class="fas fa-search search-icon"></i>
-            <input
-                type="text"
-                name="search"
-                class="search-input"
-                placeholder="Search products..."
-                value="<?= htmlspecialchars($search) ?>"
-                autocomplete="off"
-            >
-        </form>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         <!-- Browsing Branch context bar (session-only view filter; see branch_browse.php) -->
         <div style="display:flex;flex-direction:column;gap:3px;">
             <?php render_browsing_branch_bar(); ?>
@@ -453,7 +441,10 @@ function pageUrl(int $p): string {
             <i class="fas fa-shopping-basket"></i> Cart
             <?php if ($cartCount > 0): ?><span style="background:var(--primary);color:var(--on-primary);border-radius:10px;padding:1px 7px;font-size:11px;font-weight:700;"><?= $cartCount ?></span><?php endif; ?>
         </a>
+        <button type="button" class="theme-toggle-header-btn" data-theme-cycle title="Theme" aria-label="Theme"><i class="fas fa-sun"></i></button>
+        </div>
     </header>
+    <script>if (window.initThemeToggle) initThemeToggle();</script>
 
     <?php if (isset($_GET['added'])): ?>
     <div style="margin:16px 30px 0;padding:13px 18px;background:var(--success-bg);color:var(--success);border:1px solid var(--success-border);border-radius:8px;font-size:14px;display:flex;align-items:center;gap:10px;">
@@ -462,6 +453,21 @@ function pageUrl(int $p): string {
     <?php endif; ?>
 
     <div class="product-content">
+
+        <!-- Search -->
+        <form method="GET" action="c_viewproducts.php" class="search-container" style="margin-bottom:16px;">
+            <?php if ($category): ?><input type="hidden" name="category" value="<?= htmlspecialchars($category) ?>"><?php endif; ?>
+            <?php if ($sort): ?><input type="hidden" name="sort" value="<?= htmlspecialchars($sort) ?>"><?php endif; ?>
+            <i class="fas fa-search search-icon"></i>
+            <input
+                type="text"
+                name="search"
+                class="search-input"
+                placeholder="Search products..."
+                value="<?= htmlspecialchars($search) ?>"
+                autocomplete="off"
+            >
+        </form>
 
         <!-- Filter bar -->
         <form method="GET" action="c_viewproducts.php">

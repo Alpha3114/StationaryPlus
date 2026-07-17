@@ -116,9 +116,9 @@ $userInitial = strtoupper(mb_substr($user['name'], 0, 1));
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus — My Profile</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/tokens.css">
-    <script src="assets/js/theme.js"></script>
-    <link rel="stylesheet" href="assets/css/sidebar.css">
+    <link rel="stylesheet" href="assets/css/tokens.css?v=<?= @filemtime(__DIR__.'/assets/css/tokens.css') ?>">
+    <script src="assets/js/theme.js?v=<?= @filemtime(__DIR__.'/assets/js/theme.js') ?>"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= @filemtime(__DIR__.'/assets/css/sidebar.css') ?>">
     <style>
         :root {
             --primary:#A83535; --secondary:#F4A261; --accent:#F1EDE8;
@@ -131,7 +131,7 @@ $userInitial = strtoupper(mb_substr($user['name'], 0, 1));
 
         /* ── Main ── */
         .main-content{flex-grow:1;margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column;}
-        .top-header{background:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;}
+        .top-header{background:var(--white);padding:20px 30px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center;}
         .page-title{font-size:24px;font-weight:700;}
         .page-subtitle{font-size:14px;color:var(--text-secondary);margin-top:4px;}
         .content-wrap{padding:28px 30px;flex-grow:1;display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;}
@@ -196,9 +196,13 @@ $userInitial = strtoupper(mb_substr($user['name'], 0, 1));
 
 <main class="main-content">
     <header class="top-header">
-        <h1 class="page-title">My Profile</h1>
-        <p class="page-subtitle">Manage your account details and password</p>
+        <div>
+            <h1 class="page-title">My Profile</h1>
+            <p class="page-subtitle">Manage your account details and password</p>
+        </div>
+        <button type="button" class="theme-toggle-header-btn" data-theme-cycle title="Theme" aria-label="Theme"><i class="fas fa-sun"></i></button>
     </header>
+    <script>if (window.initThemeToggle) initThemeToggle();</script>
 
     <div class="content-wrap">
 

@@ -34,7 +34,7 @@ $branchId = $_SESSION['branch_id'] ?? null;
 $counts = ['ALL' => 0, 'RECEIVED' => 0, 'REVIEWED' => 0, 'REJECTED' => 0];
 $countSQL = "SELECT pf.file_status, COUNT(*) AS cnt FROM print_files pf LEFT JOIN orders o ON pf.order_id = o.order_id";
 if ($branchId) {
-    $cStmt = $conn->prepare($countSQL . " WHERE o.branch_id = ? GROUP BY pf.file_status");
+    $cStmt = $conn->prepare($countSQL . " WHERE (o.branch_id = ? OR o.branch_id IS NULL) GROUP BY pf.file_status");
     $cStmt->bind_param('s', $branchId);
     $cStmt->execute();
     $res = $cStmt->get_result();
@@ -52,7 +52,9 @@ $params = [];
 $types  = '';
 
 if ($branchId) {
-    $where[]  = 'o.branch_id = ?';
+    // Files not yet linked to an order (order_id/branch_id NULL) haven't been
+    // attributed to a branch yet, so any staff member can pick them up for review.
+    $where[]  = '(o.branch_id = ? OR o.branch_id IS NULL)';
     $params[] = $branchId;
     $types   .= 's';
 }
@@ -124,9 +126,9 @@ function fileStatusBadge(string $s): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>StationaryPlus — Print File Review</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/tokens.css">
-    <script src="assets/js/theme.js"></script>
-    <link rel="stylesheet" href="assets/css/sidebar.css">
+    <link rel="stylesheet" href="assets/css/tokens.css?v=<?= @filemtime(__DIR__.'/assets/css/tokens.css') ?>">
+    <script src="assets/js/theme.js?v=<?= @filemtime(__DIR__.'/assets/js/theme.js') ?>"></script>
+    <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= @filemtime(__DIR__.'/assets/css/sidebar.css') ?>">
     <style>
         :root {
             --primary:#A83535; --secondary:#F4A261; --accent:#F1EDE8;
@@ -245,7 +247,7 @@ function fileStatusBadge(string $s): string {
         .btn{padding:9px 18px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:all 0.2s;}
         .btn-reviewed{background:var(--success-bg);color:var(--success);border:1px solid var(--success-border);}
         .btn-reviewed:hover{background:var(--success);color:var(--on-primary);}
-        .btn-reject{background:var(--danger-bg);color:var(--danger);border:1px solid #ef9a9a;}
+        .btn-reject{background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger-border-soft);}
         .btn-reject:hover{background:var(--danger);color:var(--on-primary);}
         .btn-done{background:#f3f4f6;color:#6b7280;border:1px solid #E0E0E0;cursor:not-allowed;}
 
@@ -279,13 +281,17 @@ function fileStatusBadge(string $s): string {
             <h1 class="page-title">Print File Review</h1>
             <p class="page-subtitle">Review AI colour analysis, confirm pricing, and process print jobs</p>
         </div>
+        <div style="display:flex;align-items:center;gap:12px;">
         <?php if ($counts['RECEIVED'] > 0): ?>
         <div style="background:var(--warning-bg);border:1px solid #fde68a;border-radius:9px;padding:10px 16px;font-size:13px;color:var(--warning);font-weight:600;">
             <i class="fas fa-print"></i>
             <?= $counts['RECEIVED'] ?> file<?= $counts['RECEIVED'] > 1 ? 's' : '' ?> awaiting review
         </div>
         <?php endif; ?>
+        <button type="button" class="theme-toggle-header-btn" data-theme-cycle title="Theme" aria-label="Theme"><i class="fas fa-sun"></i></button>
+        </div>
     </header>
+    <script>if (window.initThemeToggle) initThemeToggle();</script>
 
     <?php if (!$branchActive): ?>
     <div style="margin:16px 30px 0;background:var(--danger-bg);border:1.5px solid #fecaca;border-radius:8px;

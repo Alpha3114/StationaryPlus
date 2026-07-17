@@ -27,16 +27,14 @@
 .user-info { display: flex; align-items: center; margin-bottom: 14px; }
 .user-avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--primary-tint-medium); display: flex; align-items: center; justify-content: center; color: var(--primary); font-weight: 700; font-size: 16px; margin-right: 12px; flex-shrink: 0; }
 .user-details { flex-grow: 1; }
-.user-name { font-weight: 600; font-size: 15px; }
+.user-name { font-weight: 600; font-size: 15px; color: var(--text-primary); }
 .user-role { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
 .logout-link { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--primary-tint-light); color: var(--primary); border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600; }
 .logout-link:hover { background: var(--primary-tint-active); }
 
-/* ── Theme toggle (light / dark / high-contrast) ── */
-.theme-toggle { display: flex; gap: 6px; margin-bottom: 12px; }
-.theme-toggle-btn { flex: 1; display: flex; align-items: center; justify-content: center; padding: 8px 0; background: var(--primary-tint-subtle); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 13px; transition: all 0.15s; }
-.theme-toggle-btn:hover { background: var(--primary-tint-light); color: var(--primary); }
-.theme-toggle-btn.active { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+/* ── Theme toggle — single button, placed in each page's own header ── */
+.theme-toggle-header-btn { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; align-self: center; margin-left: 12px; background: var(--white); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; font-size: 14px; transition: all 0.15s; flex-shrink: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06); }
+.theme-toggle-header-btn:hover { background: var(--primary-tint-light); color: var(--primary); border-color: var(--primary-tint-active); box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
 
 @media (max-width: 1024px) {
     /* html:root (not plain :root) — needs to out-specificity each page's own
@@ -54,5 +52,4 @@
     .logout-link { justify-content: center; padding: 10px; }
     .user-info { justify-content: center; }
     .user-avatar { margin-right: 0; }
-    .theme-toggle { flex-direction: column; }
 }
