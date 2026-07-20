@@ -1,7 +1,7 @@
 <?php
 // ============================================================
 //  config.php — App configuration
-//  Values come from .env — see .env.example. No secrets live
+//  Values come from .env — see .env.example. This is an example file, No secrets live
 //  in this file, so it's safe to commit.
 // ============================================================
 
