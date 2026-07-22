@@ -178,15 +178,20 @@ $activeProducts=(int)$res2->fetch_assoc()['cnt'];
 // ── Load existing sales forecasts from DB ─────────────────────
 $existingForecasts = [];
 $forecastMeta      = null;
+// sales_forecasts now retains history across runs (see run_forecast.php) —
+// only the 3 target months of the most recent run are cleared/replaced each
+// time, so older forecasts stick around. Pick the latest run's 3 rows by
+// forecast_id (always the highest-numbered rows from the last INSERT), then
+// re-sort chronologically for display.
 $res = $conn->query(
     "SELECT forecast_month, predicted_revenue, model_type, r_squared,
             data_points, generated_at
      FROM sales_forecasts
-     ORDER BY forecast_month ASC
+     ORDER BY forecast_id DESC
      LIMIT 3"
 );
 if ($res && $res->num_rows > 0) {
-    $existingForecasts = $res->fetch_all(MYSQLI_ASSOC);
+    $existingForecasts = array_reverse($res->fetch_all(MYSQLI_ASSOC));
     $forecastMeta = [
         'model_type'   => $existingForecasts[0]['model_type'],
         'r_squared'    => $existingForecasts[0]['r_squared'],
@@ -402,6 +407,10 @@ if ($res && $res->num_rows > 0) {
         <input type="hidden" name="period" value="custom">
         <button type="submit" class="apply-btn"><i class="fas fa-filter"></i> Custom</button>
     </form>
+    <a href="a_report_export.php?period=<?= urlencode($period) ?>&date_from=<?= urlencode($dateFrom) ?>&date_to=<?= urlencode($dateTo) ?>"
+       target="_blank" class="apply-btn" style="text-decoration:none;">
+        <i class="fas fa-file-pdf"></i> Download Report
+    </a>
     <button type="button" class="theme-toggle-header-btn" data-theme-cycle title="Theme" aria-label="Theme"><i class="fas fa-sun"></i></button>
     </div>
 </header>
@@ -504,10 +513,12 @@ if ($res && $res->num_rows > 0) {
             <div class="fc-model-stat">
                 <i class="fas fa-bullseye" style="color:#059669;"></i>
                 <?php
-                // R² can legitimately go negative on a short/volatile test
-                // window — that's expected with limited data, not a bug.
-                // Showing a raw negative percentage reads as broken, so
-                // it gets a clear label instead.
+                // r_squared here is the full-history R2 — the SAME value the
+                // "Run Forecast" confidence badge below is based on, so this
+                // number and that badge never disagree for the same run.
+                // It can still legitimately go negative for a genuinely poor
+                // fit, so a raw negative percentage gets a clear label
+                // instead of reading as broken.
                 $r2Val = $forecastMeta['r_squared'];
                 ?>
                 Model Accuracy (R²):

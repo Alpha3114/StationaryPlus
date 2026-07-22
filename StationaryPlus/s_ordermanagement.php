@@ -286,7 +286,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
 $branchId     = $_SESSION['branch_id'] ?? null;
 $search       = trim($_GET['search'] ?? '');
 $filterType   = $_GET['filter'] ?? 'all';   // all | order | preorder
-$filterStatus = $_GET['status'] ?? 'all';
+$filterStatus = $_GET['status'] ?? 'PROCESSING';
 
 // ── Build WHERE clauses ───────────────────────────────────────
 $where  = ['1=1'];

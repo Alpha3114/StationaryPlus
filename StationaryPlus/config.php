@@ -16,3 +16,12 @@ define('GEMINI_FALLBACK_MODELS', array_values(array_filter(
 
 define('GMAIL_ADDRESS', getenv('GMAIL_ADDRESS') ?: '');
 define('GMAIL_APP_PASSWORD', getenv('GMAIL_APP_PASSWORD') ?: '');
+
+// ── Shop payment details — shown to customers on c_payment.php ──
+// Edit these to match the shop's real bank account / e-wallet QR.
+define('SHOP_BANK_NAME',       getenv('SHOP_BANK_NAME')       ?: 'Maybank');
+define('SHOP_ACCOUNT_NAME',    getenv('SHOP_ACCOUNT_NAME')    ?: 'StationaryPlus Sdn Bhd');
+define('SHOP_ACCOUNT_NUMBER',  getenv('SHOP_ACCOUNT_NUMBER')  ?: '1234 5678 9012');
+// Place the QR code image at this path (relative to StationaryPlus/) for
+// the E-Wallet / Other payment method to display it.
+define('SHOP_QR_IMAGE', 'assets/images/payment_qr.png');

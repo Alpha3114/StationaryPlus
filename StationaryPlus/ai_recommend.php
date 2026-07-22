@@ -134,6 +134,11 @@ if (!is_array($parsed) || count($parsed) === 0) {
 $recommendedIds = array_slice(array_column($parsed, 'product_id'), 0, 3);
 $reasonMap      = array_column($parsed, 'reason', 'product_id');
 
+// The Gemini call above can take several seconds (retries/fallbacks),
+// which is long enough for this idle connection to be dropped by the
+// DB server — reconnect if needed before querying again.
+ensureDbConnection($conn, $DB_HOST, $DB_USER, $DB_PASS, $DB_NAME);
+
 $placeholders = implode(',', array_fill(0, count($recommendedIds), '?'));
 $stmt = $conn->prepare(
     "SELECT product_id, product_name, category, price

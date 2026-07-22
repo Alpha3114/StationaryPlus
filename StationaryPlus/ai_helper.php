@@ -121,6 +121,18 @@ function callClaudeWithMessages(array $messages, int $maxTokens = 1000): string 
 }
 
 
+// ── Reconnect a mysqli link that died while we were waiting on a
+// slow external call (e.g. Gemini, which can take 10s+ per attempt
+// across retries/fallbacks) — otherwise the next query throws
+// "MySQL server has gone away" once the DB's wait_timeout is hit.
+function ensureDbConnection(mysqli &$conn, string $host, string $user, string $pass, string $name): void {
+    if (!@$conn->ping()) {
+        $conn = new mysqli($host, $user, $pass, $name);
+        $conn->set_charset('utf8mb4');
+    }
+}
+
+
 // ── Core Gemini API caller ────────────────────────────────────
 function callGemini(array $payload): string {
     if (!defined('GEMINI_API_KEY') || GEMINI_API_KEY === 'MEOW-COOL-KEY-YURP') {

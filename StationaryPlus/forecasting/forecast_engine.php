@@ -277,6 +277,45 @@ class SeasonalModel
 }
 
 /**
+ * Winsorizes revenue values that sit far from the typical month using a
+ * robust (median + MAD) outlier bound, so a single freak month — a huge
+ * bulk order, a data-entry error — can't single-handedly swing the fitted
+ * trend or hijack model selection. Capped, not dropped: the month still
+ * counts, just not at face value for fitting purposes.
+ *
+ * MAD (median absolute deviation) is used instead of mean/stddev because
+ * both of those are themselves distorted by the very outlier we're trying
+ * to detect. 1.4826x scales MAD to be comparable to a standard deviation
+ * for normally-distributed data; 3.5 modified-z-scores is a standard
+ * outlier convention (Iglewicz & Hoaglin).
+ *
+ * Returns the input unchanged if there's too little data (<4 points) or no
+ * meaningful spread to judge outliers against (MAD ~ 0).
+ */
+function winsorizeRevenue(array $y): array
+{
+    $n = count($y);
+    if ($n < 4) return $y;
+
+    $sorted = $y;
+    sort($sorted);
+    $mid = intdiv($n, 2);
+    $median = ($n % 2 === 0) ? ($sorted[$mid - 1] + $sorted[$mid]) / 2 : $sorted[$mid];
+
+    $absDevs = array_map(fn($v) => abs($v - $median), $y);
+    sort($absDevs);
+    $mad = ($n % 2 === 0) ? ($absDevs[$mid - 1] + $absDevs[$mid]) / 2 : $absDevs[$mid];
+
+    if ($mad < 1e-9) return $y;
+
+    $threshold = 3.5 * 1.4826 * $mad;
+    $lower = $median - $threshold;
+    $upper = $median + $threshold;
+
+    return array_map(fn($v) => min($upper, max($lower, $v)), $y);
+}
+
+/**
  * Metric helpers — identical formulas to sklearn's
  * mean_absolute_error, mean_squared_error (sqrt'd for RMSE), r2_score.
  */

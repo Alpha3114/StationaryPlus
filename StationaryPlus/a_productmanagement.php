@@ -746,6 +746,8 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
             padding: 25px;
             display: flex;
             flex-direction: column;
+            overflow-y: auto;
+            min-height: 0;
         }
 
         /* Placeholder state (shown before any selection) */

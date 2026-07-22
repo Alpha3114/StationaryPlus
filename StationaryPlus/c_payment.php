@@ -8,6 +8,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 require_once 'auth.php';
 require_role('CUSTOMER');
 require_once 'db.php';
+require_once 'config.php';
 require_once 'loyalty.php';
 require_once 'audit.php';
 
@@ -489,6 +490,25 @@ function methodLabel(string $method): string {
                             </div>
                         </div>
 
+                        <!-- Shop payment details — shown based on selected method -->
+                        <div class="full pay-details" id="bankDetails" style="display:none;margin-top:-6px;padding:14px 16px;background:var(--primary-tint-subtle);border:1px solid var(--border);border-radius:8px;">
+                            <div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:8px;"><i class="fas fa-university"></i> Transfer To</div>
+                            <div style="font-size:13px;color:var(--text-primary);line-height:1.8;">
+                                Bank: <strong><?= htmlspecialchars(SHOP_BANK_NAME) ?></strong><br>
+                                Account Name: <strong><?= htmlspecialchars(SHOP_ACCOUNT_NAME) ?></strong><br>
+                                Account Number: <strong><?= htmlspecialchars(SHOP_ACCOUNT_NUMBER) ?></strong>
+                            </div>
+                        </div>
+                        <div class="full pay-details" id="qrDetails" style="display:none;margin-top:-6px;padding:14px 16px;background:var(--primary-tint-subtle);border:1px solid var(--border);border-radius:8px;text-align:center;">
+                            <div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:10px;"><i class="fas fa-qrcode"></i> Scan to Pay</div>
+                            <img src="<?= htmlspecialchars(SHOP_QR_IMAGE) ?>" alt="Payment QR code"
+                                 style="max-width:220px;width:100%;border-radius:8px;border:1px solid var(--border);background:var(--white);"
+                                 onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+                            <div style="display:none;font-size:12px;color:var(--text-secondary);margin-top:8px;">
+                                QR code image not found yet — check back shortly.
+                            </div>
+                        </div>
+
                         <!-- Amount -->
                         <div>
                             <label class="form-label">
@@ -756,6 +776,10 @@ function toggleProof(method) {
 
     const needsProof = method === 'TRANSFER' || method === 'OTHER';
     section.classList.toggle('show', needsProof);
+
+    // Shop payment details — bank account for Transfer, QR for E-Wallet/Other
+    document.getElementById('bankDetails').style.display = method === 'TRANSFER' ? 'block' : 'none';
+    document.getElementById('qrDetails').style.display   = method === 'OTHER'    ? 'block' : 'none';
 
     // Cash + preorder warning
     notice.classList.toggle('show', method === 'CASH' && isPreorder);
