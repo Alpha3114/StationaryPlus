@@ -1161,12 +1161,9 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
                         <div class="form-group">
                             <label class="form-label">Category</label>
                             <select class="form-select" id="fieldCategory">
-                                <option value="paper" selected>Paper Products</option>
-                                <option value="writing">Writing Tools</option>
-                                <option value="filing">Filing Supplies</option>
-                                <option value="binding">Binding Supplies</option>
-                                <option value="printer">Printer Supplies</option>
-                                <option value="office">Office Tools</option>
+                                <?php foreach ($categoryList as $cat): ?>
+                                    <option value="<?= htmlspecialchars($cat) ?>"><?= htmlspecialchars($cat) ?></option>
+                                <?php endforeach; ?>
                             </select>
                         </div>
 
@@ -1553,12 +1550,6 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
             document.getElementById('productFormFields').style.display = show ? 'flex'  : 'none';
         }
 
-        // Category name (as rendered in the table) -> <select> value
-        const CATEGORY_VALUE = {
-            'Paper Products': 'paper', 'Writing Tools': 'writing', 'Filing Supplies': 'filing',
-            'Binding Supplies': 'binding', 'Printer Supplies': 'printer', 'Office Tools': 'office',
-        };
-
         // Populate the form from a clicked table row's product data
         function loadProduct(p) {
             showForm(true);
@@ -1567,7 +1558,7 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
             idInput.value = p.product_id;
             idInput.setAttribute('readonly', 'readonly');
             document.getElementById('fieldProductName').value = p.product_name;
-            document.getElementById('fieldCategory').value = CATEGORY_VALUE[p.category] || p.category;
+            document.getElementById('fieldCategory').value = p.category;
             document.getElementById('fieldPrice').value = parseFloat(p.price).toFixed(2);
             document.getElementById('fieldDiscount').value = parseFloat(p.discount_percent || 0).toString();
 
@@ -1722,7 +1713,7 @@ $initialTab = ($_GET['tab'] ?? 'catalog') === 'restock' ? 'restock' : 'catalog';
             idInput.value = '';
             idInput.removeAttribute('readonly');
             document.getElementById('fieldProductName').value = '';
-            document.getElementById('fieldCategory').value = 'paper';
+            document.getElementById('fieldCategory').selectedIndex = 0;
             document.getElementById('fieldPrice').value = '';
             document.getElementById('fieldDiscount').value = '';
             document.getElementById('fieldStatus').value = 'ACTIVE';

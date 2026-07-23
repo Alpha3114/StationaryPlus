@@ -473,14 +473,16 @@ $stmt->close();
 function categoryIcon(string $cat): array {
     $cat = strtolower($cat);
     $map = [
-        'paper'    => ['fa-file-alt',   '#4A6FA5'],
-        'writing'  => ['fa-pen',        '#FF9800'],
-        'notebook' => ['fa-book-open',  '#795548'],
-        'printing' => ['fa-print',      '#9C27B0'],
-        'organizer'=> ['fa-folder',     '#4CAF50'],
-        'binding'  => ['fa-book',       '#795548'],
-        'ink'      => ['fa-fill-drip',  '#9C27B0'],
-        'art'      => ['fa-paint-brush','#E91E63'],
+        'adhesive'  => ['fa-box-open',   '#8D6E63'],
+        'packaging' => ['fa-box-open',   '#8D6E63'],
+        'art'       => ['fa-paint-brush','#E91E63'],
+        'book'      => ['fa-book-open',  '#795548'],
+        'filing'    => ['fa-folder',     '#4CAF50'],
+        'organiz'   => ['fa-folder',     '#4CAF50'],
+        'office'    => ['fa-briefcase',  '#607D8B'],
+        'paper'     => ['fa-file-alt',   '#4A6FA5'],
+        'technology'=> ['fa-laptop',     '#3F51B5'],
+        'writing'   => ['fa-pen',        '#FF9800'],
     ];
     foreach ($map as $key => $val) {
         if (str_contains($cat, $key)) return $val;

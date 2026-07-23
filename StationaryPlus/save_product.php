@@ -25,6 +25,10 @@ if ($product_name === '') {
     echo json_encode(['success' => false, 'error' => 'Product name is required']);
     exit;
 }
+if ($category === '') {
+    echo json_encode(['success' => false, 'error' => 'Category is required']);
+    exit;
+}
 
 /**
  * Generates a fresh product_id in the PRxxx format, one higher than the

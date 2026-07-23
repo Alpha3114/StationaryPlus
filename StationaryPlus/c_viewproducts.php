@@ -131,16 +131,16 @@ $stmt->close();
 function categoryIcon(string $cat): string {
     $cat = strtolower($cat);
     $map = [
-        'writing'       => 'fa-pen',
-        'paper'         => 'fa-file',
-        'notebook'      => 'fa-book-open',
-        'notebooks'     => 'fa-book-open',
-        'printing'      => 'fa-print',
-        'organizer'     => 'fa-folder',
-        'organizers'    => 'fa-folder',
-        'stationery'    => 'fa-pencil-ruler',
-        'stationery set'=> 'fa-gift',
-        'art'           => 'fa-paint-brush',
+        'adhesive'   => 'fa-box-open',
+        'packaging'  => 'fa-box-open',
+        'art'        => 'fa-paint-brush',
+        'book'       => 'fa-book-open',
+        'filing'     => 'fa-folder',
+        'organiz'    => 'fa-folder',
+        'office'     => 'fa-briefcase',
+        'paper'      => 'fa-file-alt',
+        'technology' => 'fa-laptop',
+        'writing'    => 'fa-pen',
     ];
     foreach ($map as $key => $icon) {
         if (str_contains($cat, $key)) return $icon;
