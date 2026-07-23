@@ -38,8 +38,8 @@ if ($branchId) {
     <link rel="stylesheet" href="assets/css/tokens.css?v=<?= @filemtime(__DIR__.'/assets/css/tokens.css') ?>">
     <script src="assets/js/theme.js?v=<?= @filemtime(__DIR__.'/assets/js/theme.js') ?>"></script>
     <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= @filemtime(__DIR__.'/assets/css/sidebar.css') ?>">
-    <!-- html5-qrcode for camera barcode scanning -->
-    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <!-- html5-qrcode for camera barcode scanning (vendored locally — no CDN dependency) -->
+    <script src="assets/js/vendor/html5-qrcode.min.js?v=<?= @filemtime(__DIR__.'/assets/js/vendor/html5-qrcode.min.js') ?>"></script>
     <style>
         /* ── Design tokens (match existing staff pages) ── */
         :root {
@@ -171,7 +171,19 @@ if ($branchId) {
             border-bottom: 1px solid var(--border);
         }
         #cameraReader.open { display: block; }
-        #reader { width: 100%; max-height: 200px; border-radius: 10px; overflow: hidden; }
+        /* Fixed, sane aspect ratio so the feed is never stretched into an
+           extreme wide/short strip on wide layouts — that shape breaks
+           html5-qrcode's internal scan-region math and silently kills
+           detection (no visible box, nothing ever decodes). */
+        #reader {
+            width: 100%;
+            max-width: 480px;
+            aspect-ratio: 4 / 3;
+            margin: 0 auto;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        #reader video { width: 100% !important; height: 100% !important; object-fit: cover; }
 
         /* Search results dropdown */
         .search-results {
@@ -782,6 +794,11 @@ const cart        = {};  // { product_id: { name, price, qty } }
 let selectedMethod  = 'CASH';
 let html5Scanner    = null;
 let cameraOpen      = false;
+let auxRafId        = null;
+const AUX_BARCODE_FORMATS = [
+    'code_128', 'code_39', 'code_93', 'ean_13', 'ean_8',
+    'upc_a', 'upc_e', 'itf', 'codabar'
+];
 let searchDebounce  = null;
 let customerDebounce = null;
 
@@ -1314,36 +1331,108 @@ function toggleCamera() {
     const reader = document.getElementById('cameraReader');
 
     if (!cameraOpen) {
+        if (typeof Html5Qrcode === 'undefined') {
+            showToast('Scanner library failed to load — refresh the page.', 'error');
+            return;
+        }
+        if (!window.isSecureContext) {
+            showToast('Camera requires HTTPS or localhost — ask an admin to enable HTTPS for this device.', 'error');
+            return;
+        }
+
         cameraOpen = true;
         btn.classList.add('active');
         btn.querySelector('span').textContent = 'Stop';
         reader.classList.add('open');
 
-        html5Scanner = new Html5Qrcode('reader');
-        html5Scanner.start(
-            { facingMode: 'environment' },
-            { fps: 10, qrbox: { width: 300, height: 120 } },
-            decodedText => {
-                // Barcode detected — treat as product ID
-                scanInput.value = decodedText;
-                doSearch(decodedText);
+        try {
+            let handled = false;
+            const onDecoded = value => {
+                if (handled) return;   // ignore late/duplicate hits from either decoder
+                handled = true;
+                scanInput.value = value;
+                doSearch(value);
                 toggleCamera(); // Auto-close camera after scan
-            },
-            err => {} // silent scan errors
-        ).catch(err => {
-            showToast('Camera access denied or unavailable.', 'error');
-            toggleCamera();
-        });
+            };
+
+            html5Scanner = new Html5Qrcode('reader');
+            html5Scanner.start(
+                { facingMode: 'environment' },
+                { fps: 10, qrbox: { width: 250, height: 250 } },
+                decodedText => onDecoded(decodedText),
+                err => {} // silent scan errors
+            ).then(() => {
+                // html5-qrcode reliably handles QR. Layer the browser's native
+                // BarcodeDetector on top of the same video feed (best-effort)
+                // to also catch 1D barcodes, which the JS decoder struggles with.
+                startAuxBarcodeDetector(onDecoded);
+            }).catch(err => {
+                showToast('Camera access denied or unavailable.', 'error');
+                toggleCamera();
+            });
+        } catch (err) {
+            showToast('Scanner failed to start — refresh the page.', 'error');
+            resetCameraUi();
+        }
     } else {
-        cameraOpen = false;
-        btn.classList.remove('active');
-        btn.querySelector('span').textContent = 'Camera';
-        reader.classList.remove('open');
+        stopAuxBarcodeDetector();
         if (html5Scanner) {
             html5Scanner.stop().catch(() => {});
             html5Scanner = null;
         }
+        resetCameraUi();
         refocusScan();
+    }
+}
+
+function resetCameraUi() {
+    const btn    = document.getElementById('camToggle');
+    const reader = document.getElementById('cameraReader');
+    cameraOpen = false;
+    btn.classList.remove('active');
+    btn.querySelector('span').textContent = 'Camera';
+    reader.classList.remove('open');
+}
+
+function startAuxBarcodeDetector(onDecoded) {
+    if (!('BarcodeDetector' in window)) return;
+    const videoEl = document.querySelector('#reader video');
+    if (!videoEl) return;
+
+    (async () => {
+        let formats = AUX_BARCODE_FORMATS;
+        try {
+            const supported = await BarcodeDetector.getSupportedFormats();
+            const filtered  = AUX_BARCODE_FORMATS.filter(f => supported.includes(f));
+            if (filtered.length) formats = filtered;
+        } catch (err) { /* keep default list — constructor will validate */ }
+
+        let detector;
+        try {
+            detector = new BarcodeDetector({ formats });
+        } catch (err) {
+            return; // formats unsupported on this browser — QR still works via html5-qrcode
+        }
+
+        const scanFrame = async () => {
+            if (!cameraOpen) return;
+            try {
+                const codes = await detector.detect(videoEl);
+                if (codes.length) {
+                    onDecoded(codes[0].rawValue);
+                    return;
+                }
+            } catch (err) { /* transient decode errors — keep scanning */ }
+            auxRafId = requestAnimationFrame(scanFrame);
+        };
+        scanFrame();
+    })();
+}
+
+function stopAuxBarcodeDetector() {
+    if (auxRafId) {
+        cancelAnimationFrame(auxRafId);
+        auxRafId = null;
     }
 }
 

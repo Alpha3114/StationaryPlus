@@ -125,13 +125,17 @@ require_once 'banner_slot.php';
         /* ── Hero ── */
         .hero {
             min-height: 100vh;
+            padding: 140px 6vw 80px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .hero-banner { margin-bottom: 30px; }
+        .hero-banner .promo-banner-slot img { max-height: 200px !important; }
+        .hero-grid {
             display: grid;
             grid-template-columns: 1.05fr 0.95fr;
             align-items: center;
             gap: 40px;
-            padding: 140px 6vw 80px;
-            max-width: 1400px;
-            margin: 0 auto;
         }
 
         .hero-eyebrow {
@@ -408,7 +412,8 @@ require_once 'banner_slot.php';
 
         /* ── Responsive ── */
         @media (max-width: 980px) {
-            .hero { grid-template-columns: 1fr; padding-top: 120px; text-align: center; }
+            .hero { padding-top: 120px; text-align: center; }
+            .hero-grid { grid-template-columns: 1fr; }
             .hero-sub { margin-left: auto; margin-right: auto; }
             .hero-ctas { justify-content: center; }
             .directory-strip { justify-content: center; }
@@ -453,6 +458,10 @@ require_once 'banner_slot.php';
     </nav>
 
     <section class="hero">
+        <div class="hero-banner">
+            <?php render_banner_slot($conn, 'INDEX'); ?>
+        </div>
+        <div class="hero-grid">
         <div>
             <div class="hero-eyebrow"><i class="fas fa-circle"></i> Multi-branch · Online &amp; in-store</div>
             <h1 class="display">Stationery and printing,<br><em>sorted properly.</em></h1>
@@ -509,10 +518,7 @@ require_once 'banner_slot.php';
                 <div class="receipt-total"><span>Track</span><span>→</span></div>
             </div>
         </div>
-    </section>
-
-    <section class="shelf" style="padding-bottom:0;">
-        <?php render_banner_slot($conn, 'INDEX'); ?>
+        </div><!-- /.hero-grid -->
     </section>
 
     <section class="shelf">
